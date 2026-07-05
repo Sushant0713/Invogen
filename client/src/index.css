@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #ff7700;
+  --color-primary-50: #fff7ed;
+  --color-primary-100: #ffedd5;
+  --color-primary-200: #fed7aa;
+  --color-primary-300: #fdba74;
+  --color-primary-400: #fb923c;
+  --color-primary-500: #ff7700;
+  --color-primary-600: #ea580c;
+  --color-primary-700: #c2410c;
+  --color-primary-800: #9a3412;
+  --color-primary-900: #7c2d12;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-black antialiased;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-xl rounded-2xl;
+  }
+
+  .glass-dark {
+    @apply bg-black/5 backdrop-blur-xl border border-black/5 shadow-xl rounded-2xl;
+  }
+}
+
+/* ── Builder resize handles ────────────────────────────────────────────── */
+
+/* Handles are hidden by default (react-rnd only renders them when enabled,
+   but we also control opacity for a smooth fade-in on selection). */
+.builder-canvas .builder-corner-grip,
+.builder-canvas .builder-edge-grip,
+.builder-canvas .builder-crop-edge-pill {
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  will-change: transform, opacity;
+}
+
+/* Show handles when the element is selected */
+.builder-canvas .builder-element-rotate {
+  overflow: visible;
+}
+
+.builder-canvas .builder-rnd-selected.builder-rnd-rotatable {
+  outline: none;
+}
+
+.builder-canvas .builder-rnd-selected.builder-rnd-rotated {
+  outline: none;
+}
+
+.builder-canvas .builder-rnd-selected {
+  outline: 2px solid #3b82f6;
+  outline-offset: 0;
+}
+
+/* Crisp table grid — avoid uneven/faint vertical borders */
+.builder-canvas .builder-table-cell {
+  box-sizing: border-box;
+  background-clip: padding-box;
+}
+
+/* Canva-style table selection */
+.builder-canvas .builder-rnd-table-selected {
+  outline: 2px solid #3b82f6;
+  outline-offset: 0;
+  overflow: visible;
+}
+
+.builder-canvas .builder-rnd-table-selected .builder-table-corner-grip,
+.builder-canvas .builder-rnd-table-selected .builder-table-edge-grip {
+  opacity: 1;
+}
+
+.builder-canvas .builder-rnd-table-selected .react-resizable-handle:hover .builder-table-corner-grip,
+.builder-canvas .builder-rnd-table-selected .react-resizable-handle:hover .builder-table-edge-grip {
+  opacity: 1;
+  transform: scale(1.15);
+  border-color: #3b82f6;
+}
+
+.builder-canvas .builder-table-move-handle {
+  cursor: grab;
+  touch-action: none;
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+}
+
+.builder-canvas .builder-table-move-handle:active,
+.builder-canvas .builder-rnd-table-dragging .builder-table-move-handle {
+  cursor: grabbing;
+}
+
+/* Keep table chrome (move control) outside the box from being clipped */
+.builder-canvas .builder-rnd-table-selected,
+.builder-canvas .builder-rnd-table-selected .builder-element-rotate,
+.builder-canvas .builder-rnd-table-selected .builder-element-surface,
+.builder-canvas .builder-rnd-table-selected .builder-table-surface {
+  overflow: visible !important;
+}
+
+.builder-canvas .builder-crop-active {
+  outline: 2px dashed #ffffff;
+  outline-offset: 0;
+}
+
+.builder-canvas .builder-rnd-selected .builder-corner-grip,
+.builder-canvas .builder-rnd-selected .builder-edge-grip,
+.builder-canvas .builder-rnd-selected .builder-crop-edge-pill {
+  opacity: 1;
+}
+
+/* Subtle scale-up on hover for visual feedback */
+.builder-canvas .builder-rnd-selected .react-resizable-handle:hover .builder-corner-grip {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.builder-canvas .builder-rnd-selected .react-resizable-handle:hover .builder-edge-grip {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.builder-canvas .builder-rnd-selected .react-resizable-handle:hover .builder-crop-edge-pill {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* While actively dragging a resize handle, keep all handles fully visible
+   and prevent pointer-event flicker on fast drags */
+.builder-canvas .builder-rnd-selected .react-resizable-handle:active .builder-corner-grip,
+.builder-canvas .builder-rnd-selected .react-resizable-handle:active .builder-edge-grip {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.layer-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.layer-opacity-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.layer-opacity-slider::-webkit-slider-runnable-track,
+.layer-opacity-slider::-moz-range-track {
+  background: transparent;
+  height: 6px;
+}
+
+.builder-context-toolbar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #c4c4c4 transparent;
+}
+
+.builder-context-toolbar-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.builder-context-toolbar-scroll::-webkit-scrollbar-thumb {
+  background: #c4c4c4;
+  border-radius: 9999px;
+}

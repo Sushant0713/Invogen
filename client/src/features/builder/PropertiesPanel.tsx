@@ -1,0 +1,436 @@
+import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
+import { updateElement, deleteElement, deleteSelectedElements, selectElement, toggleElementLock, setElementsLocked } from '@/store/slices/builderSlice';
+import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
+import { Lock, LockOpen } from 'lucide-react';
+import { ProductTableProperties } from './ProductTableProperties';
+import { InvoiceTableProperties } from './InvoiceTableProperties';
+import { CardProperties } from './CardProperties';
+import { InvoiceTable2Properties } from './InvoiceTable2Properties';
+import { InvoiceTable3Properties } from './InvoiceTable3Properties';
+import {
+  isTableElementType,
+  productTablePropsToRecord,
+} from './product-table';
+import { clampTableElementToPage } from './table-element-size';
+import { isInvoiceTable1Type } from './invoice-table';
+import { isInvoiceTable2Type } from './invoice-table-2';
+import { isInvoiceTable3Type } from './invoice-table-3';
+import { normalizeTablePropsForType } from './table-props-normalize';
+import { ImageProperties } from './ImageProperties';
+import { ComponentType } from '@invogen/shared';
+import { PAGE_WIDTH, PAGE_HEIGHT } from './builder-dnd';
+import { getEditableTextKey, isDataFieldType } from './text-styles';
+import { isCardComponentType } from './card-components';
+import { isImageComponentType } from './image-components';
+import { isShapeComponentType } from './shape-components';
+import { ShapeProperties } from './ShapeProperties';
+import { TermsProperties } from './TermsProperties';
+import { AddressProperties } from './AddressProperties';
+import { RotationControlsPanel } from './RotationControlsPanel';
+import { getPrimarySelectedId } from './builder-selection';
+import { estimateStructuredBlockHeight } from './structured-content-layout';
+
+export function PropertiesPanel() {
+  const dispatch = useAppDispatch();
+  const { pages, activePageIndex, selectedElementIds } = useAppSelector((s) => s.builder);
+  const margins = pages[activePageIndex].margins;
+  const primarySelectedId = getPrimarySelectedId(selectedElementIds);
+  const element = primarySelectedId
+    ? pages[activePageIndex].elements.find((e) => e.id === primarySelectedId)
+    : undefined;
+
+  if (selectedElementIds.length > 1) {
+    const selectedElements = pages[activePageIndex].elements.filter((el) =>
+      selectedElementIds.includes(el.id)
+    );
+    const lockedCount = selectedElements.filter((el) => el.locked).length;
+    const unlockedCount = selectedElements.length - lockedCount;
+    const deletableCount = unlockedCount;
+
+    return (
+      <div className="w-64 border-l border-gray-200 bg-white p-4 space-y-4">
+        <h3 className="text-sm font-semibold">Properties</h3>
+        <p className="text-sm text-gray-700">
+          {selectedElements.length} components selected
+        </p>
+        {lockedCount > 0 && (
+          <p className="text-xs text-gray-500">
+            {lockedCount} locked component{lockedCount === 1 ? '' : 's'} will be kept when deleting.
+          </p>
+        )}
+        <div className="flex flex-col gap-2">
+          {lockedCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() =>
+                dispatch(
+                  setElementsLocked({
+                    ids: selectedElements.filter((el) => el.locked).map((el) => el.id),
+                    locked: false,
+                  })
+                )
+              }
+            >
+              <LockOpen className="h-4 w-4" />
+              Unlock {lockedCount} component{lockedCount === 1 ? '' : 's'}
+            </Button>
+          )}
+          {unlockedCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() =>
+                dispatch(
+                  setElementsLocked({
+                    ids: selectedElements.filter((el) => !el.locked).map((el) => el.id),
+                    locked: true,
+                  })
+                )
+              }
+            >
+              <Lock className="h-4 w-4" />
+              Lock {unlockedCount} component{unlockedCount === 1 ? '' : 's'}
+            </Button>
+          )}
+          <Button
+            variant="danger"
+            size="sm"
+            className="w-full"
+            disabled={deletableCount === 0}
+            onClick={() => dispatch(deleteSelectedElements())}
+          >
+            Delete {deletableCount} component{deletableCount === 1 ? '' : 's'}
+          </Button>
+        </div>
+        <p className="text-[11px] text-gray-400">
+          Shift+click or Ctrl+click to add or remove from selection. Click again on overlapping components to cycle through layers.
+        </p>
+      </div>
+    );
+  }
+
+  if (!element) {
+    const page = pages[activePageIndex];
+    const reference = page.elements.find(
+      (el) =>
+        (el.props as Record<string, unknown> | undefined)?.rasterFallback === true ||
+        (el.props as Record<string, unknown> | undefined)?.isReferenceBackground === true
+    );
+
+    return (
+      <div className="w-64 border-l border-gray-200 bg-white p-4">
+        {reference ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">
+              This page includes a rasterized fallback image from import. Select it to remove or
+              replace it, and edit the other extracted objects on the canvas.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="justify-start"
+                onClick={() => dispatch(selectElement(reference.id))}
+              >
+                Select reference layer
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="justify-start text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => dispatch(deleteElement(reference.id))}
+              >
+                Remove reference layer
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">Select an element to edit properties</p>
+        )}
+      </div>
+    );
+  }
+
+  const isTable = isTableElementType(element.type);
+  const isCard = isCardComponentType(element.type);
+  const isImage = isImageComponentType(element.type);
+  const isShape = isShapeComponentType(element.type);
+  const isTerms = element.type === ComponentType.TERMS;
+  const isAddress = element.type === ComponentType.ADDRESS;
+  const isDivider = element.type === ComponentType.DIVIDER;
+
+  const props = (element.props ?? {}) as Record<string, unknown>;
+  const textKey = getEditableTextKey(element.type);
+
+  const updateProp = (key: string, value: unknown, recordHistory = false) => {
+    dispatch(updateElement({
+      id: element.id,
+      changes: { props: { ...props, [key]: value } },
+      recordHistory,
+    }));
+  };
+
+  const updateAllProps = (next: Record<string, unknown>) => {
+    if (isTable) {
+      const table = normalizeTablePropsForType(element.type, next);
+      const clamped = clampTableElementToPage(
+        element.x,
+        element.y,
+        table,
+        PAGE_WIDTH,
+        PAGE_HEIGHT,
+        margins,
+        element.type
+      );
+      dispatch(updateElement({
+        id: element.id,
+        changes: {
+          x: clamped.x,
+          y: clamped.y,
+          props: productTablePropsToRecord(clamped.table),
+          width: clamped.width,
+          height: clamped.height,
+        },
+        recordHistory: true,
+      }));
+      return;
+    }
+    dispatch(updateElement({
+      id: element.id,
+      changes: { props: next },
+      recordHistory: true,
+    }));
+  };
+
+  return (
+    <div
+      className={`border-l border-gray-200 bg-white p-4 overflow-y-auto space-y-4 ${
+        isTable || isCard || isImage || isShape || isTerms || isAddress ? 'w-80' : 'w-64'
+      }`}
+    >
+      <h3 className="text-sm font-semibold">Properties</h3>
+      <p className="text-xs text-gray-500">{element.type}</p>
+
+      {element.locked ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-3">
+          <div className="flex items-start gap-2">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+            <div>
+              <p className="text-sm font-medium text-amber-900">Component locked</p>
+              <p className="mt-1 text-xs text-amber-800/80">
+                Locked components cannot be moved, resized, or edited. They are click-through so
+                you can select layers underneath (e.g. watermarks). Click again on overlapping
+                areas to cycle through stacked layers.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => dispatch(toggleElementLock(element.id))}
+          >
+            <LockOpen className="h-4 w-4" />
+            Unlock component
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => dispatch(toggleElementLock(element.id))}
+        >
+          <Lock className="h-4 w-4" />
+          Lock component
+        </Button>
+      )}
+
+      <fieldset
+        disabled={!!element.locked}
+        className={`space-y-4 border-0 p-0 m-0 min-w-0 ${element.locked ? 'opacity-50' : ''}`}
+      >
+
+      {isTable && isInvoiceTable1Type(element.type) && (
+        <InvoiceTableProperties props={props} onChange={updateAllProps} />
+      )}
+
+      {isTable && isInvoiceTable2Type(element.type) && (
+        <InvoiceTable2Properties props={props} onChange={updateAllProps} />
+      )}
+
+      {isTable && isInvoiceTable3Type(element.type) && (
+        <InvoiceTable3Properties props={props} onChange={updateAllProps} />
+      )}
+
+      {isTable && !isInvoiceTable1Type(element.type) && !isInvoiceTable2Type(element.type) && !isInvoiceTable3Type(element.type) && (
+        <ProductTableProperties props={props} onChange={updateAllProps} />
+      )}
+
+      {isCard && (
+        <CardProperties
+          type={element.type}
+          props={props}
+          onChange={(key, value, recordHistory) => updateProp(key, value, recordHistory)}
+        />
+      )}
+
+      {isImage && (
+        <ImageProperties
+          elementType={element.type}
+          elementId={element.id}
+          props={props}
+          onChange={(key, value, recordHistory) => updateProp(key, value, recordHistory)}
+          onChangeMany={(patch, recordHistory) => {
+            dispatch(updateElement({
+              id: element.id,
+              changes: { props: { ...props, ...patch } },
+              recordHistory: !!recordHistory,
+            }));
+          }}
+        />
+      )}
+
+      {isShape && (
+        <ShapeProperties
+          type={element.type}
+          elementId={element.id}
+          props={props}
+          onChange={(key, value, recordHistory) => updateProp(key, value, recordHistory)}
+        />
+      )}
+
+      {isTerms && (
+        <TermsProperties
+          props={props}
+          onChange={(next, recordHistory) => {
+            dispatch(updateElement({
+              id: element.id,
+              changes: { props: next },
+              replaceProps: true,
+              recordHistory: !!recordHistory,
+            }));
+          }}
+        />
+      )}
+
+      {isAddress && (
+        <AddressProperties
+          props={props}
+          onChange={(next, recordHistory) => {
+            dispatch(updateElement({
+              id: element.id,
+              changes: { props: next },
+              replaceProps: true,
+              recordHistory: !!recordHistory,
+            }));
+          }}
+        />
+      )}
+
+      {isDivider && (
+        <RotationControlsPanel
+          props={props}
+          onChange={(rotation, recordHistory) => updateProp('rotation', rotation, recordHistory)}
+        />
+      )}
+
+      {textKey && !isTable && !isCard && !isImage && !isShape && !isDivider && !isTerms && !isAddress && (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-500">
+              {textKey === 'label' ? 'Label' : textKey === 'text' ? 'Text' : 'Content'}
+            </label>
+            <textarea
+              className="w-full mt-1 rounded-lg border p-2 text-sm"
+              value={(props[textKey] as string) || ''}
+              onChange={(e) => updateProp(textKey, e.target.value)}
+              onBlur={(e) => updateProp(textKey, e.target.value, true)}
+            />
+          </div>
+          {isDataFieldType(element.type) && (
+            <div>
+              <label className="text-xs text-gray-500">Value</label>
+              <p className="mt-0.5 text-[11px] text-gray-400">
+                Sample shown on the template — replaced with live invoice data when generated.
+              </p>
+              <textarea
+                className="w-full mt-1 rounded-lg border p-2 text-sm"
+                rows={element.type === ComponentType.ADDRESS ? 4 : 2}
+                value={(props.value as string) ?? ''}
+                onChange={(e) => updateProp('value', e.target.value)}
+                onBlur={(e) => updateProp('value', e.target.value, true)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {props.fontSize !== undefined && (
+        <Input
+          label="Font Size"
+          type="number"
+          value={String(props.fontSize || 14)}
+          onChange={(e) => updateProp('fontSize', Number(e.target.value))}
+          onBlur={(e) => updateProp('fontSize', Number(e.target.value), true)}
+        />
+      )}
+
+      <Input
+        label="Width"
+        type="number"
+        value={String(element.width)}
+        onChange={(e) => dispatch(updateElement({ id: element.id, changes: { width: Number(e.target.value) } }))}
+        onBlur={(e) => {
+          const width = Number(e.target.value);
+          const changes: { width: number; height?: number } = { width };
+          if (isTerms || isAddress) {
+            changes.height = estimateStructuredBlockHeight(element.type, props, width);
+          }
+          dispatch(updateElement({
+            id: element.id,
+            changes,
+            recordHistory: true,
+          }));
+        }}
+      />
+      <Input
+        label="Height"
+        type="number"
+        value={String(element.height)}
+        onChange={(e) => dispatch(updateElement({ id: element.id, changes: { height: Number(e.target.value) } }))}
+        onBlur={(e) => dispatch(updateElement({
+          id: element.id,
+          changes: { height: Number(e.target.value) },
+          recordHistory: true,
+        }))}
+      />
+
+      {!isTable && !isImage && !isShape && (
+        <Input
+          label="Color"
+          type="color"
+          value={(props.color as string) || '#000000'}
+          onChange={(e) => updateProp('color', e.target.value, true)}
+        />
+      )}
+
+      <Button
+        variant="danger"
+        size="sm"
+        className="w-full"
+        disabled={!!element.locked}
+        onClick={() => dispatch(deleteElement(element.id))}
+      >
+        Delete Element
+      </Button>
+      </fieldset>
+    </div>
+  );
+}
