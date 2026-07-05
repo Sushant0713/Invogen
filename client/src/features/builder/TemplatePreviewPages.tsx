@@ -26,9 +26,11 @@ interface TemplatePreviewPagesProps {
   previewMaxWidth?: number;
   pageRefs?: MutableRefObject<(HTMLDivElement | null)[]>;
   className?: string;
+  /** Tables on pages are already recalculated (invoice composer). */
+  trustTableProps?: boolean;
 }
 
-function renderPageElements(page: TemplatePage) {
+function renderPageElements(page: TemplatePage, trustTableProps = false) {
   return sortByLayer(page.elements)
     .filter((element) => element.visible !== false)
     .map((element) => (
@@ -54,6 +56,7 @@ function renderPageElements(page: TemplatePage) {
             element={element}
             isSelected={false}
             previewMode
+            trustTableProps={trustTableProps}
             onSelect={() => {}}
           />
         </div>
@@ -69,6 +72,7 @@ export function TemplatePreviewPages({
   previewMaxWidth,
   pageRefs,
   className = '',
+  trustTableProps = false,
 }: TemplatePreviewPagesProps) {
   const renderPages = useMemo(() => {
     if (placeholderContext) return applyInvoiceFormToPages(pages, placeholderContext);
@@ -100,7 +104,7 @@ export function TemplatePreviewPages({
                     transform: `scale(${scale})`,
                   }}
                 >
-                  {renderPageElements(page)}
+                  {renderPageElements(page, trustTableProps)}
                 </div>
               </div>
             </div>
@@ -117,7 +121,7 @@ export function TemplatePreviewPages({
             className="relative bg-white"
             style={{ width, height }}
           >
-            {renderPageElements(page)}
+            {renderPageElements(page, trustTableProps)}
           </div>
         );
       })}

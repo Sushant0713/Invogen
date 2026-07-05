@@ -239,14 +239,121 @@ function roundAmount(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function normalizeColumnLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isFlexibleInvoice2Column(col: ProductTableColumn): boolean {
+  return col.visible !== false && !isInvoice2FixedColumn(col.id);
+}
+
+/** Match qty/rate columns by label when templates use custom column ids. */
+export function resolveInvoice2QtyColumnId(
+  columns: ProductTableColumn[],
+  sampleCells?: Record<string, string>
+): string {
+  return pickInvoice2NumericColumn(columns, sampleCells, /quant|qty|quantity/, INVOICE2_COL_QTY);
+}
+
+export function resolveInvoice2RateColumnId(
+  columns: ProductTableColumn[],
+  sampleCells?: Record<string, string>
+): string {
+  return pickInvoice2NumericColumn(
+    columns,
+    sampleCells,
+    (norm) => /^rate$|unitprice|price|mrp/.test(norm) || norm.includes('rate'),
+    INVOICE2_COL_RATE
+  );
+}
+
+function pickInvoice2NumericColumn(
+  columns: ProductTableColumn[],
+  sampleCells: Record<string, string> | undefined,
+  matcher: ((norm: string) => boolean) | RegExp,
+  standardId: string
+): string {
+  const matches = (norm: string) =>
+    typeof matcher === 'function' ? matcher(norm) : matcher.test(norm);
+
+  const candidates = columns.filter((col) => {
+    if (!isFlexibleInvoice2Column(col)) return false;
+    return matches(normalizeColumnLabel(col.label));
+  });
+
+  if (candidates.length === 0) {
+    return columns.some((col) => col.id === standardId) ? standardId : standardId;
+  }
+  if (candidates.length === 1) return candidates[0].id;
+
+  if (sampleCells) {
+    const withValues = candidates
+      .map((col) => ({ col, value: parseAmount(sampleCells[col.id] ?? '0') }))
+      .filter((item) => item.value > 0);
+    if (withValues.length > 0) {
+      withValues.sort((a, b) => b.value - a.value);
+      const nonStandard = withValues.find((item) => item.col.id !== standardId);
+      return (nonStandard ?? withValues[0]).col.id;
+    }
+  }
+
+  const nonStandard = candidates.find((col) => col.id !== standardId);
+  return nonStandard?.id ?? candidates[candidates.length - 1].id;
+}
+
+function readInvoice2RowLineAmount(
+  cells: Record<string, string>,
+  columns: ProductTableColumn[]
+): number | null {
+  for (const colId of resolveInvoice2LineTotalColumnIds(columns)) {
+    if (!isInvoice2ColumnVisible(columns, colId)) continue;
+    const raw = cells[colId]?.trim();
+    if (!raw) continue;
+    const val = parseAmount(raw);
+    if (val > 0) return val;
+  }
+  return null;
+}
+
+function resolveInvoice2LineTotalColumnIds(columns: ProductTableColumn[]): string[] {
+  const ids = new Set<string>();
+  if (columns.some((col) => col.id === INVOICE2_COL_LINE_TOTAL)) {
+    ids.add(INVOICE2_COL_LINE_TOTAL);
+  }
+  for (const col of columns) {
+    if (!isFlexibleInvoice2Column(col)) continue;
+    const norm = normalizeColumnLabel(col.label);
+    if (/^amount$|^total$|^lineamount$|^linetotal$/.test(norm)) ids.add(col.id);
+  }
+  return ids.size > 0 ? [...ids] : [INVOICE2_COL_LINE_TOTAL];
+}
+
+export function isInvoice2ComputedAmountLabel(label: string): boolean {
+  const norm = normalizeColumnLabel(label);
+  return /^amount$|^total$|^lineamount$|^linetotal$/.test(norm);
+}
+
+function numericCellValue(
+  cells: Record<string, string>,
+  columnId: string,
+  columns: ProductTableColumn[],
+  isQty: boolean
+): number {
+  if (!isInvoice2ColumnVisible(columns, columnId)) return 0;
+  const raw = cells[columnId] ?? '0';
+  return isQty ? parseInvoice2Quantity(raw) : parseAmount(raw);
+}
+
 function amountForVisibleColumn(
   cells: Record<string, string>,
   columnId: string,
   columns: ProductTableColumn[]
 ): number {
   if (!isInvoice2ColumnVisible(columns, columnId)) return 0;
-  if (!INVOICE2_NUMERIC_COLUMN_IDS.has(columnId)) return 0;
-  return parseNumericCell(columnId, cells[columnId] ?? '0');
+  if (columnId === INVOICE2_COL_DISCOUNT || INVOICE2_NUMERIC_COLUMN_IDS.has(columnId)) {
+    return parseNumericCell(columnId, cells[columnId] ?? '0');
+  }
+  return 0;
 }
 
 function computeDiscountAmount(
@@ -268,12 +375,32 @@ export function calculateInvoice2LineTotal(
   columns: ProductTableColumn[] = [],
   discountMode: InvoiceDiscountMode = 'amount'
 ): number {
-  const qty = amountForVisibleColumn(cells, INVOICE2_COL_QTY, columns);
-  const rate = amountForVisibleColumn(cells, INVOICE2_COL_RATE, columns);
+  const directAmount = readInvoice2RowLineAmount(cells, columns);
+  const qtyCol = resolveInvoice2QtyColumnId(columns, cells);
+  const rateCol = resolveInvoice2RateColumnId(columns, cells);
+  const qty = numericCellValue(cells, qtyCol, columns, true);
+  const rate = numericCellValue(cells, rateCol, columns, false);
+  const computed = qty * rate;
+  const lineBase =
+    directAmount != null && directAmount > 0
+      ? directAmount
+      : computed;
   const discountInput = amountForVisibleColumn(cells, INVOICE2_COL_DISCOUNT, columns);
-  const subtotal = qty * rate;
-  const discountAmount = computeDiscountAmount(subtotal, discountInput, discountMode, columns);
-  return Math.max(0, roundAmount(subtotal - discountAmount));
+  const discountAmount = computeDiscountAmount(lineBase, discountInput, discountMode, columns);
+  return Math.max(0, roundAmount(lineBase - discountAmount));
+}
+
+function sumInvoice2LineRowTotals(
+  rows: ProductTableRow[],
+  columns: ProductTableColumn[],
+  discountMode: InvoiceDiscountMode
+): number {
+  return roundAmount(
+    rows.reduce((sum, row) => {
+      if (isInvoice2SummaryRowId(row.id)) return sum;
+      return sum + calculateInvoice2LineTotal(row.cells, columns, discountMode);
+    }, 0)
+  );
 }
 
 export type Invoice2Summary = {
@@ -298,12 +425,7 @@ export function computeInvoice2Summary(
     tax
   );
 
-  const subtotal = roundAmount(
-    rows.reduce(
-      (sum, row) => sum + calculateInvoice2LineTotal(row.cells, columns, discountMode),
-      0
-    )
-  );
+  const subtotal = sumInvoice2LineRowTotals(rows, columns, discountMode);
 
   let cgst = 0;
   let sgst = 0;
@@ -424,13 +546,13 @@ export function recalculateInvoice2Row(
   discountMode: InvoiceDiscountMode = 'amount'
 ): ProductTableRow {
   const lineTotal = calculateInvoice2LineTotal(row.cells, columns, discountMode);
-  return {
-    ...row,
-    cells: {
-      ...row.cells,
-      [INVOICE2_COL_LINE_TOTAL]: formatAmount(lineTotal),
-    },
-  };
+  const formatted = formatAmount(lineTotal);
+  const amountColumnIds = resolveInvoice2LineTotalColumnIds(columns);
+  const cells = { ...row.cells };
+  for (const columnId of amountColumnIds) {
+    cells[columnId] = formatted;
+  }
+  return { ...row, cells };
 }
 
 function buildComputedSummaryRows(
@@ -513,9 +635,18 @@ function normalizeRows(
   return normalized.map((row) => recalculateInvoice2Row(row, columns, discountMode));
 }
 
-export function isInvoice2ComputedColumn(columnId: string, rowId?: string | null): boolean {
+export function isInvoice2ComputedColumn(
+  columnId: string,
+  rowId?: string | null,
+  columns?: ProductTableColumn[]
+): boolean {
   if (rowId && isInvoice2SummaryRowId(rowId)) return false;
-  return columnId === INVOICE2_COL_LINE_TOTAL;
+  if (columnId === INVOICE2_COL_LINE_TOTAL) return true;
+  if (columns) {
+    const col = columns.find((item) => item.id === columnId);
+    if (col && isInvoice2ComputedAmountLabel(col.label)) return true;
+  }
+  return false;
 }
 
 export function updateInvoice2Cell(
@@ -585,7 +716,24 @@ export function getInvoice2SummaryCellText(
     return row.cells[INVOICE2_SUMMARY_COL_LABEL] ?? row.cells[INVOICE2_COL_DISCOUNT] ?? '';
   }
   if (columnId === INVOICE2_SUMMARY_COL_VALUE || columnId === INVOICE2_COL_LINE_TOTAL) {
-    return row.cells[INVOICE2_SUMMARY_COL_VALUE] ?? row.cells[INVOICE2_COL_LINE_TOTAL] ?? '';
+    const direct =
+      row.cells[INVOICE2_SUMMARY_COL_VALUE]
+      ?? row.cells[INVOICE2_COL_LINE_TOTAL]
+      ?? '';
+    if (String(direct).trim()) return String(direct);
+
+    const labelText =
+      row.cells[INVOICE2_SUMMARY_COL_LABEL]
+      ?? row.cells[INVOICE2_COL_DISCOUNT]
+      ?? '';
+    for (const value of Object.values(row.cells)) {
+      const text = String(value ?? '').trim();
+      if (!text) continue;
+      if (text === String(labelText).trim()) continue;
+      if (/^(subtotal|cgst|sgst|gst|total|final)$/i.test(text.replace(/[^a-z0-9]/gi, ''))) continue;
+      return text;
+    }
+    return '';
   }
   return row.cells[columnId] ?? '';
 }

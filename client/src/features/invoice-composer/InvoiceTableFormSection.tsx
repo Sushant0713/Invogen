@@ -1,6 +1,6 @@
 import { Input } from '@/components/ui/Input';
 import type { ScannedTable } from './invoice-document';
-import { isTableCellEditable } from './invoice-document';
+import { isTableCellEditableForRow } from './invoice-document';
 
 interface InvoiceTableFormSectionProps {
   tables: ScannedTable[];
@@ -42,7 +42,7 @@ export function InvoiceTableFormSection({ tables, onCellChange }: InvoiceTableFo
         <FormSection
           key={table.elementId}
           title={`${tables.length > 1 ? `${tableIndex + 1}. ` : ''}${table.label}`}
-          subtitle={`${table.pageName} · ${table.rows.length} row${table.rows.length === 1 ? '' : 's'}`}
+          subtitle={`${table.pageName} · ${table.tableKind} · ${table.rows.length} row${table.rows.length === 1 ? '' : 's'}`}
         >
           {table.rows.map((row, rowIndex) => (
             <div key={row.id} className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
@@ -51,11 +51,12 @@ export function InvoiceTableFormSection({ tables, onCellChange }: InvoiceTableFo
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 {table.columns.map((col) => {
-                  const editable = isTableCellEditable(
+                  const editable = isTableCellEditableForRow(
                     table.elementType,
                     col.id,
-                    row.id,
-                    col.columnType
+                    row,
+                    col.columnType,
+                    col.label
                   );
                   const isSerial = col.columnType === 'sr_no';
                   const cellValue = isSerial

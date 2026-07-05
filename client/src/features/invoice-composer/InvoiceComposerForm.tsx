@@ -21,6 +21,7 @@ const COMPANY_KEYS = new Set(['CompanyName', 'PAN', 'PlaceOfSupply', 'StateCode'
 
 interface InvoiceComposerFormProps {
   pages: TemplatePage[];
+  pageList: TemplatePage[];
   formContext: PlaceholderContext;
   onChange: (key: string, value: string) => void;
   onDeletePage: (pageId: string) => void;
@@ -70,20 +71,24 @@ function FieldInput({
   value,
   onChange,
   multiline,
+  readOnly,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   multiline?: boolean;
+  readOnly?: boolean;
 }) {
   if (multiline) {
     return (
       <div className="space-y-1.5">
         <label className="block text-sm font-medium text-gray-700">{label}</label>
         <textarea
-          className="min-h-[88px] w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+          className="min-h-[88px] w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-gray-50 disabled:text-gray-600"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          disabled={readOnly}
         />
       </div>
     );
@@ -94,12 +99,15 @@ function FieldInput({
       label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      readOnly={readOnly}
+      disabled={readOnly}
     />
   );
 }
 
 export function InvoiceComposerForm({
   pages,
+  pageList,
   formContext,
   onChange,
   onDeletePage,
@@ -114,6 +122,10 @@ export function InvoiceComposerForm({
 }: InvoiceComposerFormProps) {
   const placeholderKeys = extractPlaceholderKeys(pages);
   const keysInTemplate = new Set(placeholderKeys);
+  const scannedTables = scanComposerTables(pages);
+  const scannedTextFields = scanComposerTextFields(pages);
+  const totalKeys = new Set(['Subtotal', 'Tax', 'Total', 'Amount', 'CGST', 'SGST', 'GST']);
+  const hasInvoiceTables = scannedTables.length > 0;
 
   const customerFieldList = ['ClientName', 'Address', 'GST', 'State', 'Email', 'Phone'];
   const invoiceFieldList = ['InvoiceNumber', 'Date', 'DueDate'];
@@ -124,15 +136,13 @@ export function InvoiceComposerForm({
     (key) =>
       !CUSTOMER_KEYS.has(key) &&
       !INVOICE_DETAIL_KEYS.has(key) &&
-      !COMPANY_KEYS.has(key)
+      !COMPANY_KEYS.has(key) &&
+      !(hasInvoiceTables && totalKeys.has(key))
   );
-
-  const scannedTables = scanComposerTables(pages);
-  const scannedTextFields = scanComposerTextFields(pages);
 
   return (
     <div className="space-y-4">
-      <InvoicePagesSection pages={pages} onDeletePage={onDeletePage} />
+      <InvoicePagesSection pages={pageList} onDeletePage={onDeletePage} />
       <FormSection title="Template" subtitle="Load a saved format">
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-gray-700">Choose template</label>
@@ -219,6 +229,25 @@ export function InvoiceComposerForm({
       )}
 
       <InvoiceTableFormSection tables={scannedTables} onCellChange={onTableCellChange} />
+
+      {hasInvoiceTables && (
+        <FormSection title="Totals" subtitle="Calculated automatically from line items">
+          {(['Subtotal', 'CGST', 'SGST', 'Total'] as const)
+            .filter((key) => {
+              const value = formContext[key];
+              return value != null && value !== '';
+            })
+            .map((key) => (
+              <FieldInput
+                key={key}
+                label={placeholderFieldLabel(key)}
+                value={formContext[key] ?? ''}
+                onChange={() => {}}
+                readOnly
+              />
+            ))}
+        </FormSection>
+      )}
 
       <InvoiceElementsFormSection fields={scannedTextFields} onChange={onElementTextChange} />
     </div>

@@ -330,13 +330,15 @@ export function getTableCellFocusOrder(
   elementId: string
 ): TableCellRef[] {
   const order: TableCellRef[] = [];
+  const columns = Array.isArray(table.columns) ? table.columns : [];
+  const rows = Array.isArray(table.rows) ? table.rows : [];
   if (table.showHeader) {
-    for (const col of table.columns) {
+    for (const col of columns) {
       order.push({ elementId, rowId: null, columnId: col.id, isHeader: true });
     }
   }
-  for (const row of table.rows) {
-    for (const col of table.columns) {
+  for (const row of rows) {
+    for (const col of columns) {
       order.push({ elementId, rowId: row.id, columnId: col.id, isHeader: false });
     }
   }
@@ -782,6 +784,130 @@ export function updateHeaderHeight(props: ProductTableProps, heightPx: number): 
     ...props,
     headerHeightPx: Math.max(MIN_ROW_HEIGHT_PX, Math.round(heightPx)),
   };
+}
+
+function normalizeProductColumnLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function resolveProductQtyColumnId(
+  columns: ProductTableColumn[],
+  sampleCells?: Record<string, string>
+): string | null {
+  const id = pickProductNumericColumn(columns, sampleCells, /quant|qty|quantity/, 'col_qty');
+  return id;
+}
+
+export function resolveProductRateColumnId(
+  columns: ProductTableColumn[],
+  sampleCells?: Record<string, string>
+): string | null {
+  return pickProductNumericColumn(
+    columns,
+    sampleCells,
+    (norm) => /^rate$|unitprice|price|mrp/.test(norm) || norm.includes('rate'),
+    'col_rate'
+  ) ?? pickProductNumericColumn(columns, sampleCells, /price/, 'col_price');
+}
+
+function pickProductNumericColumn(
+  columns: ProductTableColumn[],
+  sampleCells: Record<string, string> | undefined,
+  matcher: RegExp | ((norm: string) => boolean),
+  standardId: string
+): string | null {
+  const matches = (norm: string) =>
+    typeof matcher === 'function' ? matcher(norm) : matcher.test(norm);
+
+  const candidates = columns.filter((col) => {
+    if (col.visible === false || isSerialColumn(col)) return false;
+    return matches(normalizeProductColumnLabel(col.label));
+  });
+
+  const standard = columns.find((col) => col.id === standardId);
+  const pool = candidates.length > 0 ? candidates : standard ? [standard] : [];
+  if (pool.length === 0) return null;
+  if (pool.length === 1) return pool[0].id;
+
+  if (sampleCells) {
+    const withValues = pool
+      .map((col) => ({ col, value: parseProductAmount(sampleCells[col.id] ?? '0') }))
+      .filter((item) => item.value > 0);
+    if (withValues.length > 0) {
+      withValues.sort((a, b) => b.value - a.value);
+      const nonStandard = withValues.find((item) => item.col.id !== standardId);
+      return (nonStandard ?? withValues[0]).col.id;
+    }
+  }
+
+  const nonStandard = pool.find((col) => col.id !== standardId);
+  return nonStandard?.id ?? pool[pool.length - 1].id;
+}
+
+export function resolveProductAmountColumnIds(columns: ProductTableColumn[]): string[] {
+  const ids = new Set<string>();
+  for (const col of columns) {
+    if (col.visible === false || isSerialColumn(col)) continue;
+    const norm = normalizeProductColumnLabel(col.label);
+    if (/^amount$|^total$|^lineamount$|^linetotal$/.test(norm)) ids.add(col.id);
+  }
+  if (ids.size === 0) {
+    const fallback = columns.find((col) => col.id === 'col_total');
+    if (fallback) ids.add(fallback.id);
+  }
+  return [...ids];
+}
+
+function parseProductAmount(value: string): number {
+  const cleaned = value.replace(/[,₹\s]/g, '').trim();
+  if (!cleaned) return 0;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatProductAmount(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+function isEmbeddedSummaryRow(row: ProductTableRow): boolean {
+  const nameToken = normalizeProductColumnLabel(row.name ?? '');
+  if (/^(subtotal|cgst|sgst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
+  for (const value of Object.values(row.cells ?? {})) {
+    const token = normalizeProductColumnLabel(String(value));
+    if (/^(subtotal|cgst|sgst|gst|total|final)$/.test(token)) return true;
+  }
+  return false;
+}
+
+/** Recompute amount/total columns from qty × rate for plain product tables. */
+export function recalculateProductTable(props: ProductTableProps): ProductTableProps {
+  const qtyCol = resolveProductQtyColumnId(props.columns);
+  const rateCol = resolveProductRateColumnId(props.columns);
+  const amountCols = resolveProductAmountColumnIds(props.columns);
+  if (!qtyCol || !rateCol || amountCols.length === 0) return props;
+
+  const rows = props.rows.map((row) => {
+    if (isEmbeddedSummaryRow(row)) return row;
+    const qtyCol = resolveProductQtyColumnId(props.columns, row.cells);
+    const rateCol = resolveProductRateColumnId(props.columns, row.cells);
+    if (!qtyCol || !rateCol) return row;
+    const qty = parseProductAmount(row.cells[qtyCol] ?? '0');
+    const rate = parseProductAmount(row.cells[rateCol] ?? '0');
+    const amount = formatProductAmount(Math.max(0, Math.round(qty * rate * 100) / 100));
+    const cells = { ...row.cells };
+    for (const columnId of amountCols) {
+      cells[columnId] = amount;
+    }
+    return { ...row, cells };
+  });
+
+  return { ...props, rows };
+}
+
+export function isProductComputedAmountLabel(label: string): boolean {
+  const norm = normalizeProductColumnLabel(label);
+  return /^amount$|^total$|^lineamount$|^linetotal$/.test(norm);
 }
 
 export function updateCell(

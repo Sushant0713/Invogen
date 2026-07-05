@@ -21,6 +21,8 @@ interface InvoiceLivePreviewProps {
   formContext?: PlaceholderContext;
   templateName: string;
   brandingScope?: CompanyBrandingScope;
+  /** Tables on pages are already recalculated in the composer. */
+  trustTableProps?: boolean;
 }
 
 export function InvoiceLivePreview({
@@ -28,6 +30,7 @@ export function InvoiceLivePreview({
   formContext,
   templateName,
   brandingScope = 'admin',
+  trustTableProps = true,
 }: InvoiceLivePreviewProps) {
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [exporting, setExporting] = useState(false);
@@ -129,6 +132,7 @@ export function InvoiceLivePreview({
               useSampleData={false}
               placeholderContext={formContext}
               previewMaxWidth={previewWidth}
+              trustTableProps={trustTableProps}
             />
           </div>
         </div>
@@ -142,6 +146,7 @@ export function InvoiceLivePreview({
             useSampleData={false}
             placeholderContext={formContext}
             pageRefs={exportPageRefs}
+            trustTableProps={trustTableProps}
           />
         </div>
       </TaxSettingsProvider>

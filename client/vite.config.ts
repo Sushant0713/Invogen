@@ -6,12 +6,14 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const apiPort = env.PORT || '5000';
+  const googleClientId = (env.VITE_GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || '').trim();
 
   return {
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.NODE_ENV': JSON.stringify(mode),
       'process.env.DRAGGABLE_DEBUG': JSON.stringify(''),
+      'import.meta.env.VITE_GOOGLE_CLIENT_ID': JSON.stringify(googleClientId),
     },
     resolve: {
       alias: {

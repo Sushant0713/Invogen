@@ -45,7 +45,11 @@ import {
   normalizeComposerPages,
   updateComposerTableCell,
   updateComposerTextContent,
+  recalculatePagesTables,
+  extractTablePlaceholderTotals,
 } from './invoice-document';
+import { parseAdminCompanyTax, EMPTY_TAX_SETTINGS } from '@/features/builder/tax-settings';
+import { useTaxSettingsQuery } from '@/features/builder/use-tax-settings-query';
 
 export interface InvoiceComposerConfig {
   apiBase: '/admin' | '/employee';
@@ -115,6 +119,13 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     enabled: !!config.customersApi,
   });
 
+  const { data: queriedTax } = useTaxSettingsQuery('admin');
+
+  const taxSettings = useMemo(() => {
+    if (company) return parseAdminCompanyTax(company);
+    return queriedTax ?? EMPTY_TAX_SETTINGS;
+  }, [company, queriedTax]);
+
   useEffect(() => {
     if (!template) return;
     const normalized = normalizeComposerPages(template.pages);
@@ -144,10 +155,10 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   const handleTableCellChange = useCallback(
     (pageId: string, elementId: string, rowId: string, columnId: string, value: string) => {
       setWorkingPages((prev) =>
-        updateComposerTableCell(prev, pageId, elementId, rowId, columnId, value)
+        updateComposerTableCell(prev, pageId, elementId, rowId, columnId, value, taxSettings)
       );
     },
-    []
+    [taxSettings]
   );
 
   const handleElementTextChange = useCallback(
@@ -178,9 +189,19 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     [config.composerPath, navigate, templateId]
   );
 
+  const displayPages = useMemo(
+    () => recalculatePagesTables(workingPages, taxSettings),
+    [workingPages, taxSettings]
+  );
+
+  const mergedFormContext = useMemo(() => {
+    const fromTables = extractTablePlaceholderTotals(displayPages, taxSettings);
+    return { ...formContext, ...fromTables };
+  }, [formContext, displayPages, taxSettings]);
+
   const filledPages = useMemo(
-    () => (workingPages.length ? applyInvoiceFormToPages(workingPages, formContext) : []),
-    [workingPages, formContext]
+    () => (displayPages.length ? applyInvoiceFormToPages(displayPages, mergedFormContext) : []),
+    [displayPages, mergedFormContext]
   );
 
   const saveMutation = useMutation({
@@ -195,7 +216,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
           gst: formContext.GST,
           address: formContext.Address,
           state: formContext.State,
-          placeholders: formContext,
+          placeholders: mergedFormContext,
         },
         templateSnapshot: filledPages,
         lineItems: [{ name: 'Service', quantity: 1, unit: 'pcs', price: 0, discount: 0, tax: 0, total: 0 }],
@@ -347,8 +368,9 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(320px,38%)_1fr] lg:p-6">
         <div className="min-h-0 overflow-auto pr-1">
           <InvoiceComposerForm
-            pages={workingPages}
-            formContext={formContext}
+            pages={displayPages}
+            pageList={workingPages}
+            formContext={mergedFormContext}
             onChange={updateField}
             onDeletePage={handleDeletePage}
             onTableCellChange={handleTableCellChange}
@@ -364,7 +386,8 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
         <div className="min-h-0 overflow-hidden">
           <InvoiceLivePreview
-            pages={filledPages}
+            pages={displayPages}
+            formContext={mergedFormContext}
             templateName={template.name}
             brandingScope={brandingScope}
           />
@@ -373,9 +396,11 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
       <div aria-hidden className="pointer-events-none fixed left-[-10000px] top-0 opacity-0">
         <TemplatePreviewPages
-          pages={filledPages}
+          pages={displayPages}
           useSampleData={false}
+          placeholderContext={mergedFormContext}
           pageRefs={exportPageRefs}
+          trustTableProps
         />
       </div>
     </div>

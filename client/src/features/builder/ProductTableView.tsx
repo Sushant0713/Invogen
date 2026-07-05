@@ -36,13 +36,15 @@ import {
   isSerialColumn,
   isProductColumn,
   displayColumnLabel,
+  recalculateProductTable,
   type ProductTableProps,
   type TableCellRef,
   type TableCellStyle,
   type TableGridCoord,
 } from './product-table';
 import { ProductCellSelect } from './ProductCellSelect';
-import { normalizeTablePropsForType } from './table-props-normalize';
+import { normalizeTablePropsForType, resolveTableElementType } from './table-props-normalize';
+import { refreshTablePropsForLivePreview, isSummaryOnlyTable } from './composer-table-preview';
 import {
   updateInvoiceCell,
   isInvoiceComputedColumn,
@@ -51,6 +53,7 @@ import {
   getInvoiceGrandTotalFormatted,
   recalculateInvoiceTable,
   getVisibleInvoiceColumns,
+  type InvoiceTableProps,
 } from './invoice-table';
 import {
   updateInvoice2Cell,
@@ -195,6 +198,8 @@ interface ProductTableViewProps {
   containerWidth: number;
   containerHeight: number;
   previewMode?: boolean;
+  /** Invoice composer passes pre-calculated table props — skip preview re-normalize/recalc. */
+  trustTableProps?: boolean;
   locked?: boolean;
   isSelected?: boolean;
   interactionMode?: CanvasInteractionMode;
@@ -464,6 +469,7 @@ export function ProductTableView({
   containerWidth,
   containerHeight,
   previewMode = false,
+  trustTableProps = false,
   locked = false,
   isSelected = false,
   interactionMode = 'move',
@@ -499,9 +505,10 @@ export function ProductTableView({
   const isTableSelected = useAppSelector((s) =>
     s.builder.selectedElementIds.includes(elementId)
   );
-  const isInvoiceTable1 = isInvoiceTable1Type(elementType ?? '');
-  const isInvoiceTable2 = isInvoiceTable2Type(elementType ?? '');
-  const isInvoiceTable3 = isInvoiceTable3Type(elementType ?? '');
+  const resolvedElementType = resolveTableElementType(elementType ?? '', props);
+  const isInvoiceTable1 = isInvoiceTable1Type(resolvedElementType);
+  const isInvoiceTable2 = isInvoiceTable2Type(resolvedElementType);
+  const isInvoiceTable3 = isInvoiceTable3Type(resolvedElementType);
   const isInvoiceLineTable = isInvoiceTable2 || isInvoiceTable3;
   const taxSettings = useTaxSettings();
 
@@ -510,19 +517,55 @@ export function ProductTableView({
   }, [pendingCellEdits]);
 
   const table = useMemo(() => {
+    if (trustTableProps && previewMode && Object.keys(pendingCellEdits).length === 0) {
+      const previewTable = props as unknown as ProductTableProps;
+      if (
+        isSummaryOnlyTable(previewTable)
+        && Array.isArray(previewTable.columns)
+        && Array.isArray(previewTable.rows)
+      ) {
+        return previewTable;
+      }
+      return refreshTablePropsForLivePreview(elementType ?? '', props, taxSettings);
+    }
+
     const base = isInvoiceTable3
       ? normalizeInvoiceTable3Props(props, taxSettings)
-      : normalizeTablePropsForType(elementType ?? '', props);
+      : normalizeTablePropsForType(resolvedElementType, props);
     if (isInvoiceTable2) {
+      if (previewMode && Object.keys(pendingCellEdits).length === 0) {
+        return base as InvoiceTable2Props;
+      }
       return applyInvoice2PendingEdits(base as InvoiceTable2Props, pendingCellEdits, taxSettings);
     }
     if (isInvoiceTable3) {
+      if (previewMode && Object.keys(pendingCellEdits).length === 0) {
+        return base as InvoiceTable3Props;
+      }
       return applyInvoice3PendingEdits(base as InvoiceTable3Props, pendingCellEdits, taxSettings);
     }
     const withEdits = applyPendingCellEdits(base, pendingCellEdits);
-    if (isInvoiceTable1) return recalculateInvoiceTable(withEdits, taxSettings);
-    return withEdits;
-  }, [elementType, props, isInvoiceTable1, isInvoiceTable2, isInvoiceTable3, taxSettings, pendingCellEdits]);
+    if (isInvoiceTable1) {
+      if (previewMode && Object.keys(pendingCellEdits).length === 0) {
+        return withEdits;
+      }
+      return recalculateInvoiceTable(withEdits, taxSettings);
+    }
+    if (previewMode && Object.keys(pendingCellEdits).length === 0) {
+      return withEdits;
+    }
+    return recalculateProductTable(withEdits);
+  }, [
+    elementType,
+    props,
+    isInvoiceTable1,
+    isInvoiceTable2,
+    isInvoiceTable3,
+    taxSettings,
+    pendingCellEdits,
+    previewMode,
+    trustTableProps,
+  ]);
 
   const table2Props = isInvoiceTable2 ? (table as InvoiceTable2Props) : null;
   const table3Props = isInvoiceTable3 ? (table as InvoiceTable3Props) : null;
@@ -533,7 +576,7 @@ export function ProductTableView({
       if (Object.keys(prev).length === 0) return prev;
       const base = isInvoiceTable3
         ? normalizeInvoiceTable3Props(props, taxSettings)
-        : normalizeTablePropsForType(elementType ?? '', props);
+        : normalizeTablePropsForType(resolvedElementType, props);
       const next = { ...prev };
       let changed = false;
       for (const key of Object.keys(prev)) {
@@ -556,16 +599,22 @@ export function ProductTableView({
     });
   }, [props, elementType, isInvoiceTable3, taxSettings]);
 
+  const safeColumns = Array.isArray(table.columns) ? table.columns : [];
+  const safeRows = Array.isArray(table.rows) ? table.rows : [];
+
   const displayColumns = useMemo(() => {
-    if (isInvoiceTable2) return getVisibleInvoice2Columns(table.columns);
-    if (isInvoiceTable3) return getVisibleInvoice3Columns(table.columns);
-    if (isInvoiceTable1) return getVisibleInvoiceColumns(table.columns);
-    return table.columns;
-  }, [isInvoiceTable1, isInvoiceTable2, isInvoiceTable3, table.columns]);
+    if (isInvoiceTable2) return getVisibleInvoice2Columns(safeColumns);
+    if (isInvoiceTable3) return getVisibleInvoice3Columns(safeColumns);
+    if (isInvoiceTable1) return getVisibleInvoiceColumns(safeColumns);
+    return safeColumns;
+  }, [isInvoiceTable1, isInvoiceTable2, isInvoiceTable3, safeColumns]);
 
   const displayTable = useMemo(
-    () => (displayColumns === table.columns ? table : { ...table, columns: displayColumns }),
-    [displayColumns, table]
+    () =>
+      displayColumns === safeColumns
+        ? { ...table, columns: safeColumns, rows: safeRows }
+        : { ...table, columns: displayColumns, rows: safeRows },
+    [displayColumns, safeColumns, safeRows, table]
   );
 
   const tableCellFocusOrder = useMemo(
@@ -660,14 +709,14 @@ export function ProductTableView({
   );
   const renderedHeight = Math.round(intrinsicHeight * scale);
   const headerBackground = getTableHeaderBackground(table);
-  const lastRowIndex = table.rows.length - 1;
+  const lastRowIndex = safeRows.length - 1;
   const footerHeightPx = table.showGrandTotalFooter
     ? (table.grandTotalFooterHeightPx ?? DEFAULT_ROW_HEIGHT_PX)
     : 0;
   const grandTotalText = isInvoiceTable1
-    ? getInvoiceGrandTotalFormatted(table.rows, taxSettings, table.columns, {
-        discountMode: table.discountMode ?? 'amount',
-        taxDisplayMode: table.taxDisplayMode ?? 'split',
+    ? getInvoiceGrandTotalFormatted(safeRows, taxSettings, safeColumns, {
+        discountMode: (table as InvoiceTableProps).discountMode ?? 'amount',
+        taxDisplayMode: (table as InvoiceTableProps).taxDisplayMode ?? 'split',
       })
     : '';
 
@@ -954,7 +1003,10 @@ export function ProductTableView({
       }
       if (Object.keys(merged).length === 0) return;
 
-      const base = normalizeTablePropsForType(elementType ?? '', props) as InvoiceTable2Props;
+      const base = normalizeTablePropsForType(
+        resolveTableElementType(elementType ?? '', props),
+        props
+      ) as InvoiceTable2Props;
       const edits = Object.entries(merged).map(([key, value]) => {
         const sep = key.indexOf('\0');
         return {
@@ -1002,7 +1054,7 @@ export function ProductTableView({
         (nextCol != null && isSerialColumn(nextCol))
         || (nextCol != null && isProductColumn(nextCol))
         || (isInvoiceTable1 && isInvoiceComputedColumn(next.columnId))
-        || (isInvoiceTable2 && isInvoice2ComputedColumn(next.columnId, next.rowId))
+        || (isInvoiceTable2 && isInvoice2ComputedColumn(next.columnId, next.rowId, displayColumns))
         || (isInvoiceTable3 && isInvoice3ComputedColumn(next.columnId))
         || isSummaryCell;
       if (isComputedTarget) {
@@ -1151,7 +1203,7 @@ export function ProductTableView({
             </div>
           )}
 
-          {table.rows.map((row, rowIndex) => (
+          {safeRows.map((row, rowIndex) => (
             <div
               key={row.id}
               className="relative flex shrink-0"
@@ -1173,7 +1225,7 @@ export function ProductTableView({
                 const computed =
                   isSerial
                   || (isInvoiceTable1 && isInvoiceComputedColumn(col.id))
-                  || (isInvoiceTable2 && isInvoice2ComputedColumn(col.id, row.id))
+                  || (isInvoiceTable2 && isInvoice2ComputedColumn(col.id, row.id, displayColumns))
                   || (isInvoiceTable3 && isInvoice3ComputedColumn(col.id));
                 const isInvoiceEditableTable = isInvoiceTable1 || isInvoiceTable2 || isInvoiceTable3;
                 // Always derive Sr.No. from row order so new rows show numbers immediately.

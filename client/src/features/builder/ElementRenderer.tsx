@@ -54,6 +54,8 @@ interface Props {
   layerOpacity?: number;
   /** Read-only scaled preview (gallery thumbnails). */
   previewMode?: boolean;
+  /** Tables already recalculated (invoice composer live preview). */
+  trustTableProps?: boolean;
   isShapeCropMode?: boolean;
   onSelect: (additive?: boolean) => void;
   onStartEdit?: () => void;
@@ -607,6 +609,7 @@ export function ElementRenderer({
   isCanvasDragging,
   layerOpacity = 1,
   previewMode = false,
+  trustTableProps = false,
   isShapeCropMode = false,
   onSelect,
   onStartEdit,
@@ -765,6 +768,7 @@ export function ElementRenderer({
             containerWidth={element.width}
             containerHeight={element.height}
             previewMode={previewMode}
+            trustTableProps={trustTableProps}
             locked={!!element.locked}
             isSelected={isSelected}
             interactionMode={interactionMode}
