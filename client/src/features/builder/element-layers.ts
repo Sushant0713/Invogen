@@ -110,9 +110,16 @@ const LAYER_TYPE_LABELS: Record<string, string> = {
   invoice_table_3: 'Invoice table 3',
   table: 'Table',
   watermark: 'Watermark',
+  footer: 'Footer',
+  notes: 'Note',
+  terms: 'Terms & conditions',
 };
 
 export function getLayerLabel(element: CanvasElement): string {
+  const typeLabel = LAYER_TYPE_LABELS[element.type];
+  if (element.type === 'footer' || element.type === 'notes' || element.type === 'heading' || element.type === 'terms') {
+    return typeLabel ?? element.type.replace(/_/g, ' ');
+  }
   const props = (element.props ?? {}) as Record<string, unknown>;
   if (typeof props.alt === 'string' && props.alt.trim()) return props.alt.trim();
   if (typeof props.text === 'string' && props.text.trim()) {

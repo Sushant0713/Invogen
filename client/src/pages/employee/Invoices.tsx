@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { formatDate } from '@/lib/utils';
 import { Loader } from '@/components/ui/Loader';
 import { Plus } from 'lucide-react';
+import { InvoiceRowActions } from '@/features/invoice-composer/InvoiceRowActions';
 
 export default function EmployeeInvoices() {
   const { data, isLoading } = useQuery({
@@ -32,6 +33,26 @@ export default function EmployeeInvoices() {
           { key: 'invoiceNumber', label: 'Invoice' },
           { key: 'status', label: 'Status' },
           { key: 'createdAt', label: 'Date', render: (r) => formatDate(r.createdAt as string) },
+          {
+            key: 'actions',
+            label: 'Actions',
+            render: (r) => {
+              const snap = r.customerSnapshot as { name?: string; email?: string } | undefined;
+              return (
+                <InvoiceRowActions
+                  invoiceId={String(r._id)}
+                  invoiceNumber={String(r.invoiceNumber)}
+                  invoicesApi="/employee/invoices"
+                  listQueryKey={['employee-invoices']}
+                  editPathPrefix="/employee/invoices"
+                  viewPathPrefix="/employee/invoices"
+                  sharesQueryKey={['employee-invoice-shares']}
+                  customerName={snap?.name}
+                  customerEmail={snap?.email}
+                />
+              );
+            },
+          },
         ]}
         data={data?.data || []}
         keyField="_id"

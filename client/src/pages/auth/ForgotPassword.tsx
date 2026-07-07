@@ -36,7 +36,7 @@ export default function ForgotPassword() {
           <p className="mt-4 text-gray-600">Check your email for a reset link.</p>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
-            <Input label="Email" type="email" {...register('email')} error={errors.email?.message as string} />
+            <Input label="Email" fieldKind="email" {...register('email')} error={errors.email?.message as string} />
             <Button type="submit" className="w-full" loading={loading}>Send Reset Link</Button>
           </form>
         )}

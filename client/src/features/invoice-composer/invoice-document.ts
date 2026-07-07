@@ -1,11 +1,14 @@
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { ComponentType } from '@invogen/shared';
+import { v4 as uuidv4 } from 'uuid';
 import { getEditableTextKey, getEditableTextValue } from '@/features/builder/text-styles';
 import {
   isTableElementType,
   productTablePropsToRecord,
   updateCell as updateProductCell,
   recalculateProductTable,
+  addRow as addProductRow,
+  removeRow as removeProductRow,
   isProductComputedAmountLabel,
   resolveProductAmountColumnIds,
   resolveProductQtyColumnId,
@@ -16,15 +19,28 @@ import {
 } from '@/features/builder/product-table';
 import { normalizeTablePropsForType, resolveTableElementType } from '@/features/builder/table-props-normalize';
 import { finalizeComposerTableProps, isSummaryOnlyTable, syncSummaryOnlyTable } from '@/features/builder/composer-table-preview';
-import { updateInvoiceCell, recalculateInvoiceTable, isInvoiceTable1Type, INVOICE_COL_TAXABLE, INVOICE_COL_CGST, INVOICE_COL_SGST, INVOICE_COL_GST, INVOICE_COL_TOTAL, type InvoiceTableProps } from '@/features/builder/invoice-table';
-import { updateInvoice2Cell, isInvoice2ComputedColumn, isInvoice2SummaryRowId, isInvoice2ComputedAmountLabel, recalculateInvoiceTable2, computeInvoice2Summary, isInvoiceTable2Type, type InvoiceTable2Props } from '@/features/builder/invoice-table-2';
-import { updateInvoice3Cell, isInvoice3ComputedColumn, recalculateInvoiceTable3, getInvoice3GrandTotal, calculateInvoice3LineAmounts, isInvoiceTable3Type, type InvoiceTable3Props } from '@/features/builder/invoice-table-3';
+import { updateInvoiceCell, recalculateInvoiceTable, isInvoiceTable1Type, addRow as addInvoice1Row, INVOICE_COL_TAXABLE, INVOICE_COL_CGST, INVOICE_COL_SGST, INVOICE_COL_GST, INVOICE_COL_TOTAL, INVOICE_COL_DISCOUNT, setInvoiceDiscountMode, type InvoiceTableProps, type InvoiceDiscountMode } from '@/features/builder/invoice-table';
+import { updateInvoice2Cell, isInvoice2ComputedColumn, isInvoice2SummaryRowId, isInvoice2ComputedAmountLabel, recalculateInvoiceTable2, computeInvoice2Summary, isInvoiceTable2Type, addRow as addInvoice2Row, INVOICE2_COL_DISCOUNT, setInvoice2DiscountMode, type InvoiceTable2Props } from '@/features/builder/invoice-table-2';
+import { updateInvoice3Cell, isInvoice3ComputedColumn, recalculateInvoiceTable3, getInvoice3GrandTotal, calculateInvoice3LineAmounts, isInvoiceTable3Type, addRow as addInvoice3Row, INVOICE3_COL_DISCOUNT, setInvoice3DiscountMode, type InvoiceTable3Props } from '@/features/builder/invoice-table-3';
 import { isInvoiceComputedColumn } from '@/features/builder/invoice-table';
 import { EMPTY_TAX_SETTINGS, type TaxSettings, getCombinedGstRate } from '@/features/builder/tax-settings';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
+import { extractPlaceholderKeys, placeholderFieldLabel } from '@/features/template-gallery/placeholder-utils';
 import { getLayerLabel } from '@/features/builder/element-layers';
-import { parseTermsFromProps, buildTermsProps } from '@/features/builder/terms-content';
+import { getPageDimensions, getDefaultElementSize } from '@/features/builder/builder-dnd';
+import { parseTermsFromProps, buildTermsProps, getDefaultTermsProps } from '@/features/builder/terms-content';
 import { parseAddressFromProps, buildAddressProps } from '@/features/builder/address-content';
+import {
+  createCardCustomField,
+  getCardFieldDef,
+  getCardFieldDefs,
+  getCardFieldValue,
+  getCardVisibleFieldDefs,
+  isCardComponentType,
+  parseCardCustomFields,
+  parseHiddenCardFields,
+  type CardCustomField,
+} from '@/features/builder/card-components';
 
 export function cloneTemplatePages(pages: TemplatePage[]): TemplatePage[] {
   return structuredClone(pages);
@@ -437,6 +453,92 @@ export function extractTablePlaceholderTotals(
   };
 }
 
+function addRowToTableProps(
+  type: string,
+  props: ProductTableProps,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS
+): ProductTableProps {
+  const lines = props.rows.filter((row) => !isComposerSummaryRow(row));
+  const base = { ...props, rows: lines };
+  if (isInvoiceTable1Type(type)) {
+    return addInvoice1Row(base as InvoiceTableProps, tax);
+  }
+  if (isInvoiceTable2Type(type)) {
+    return addInvoice2Row(base as InvoiceTable2Props, tax);
+  }
+  if (isInvoiceTable3Type(type)) {
+    return addInvoice3Row(base as InvoiceTable3Props, tax);
+  }
+  return recalculateProductTable(addProductRow(base));
+}
+
+export function addComposerTableRow(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    if (!isTableElementType(element.type)) return element;
+    const raw = (element.props ?? {}) as Record<string, unknown>;
+    const resolvedType = resolveTableElementType(element.type, raw);
+    const table = normalizeTablePropsForType(element.type, raw);
+    if (isSummaryOnlyTable(table)) return element;
+    const withRow = addRowToTableProps(resolvedType, table, tax);
+    const nextProps = finalizeComposerTableProps(
+      element.type,
+      productTablePropsToRecord(withRow),
+      tax
+    );
+    return { ...element, props: nextProps };
+  });
+}
+
+function removeRowFromTableProps(
+  type: string,
+  props: ProductTableProps,
+  rowId: string,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS
+): ProductTableProps {
+  const lines = props.rows.filter((row) => !isComposerSummaryRow(row));
+  const base = { ...props, rows: lines };
+  const removed = removeProductRow(base, rowId);
+  if (removed.rows.length === base.rows.length) return base;
+  if (isInvoiceTable1Type(type)) {
+    return recalculateInvoiceTable(removed as InvoiceTableProps, tax);
+  }
+  if (isInvoiceTable2Type(type)) {
+    return recalculateInvoiceTable2(removed as InvoiceTable2Props, tax);
+  }
+  if (isInvoiceTable3Type(type)) {
+    return recalculateInvoiceTable3(removed as InvoiceTable3Props, tax);
+  }
+  return recalculateProductTable(removed);
+}
+
+export function deleteComposerTableRow(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  rowId: string,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    if (!isTableElementType(element.type)) return element;
+    const raw = (element.props ?? {}) as Record<string, unknown>;
+    const resolvedType = resolveTableElementType(element.type, raw);
+    const table = normalizeTablePropsForType(element.type, raw);
+    if (isSummaryOnlyTable(table)) return element;
+    const withoutRow = removeRowFromTableProps(resolvedType, table, rowId, tax);
+    const nextProps = finalizeComposerTableProps(
+      element.type,
+      productTablePropsToRecord(withoutRow),
+      tax
+    );
+    return { ...element, props: nextProps };
+  });
+}
+
 export function updateComposerTableCell(
   pages: TemplatePage[],
   pageId: string,
@@ -520,6 +622,8 @@ export interface ScannedTable {
   tableKind: string;
   columns: Array<{ id: string; label: string; columnType?: string }>;
   rows: Array<{ id: string; name: string; cells: Record<string, string> }>;
+  discountMode?: InvoiceDiscountMode;
+  supportsDiscountMode: boolean;
 }
 
 export interface ScannedTextField {
@@ -530,6 +634,459 @@ export interface ScannedTextField {
   label: string;
   value: string;
   multiline: boolean;
+}
+
+export interface ScannedFooter {
+  pageId: string;
+  pageName: string;
+  elementId: string;
+  value: string;
+  /** 1-based index among footers on the same page. */
+  indexOnPage: number;
+  /** 1-based index across all footers in the invoice. */
+  index: number;
+}
+
+export interface ScannedTerms {
+  pageId: string;
+  pageName: string;
+  elementId: string;
+  title: string;
+  items: string[];
+  indexOnPage: number;
+  index: number;
+}
+
+const COMPOSER_TEXT_FIELD_LABELS: Partial<Record<string, string>> = {
+  [ComponentType.FOOTER]: 'Footer',
+  [ComponentType.NOTES]: 'Note',
+  [ComponentType.HEADING]: 'Heading',
+  [ComponentType.TEXT]: 'Text',
+  [ComponentType.TERMS]: 'Terms & conditions',
+  [ComponentType.ADDRESS]: 'Address',
+  [ComponentType.BARCODE]: 'Barcode',
+  [ComponentType.CUSTOM_HTML]: 'Custom HTML',
+  [ComponentType.PAYMENT_DETAILS]: 'Payment details',
+};
+
+function composerTextFieldLabel(element: CanvasElement, indexOnPage: number): string {
+  const base = COMPOSER_TEXT_FIELD_LABELS[element.type] ?? getLayerLabel(element);
+  if (element.type === ComponentType.FOOTER && indexOnPage > 1) {
+    return `Footer ${indexOnPage}`;
+  }
+  if (indexOnPage > 1 && element.type !== ComponentType.FOOTER) {
+    return `${base} ${indexOnPage}`;
+  }
+  return base;
+}
+
+function footerLabel(footer: ScannedFooter, totalFooters: number): string {
+  if (totalFooters <= 1 && footer.indexOnPage === 1) return 'Footer';
+  return `Footer ${footer.index}`;
+}
+
+function termsLabel(terms: ScannedTerms, totalTerms: number): string {
+  if (totalTerms <= 1 && terms.indexOnPage === 1) return 'Terms & conditions';
+  return `Terms & conditions ${terms.index}`;
+}
+
+const COMPOSER_CUSTOMER_KEYS = [
+  'ClientName',
+  'Email',
+  'Phone',
+  'GST',
+  'Address',
+  'State',
+] as const;
+
+const CUSTOMER_CARD_FORM_KEYS = new Set(['ClientName', 'Email', 'Phone', 'Address']);
+
+const COMPOSER_COMPANY_KEYS = [
+  'CompanyName',
+  'CompanyAddress',
+  'CompanyEmail',
+  'CompanyPhone',
+  'CompanyGST',
+  'PAN',
+  'PlaceOfSupply',
+  'StateCode',
+] as const;
+
+const COMPANY_CARD_FORM_KEYS = new Set([
+  'CompanyName',
+  'CompanyAddress',
+  'CompanyEmail',
+  'CompanyPhone',
+  'CompanyGST',
+  'PAN',
+]);
+
+const COMPOSER_INVOICE_KEYS = ['InvoiceNumber', 'Date', 'DueDate'] as const;
+
+const COMPOSER_TOTAL_KEYS = new Set([
+  'Subtotal',
+  'Tax',
+  'Total',
+  'Amount',
+  'CGST',
+  'SGST',
+  'GST',
+]);
+
+const DATA_FIELD_COMPONENTS: Partial<
+  Record<string, { key: string; label: string }>
+> = {
+  [ComponentType.INVOICE_NUMBER]: { key: 'InvoiceNumber', label: 'Invoice number' },
+  [ComponentType.DATE]: { key: 'Date', label: 'Invoice date' },
+  [ComponentType.DUE_DATE]: { key: 'DueDate', label: 'Due date' },
+  [ComponentType.GST_NUMBER]: { key: 'CompanyGST', label: 'GSTIN' },
+  [ComponentType.PAN_NUMBER]: { key: 'PAN', label: 'PAN' },
+};
+
+export interface ScannedDataField {
+  key: string;
+  label: string;
+  elementType: string;
+}
+
+export interface ComposerFormModel {
+  tables: ScannedTable[];
+  textFields: ScannedTextField[];
+  footers: ScannedFooter[];
+  terms: ScannedTerms[];
+  dataFields: ScannedDataField[];
+  cards: ScannedCard[];
+  customerFields: string[];
+  companyFields: string[];
+  invoiceFields: string[];
+  otherPlaceholders: string[];
+  showCustomerPicker: boolean;
+}
+
+export interface ScannedCardField {
+  key: string;
+  label: string;
+  placeholder?: string;
+  multiline?: boolean;
+  formContextKey?: string;
+  valueSource: 'formContext' | 'elementProps';
+}
+
+export interface ScannedCard {
+  pageId: string;
+  elementId: string;
+  elementType: string;
+  sectionTitle: string;
+  fields: ScannedCardField[];
+  customFields: CardCustomField[];
+  showCustomerPicker: boolean;
+}
+
+const CUSTOMER_PROP_TO_CONTEXT: Record<string, string> = {
+  name: 'ClientName',
+  email: 'Email',
+  phone: 'Phone',
+  address: 'Address',
+};
+
+const COMPANY_PROP_TO_CONTEXT: Record<string, string> = {
+  name: 'CompanyName',
+  address: 'CompanyAddress',
+  gst: 'CompanyGST',
+  pan: 'PAN',
+  email: 'CompanyEmail',
+  phone: 'CompanyPhone',
+};
+
+function cardSectionTitle(type: string, index: number): string {
+  switch (type) {
+    case ComponentType.CUSTOMER_CARD:
+      return index > 1 ? `Customer ${index}` : 'Customer';
+    case ComponentType.COMPANY_CARD:
+      return index > 1 ? `Company / supplier ${index}` : 'Company / supplier';
+    case ComponentType.PAYMENT_DETAILS:
+      return index > 1 ? `Payment details ${index}` : 'Payment details';
+    default:
+      return 'Card';
+  }
+}
+
+function extraPlaceholderFields(
+  placeholderKeys: string[],
+  coveredValues: Set<string>
+): ScannedCardField[] {
+  return placeholderKeys
+    .filter((key) => !coveredValues.has(key))
+    .map((key) => ({
+      key: `__placeholder_${key}`,
+      label: placeholderFieldLabel(key),
+      placeholder: placeholderFieldLabel(key),
+      multiline: key.toLowerCase().includes('address'),
+      formContextKey: key,
+      valueSource: 'formContext' as const,
+    }));
+}
+
+export function scanComposerCards(
+  pages: TemplatePage[],
+  options?: {
+    customerPlaceholderKeys?: string[];
+    companyPlaceholderKeys?: string[];
+  }
+): ScannedCard[] {
+  const cards: ScannedCard[] = [];
+  const counts: Record<string, number> = {};
+
+  for (const page of pages) {
+    for (const element of page.elements) {
+      if (element.visible === false || !isCardComponentType(element.type)) continue;
+
+      counts[element.type] = (counts[element.type] ?? 0) + 1;
+      const index = counts[element.type];
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      const defs = getCardVisibleFieldDefs(element.type, props);
+      const propToContext =
+        element.type === ComponentType.CUSTOMER_CARD
+          ? CUSTOMER_PROP_TO_CONTEXT
+          : element.type === ComponentType.COMPANY_CARD
+            ? COMPANY_PROP_TO_CONTEXT
+            : {};
+
+      const fields: ScannedCardField[] = defs.map((def) => ({
+        key: def.key,
+        label: def.label,
+        placeholder: def.placeholder,
+        multiline: def.multiline,
+        formContextKey: propToContext[def.key],
+        valueSource: propToContext[def.key] ? 'formContext' : 'elementProps',
+      }));
+
+      if (element.type === ComponentType.CUSTOMER_CARD && options?.customerPlaceholderKeys) {
+        fields.push(
+          ...extraPlaceholderFields(
+            options.customerPlaceholderKeys,
+            new Set(Object.values(CUSTOMER_PROP_TO_CONTEXT))
+          )
+        );
+      }
+
+      if (element.type === ComponentType.COMPANY_CARD && options?.companyPlaceholderKeys) {
+        fields.push(
+          ...extraPlaceholderFields(
+            options.companyPlaceholderKeys,
+            new Set(Object.values(COMPANY_PROP_TO_CONTEXT))
+          )
+        );
+      }
+
+      cards.push({
+        pageId: page.id,
+        elementId: element.id,
+        elementType: element.type,
+        sectionTitle: cardSectionTitle(element.type, index),
+        fields,
+        customFields: parseCardCustomFields(props.customFields),
+        showCustomerPicker: element.type === ComponentType.CUSTOMER_CARD && index === 1,
+      });
+    }
+  }
+
+  return cards;
+}
+
+function updateCardElementProps(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  updater: (props: Record<string, unknown>) => Record<string, unknown>
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => ({
+    ...element,
+    props: updater((element.props ?? {}) as Record<string, unknown>),
+  }));
+}
+
+export function updateComposerCardProp(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  key: string,
+  value: string
+): TemplatePage[] {
+  return updateComposerElementProps(pages, pageId, elementId, { [key]: value });
+}
+
+export function addComposerCardCustomField(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string
+): TemplatePage[] {
+  return updateCardElementProps(pages, pageId, elementId, (props) => ({
+    ...props,
+    customFields: [...parseCardCustomFields(props.customFields), createCardCustomField()],
+  }));
+}
+
+export function updateComposerCardCustomField(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  fieldId: string,
+  patch: Partial<Pick<CardCustomField, 'label' | 'value'>>
+): TemplatePage[] {
+  return updateCardElementProps(pages, pageId, elementId, (props) => ({
+    ...props,
+    customFields: parseCardCustomFields(props.customFields).map((field) =>
+      field.id === fieldId ? { ...field, ...patch } : field
+    ),
+  }));
+}
+
+export function deleteComposerCardCustomField(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  fieldId: string
+): TemplatePage[] {
+  return updateCardElementProps(pages, pageId, elementId, (props) => ({
+    ...props,
+    customFields: parseCardCustomFields(props.customFields).filter((field) => field.id !== fieldId),
+  }));
+}
+
+export function deleteComposerCardStandardField(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  fieldKey: string
+): TemplatePage[] {
+  return updateCardElementProps(pages, pageId, elementId, (props) => {
+    const hidden = new Set(parseHiddenCardFields(props.hiddenFields));
+    hidden.add(fieldKey);
+    return { ...props, hiddenFields: [...hidden] };
+  });
+}
+
+export function getComposerCardPropValue(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  key: string,
+  placeholder = ''
+): string {
+  const raw = getComposerCardPropRawValue(pages, pageId, elementId, key);
+  if (raw == null) return placeholder;
+  return getCardFieldValue({ [key]: raw }, key, placeholder);
+}
+
+export function getComposerCardPropRawValue(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  key: string
+): string | undefined {
+  for (const page of pages) {
+    if (page.id !== pageId) continue;
+    const element = page.elements.find((item) => item.id === elementId);
+    if (!element) return undefined;
+    const props = (element.props ?? {}) as Record<string, unknown>;
+    const raw = props[key];
+    return typeof raw === 'string' ? raw : undefined;
+  }
+  return undefined;
+}
+
+export function getComposerCardFieldPlaceholder(
+  elementType: string,
+  fieldKey: string,
+  fallback = ''
+): string {
+  if (fieldKey.startsWith('__placeholder_')) {
+    const contextKey = fieldKey.replace('__placeholder_', '');
+    return placeholderFieldLabel(contextKey);
+  }
+  return getCardFieldDef(elementType, fieldKey)?.placeholder ?? fallback;
+}
+
+function pageHasElementType(pages: TemplatePage[], type: string): boolean {
+  return pages.some((page) =>
+    page.elements.some((el) => el.visible !== false && el.type === type)
+  );
+}
+
+/** Discover which left-panel fields match editable content on the template preview. */
+export function scanComposerDataFields(pages: TemplatePage[]): ScannedDataField[] {
+  const seen = new Set<string>();
+  const fields: ScannedDataField[] = [];
+  for (const page of pages) {
+    for (const element of page.elements) {
+      if (element.visible === false) continue;
+      const mapped = DATA_FIELD_COMPONENTS[element.type];
+      if (!mapped || seen.has(mapped.key)) continue;
+      seen.add(mapped.key);
+      fields.push({ ...mapped, elementType: element.type });
+    }
+  }
+  return fields;
+}
+
+export function buildComposerFormModel(pages: TemplatePage[]): ComposerFormModel {
+  const keysInTemplate = new Set(extractPlaceholderKeys(pages));
+  const tables = scanComposerTables(pages);
+  const textFields = scanComposerTextFields(pages);
+  const footers = scanComposerFooters(pages);
+  const terms = scanComposerTerms(pages);
+  const dataFields = scanComposerDataFields(pages);
+  const dataFieldKeys = new Set(dataFields.map((field) => field.key));
+
+  const hasCustomerCard = pageHasElementType(pages, ComponentType.CUSTOMER_CARD);
+  const hasCompanyCard = pageHasElementType(pages, ComponentType.COMPANY_CARD);
+
+  const customerFields = COMPOSER_CUSTOMER_KEYS.filter((key) => {
+    if (keysInTemplate.has(key)) return true;
+    return hasCustomerCard && CUSTOMER_CARD_FORM_KEYS.has(key);
+  });
+
+  const companyFields = COMPOSER_COMPANY_KEYS.filter((key) => {
+    if (keysInTemplate.has(key)) return true;
+    return hasCompanyCard && COMPANY_CARD_FORM_KEYS.has(key);
+  });
+
+  const invoiceFields = [
+    ...dataFields.map((field) => field.key),
+    ...COMPOSER_INVOICE_KEYS.filter(
+      (key) => keysInTemplate.has(key) && !dataFieldKeys.has(key)
+    ),
+  ].filter((key, index, list) => list.indexOf(key) === index);
+
+  const covered = new Set<string>([
+    ...COMPOSER_CUSTOMER_KEYS,
+    ...COMPOSER_COMPANY_KEYS,
+    ...COMPOSER_INVOICE_KEYS,
+    ...COMPOSER_TOTAL_KEYS,
+  ]);
+  const otherPlaceholders = [...keysInTemplate]
+    .filter((key) => !covered.has(key))
+    .sort((a, b) => a.localeCompare(b));
+
+  const cards = scanComposerCards(pages, {
+    customerPlaceholderKeys: customerFields,
+    companyPlaceholderKeys: companyFields,
+  });
+
+  return {
+    tables,
+    textFields,
+    footers,
+    terms,
+    dataFields,
+    cards,
+    customerFields,
+    companyFields,
+    invoiceFields,
+    otherPlaceholders,
+    showCustomerPicker: customerFields.length > 0,
+  };
 }
 
 export function isTableCellEditable(
@@ -575,6 +1132,64 @@ function composerTableTypeLabel(resolvedType: string): string {
   return 'Product table';
 }
 
+const DISCOUNT_COLUMN_IDS = new Set([
+  INVOICE_COL_DISCOUNT,
+  INVOICE2_COL_DISCOUNT,
+  INVOICE3_COL_DISCOUNT,
+]);
+
+function tableSupportsDiscountMode(
+  resolvedType: string,
+  columns: ProductTableProps['columns']
+): boolean {
+  if (
+    !isInvoiceTable1Type(resolvedType)
+    && !isInvoiceTable2Type(resolvedType)
+    && !isInvoiceTable3Type(resolvedType)
+  ) {
+    return false;
+  }
+  return columns.some(
+    (col) => col.visible !== false && DISCOUNT_COLUMN_IDS.has(col.id)
+  );
+}
+
+function readTableDiscountMode(raw: Record<string, unknown>): InvoiceDiscountMode {
+  return raw.discountMode === 'percent' ? 'percent' : 'amount';
+}
+
+export function updateComposerTableDiscountMode(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  mode: InvoiceDiscountMode,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    if (!isTableElementType(element.type)) return element;
+    const raw = (element.props ?? {}) as Record<string, unknown>;
+    const resolvedType = resolveTableElementType(element.type, raw);
+    const table = normalizeTablePropsForType(element.type, raw);
+    if (!tableSupportsDiscountMode(resolvedType, table.columns)) return element;
+
+    let withMode: ProductTableProps;
+    if (isInvoiceTable1Type(resolvedType)) {
+      withMode = setInvoiceDiscountMode(table as InvoiceTableProps, mode, tax);
+    } else if (isInvoiceTable2Type(resolvedType)) {
+      withMode = setInvoice2DiscountMode(table as InvoiceTable2Props, mode, tax);
+    } else {
+      withMode = setInvoice3DiscountMode(table as InvoiceTable3Props, mode, tax);
+    }
+
+    const nextProps = finalizeComposerTableProps(
+      element.type,
+      productTablePropsToRecord(withMode),
+      tax
+    );
+    return { ...element, props: nextProps };
+  });
+}
+
 export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
   const tables: ScannedTable[] = [];
   pages.forEach((page) => {
@@ -584,6 +1199,7 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
       const resolvedType = resolveTableElementType(element.type, raw);
       const table = normalizeTablePropsForType(element.type, raw);
       if (isSummaryOnlyTable(table)) return;
+      const supportsDiscountMode = tableSupportsDiscountMode(resolvedType, table.columns);
       tables.push({
         pageId: page.id,
         pageName: page.name,
@@ -605,6 +1221,8 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
             name: row.name,
             cells: { ...row.cells },
           })),
+        discountMode: supportsDiscountMode ? readTableDiscountMode(raw) : undefined,
+        supportsDiscountMode,
       });
     });
   });
@@ -614,9 +1232,7 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
 const TEXT_FORM_TYPES = new Set<string>([
   ComponentType.TEXT,
   ComponentType.HEADING,
-  ComponentType.FOOTER,
   ComponentType.NOTES,
-  ComponentType.TERMS,
   ComponentType.ADDRESS,
   ComponentType.BARCODE,
   ComponentType.CUSTOM_HTML,
@@ -631,23 +1247,264 @@ const SKIP_TEXT_TYPES = new Set<string>([
   ComponentType.PAN_NUMBER,
 ]);
 
+export function scanComposerFooters(pages: TemplatePage[]): ScannedFooter[] {
+  const footers: ScannedFooter[] = [];
+  let globalIndex = 0;
+  pages.forEach((page) => {
+    const pageFooters = page.elements
+      .filter((element) => element.visible !== false && element.type === ComponentType.FOOTER)
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+    pageFooters.forEach((element, pageIndex) => {
+      globalIndex += 1;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      footers.push({
+        pageId: page.id,
+        pageName: page.name,
+        elementId: element.id,
+        value: getEditableTextValue(props, element.type),
+        indexOnPage: pageIndex + 1,
+        index: globalIndex,
+      });
+    });
+  });
+  return footers;
+}
+
+export function resolveComposerFooterPageId(pages: TemplatePage[]): string | null {
+  if (pages.length === 0) return null;
+  const withFooter = pages.find((page) =>
+    page.elements.some(
+      (element) => element.visible !== false && element.type === ComponentType.FOOTER
+    )
+  );
+  return withFooter?.id ?? pages[pages.length - 1].id;
+}
+
+export function addComposerFooter(
+  pages: TemplatePage[],
+  pageId?: string
+): TemplatePage[] {
+  const targetPageId = pageId ?? resolveComposerFooterPageId(pages);
+  if (!targetPageId) return pages;
+
+  return pages.map((page) => {
+    if (page.id !== targetPageId) return page;
+    const margins = page.margins ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    const { width: pageWidth, height: pageHeight } = getPageDimensions(page);
+    const existing = page.elements.filter(
+      (element) => element.visible !== false && element.type === ComponentType.FOOTER
+    );
+    const width = Math.min(520, pageWidth - margins.left - margins.right);
+    const height = 36;
+    const x = margins.left + Math.max(0, (pageWidth - margins.left - margins.right - width) / 2);
+    let y = pageHeight - margins.bottom - height - 20;
+    if (existing.length > 0) {
+      const last = [...existing].sort((a, b) => b.y + b.height - (a.y + a.height))[0];
+      y = last.y + last.height + 10;
+    }
+    const maxZ = page.elements.reduce((max, element) => Math.max(max, element.zIndex ?? 0), 0);
+    const element: CanvasElement = {
+      id: uuidv4(),
+      type: ComponentType.FOOTER,
+      x,
+      y,
+      width,
+      height,
+      zIndex: maxZ + 1,
+      props: { content: 'Thank you for your business!' },
+    };
+    return { ...page, elements: [...page.elements, element] };
+  });
+}
+
+export function deleteComposerFooter(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string
+): TemplatePage[] {
+  return pages.map((page) => {
+    if (page.id !== pageId) return page;
+    return {
+      ...page,
+      elements: page.elements.filter((element) => element.id !== elementId),
+    };
+  });
+}
+
+export { footerLabel, termsLabel };
+
+export function scanComposerTerms(pages: TemplatePage[]): ScannedTerms[] {
+  const termsBlocks: ScannedTerms[] = [];
+  let globalIndex = 0;
+  pages.forEach((page) => {
+    const pageTerms = page.elements
+      .filter((element) => element.visible !== false && element.type === ComponentType.TERMS)
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+    pageTerms.forEach((element, pageIndex) => {
+      globalIndex += 1;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      const parsed = parseTermsFromProps(props);
+      termsBlocks.push({
+        pageId: page.id,
+        pageName: page.name,
+        elementId: element.id,
+        title: parsed.title,
+        items: parsed.items.length > 0 ? parsed.items : [''],
+        indexOnPage: pageIndex + 1,
+        index: globalIndex,
+      });
+    });
+  });
+  return termsBlocks;
+}
+
+export function resolveComposerTermsPageId(pages: TemplatePage[]): string | null {
+  if (pages.length === 0) return null;
+  const withTerms = pages.find((page) =>
+    page.elements.some(
+      (element) => element.visible !== false && element.type === ComponentType.TERMS
+    )
+  );
+  return withTerms?.id ?? pages[pages.length - 1].id;
+}
+
+function updateComposerTermsElement(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  updater: (props: Record<string, unknown>) => Record<string, unknown>
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    if (element.type !== ComponentType.TERMS) return element;
+    const base = (element.props ?? {}) as Record<string, unknown>;
+    return { ...element, props: updater(base) };
+  });
+}
+
+export function updateComposerTermsTitle(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  title: string
+): TemplatePage[] {
+  return updateComposerTermsElement(pages, pageId, elementId, (base) => {
+    const { items } = parseTermsFromProps(base);
+    return buildTermsProps(title, items, base);
+  });
+}
+
+export function updateComposerTermsItem(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  itemIndex: number,
+  value: string
+): TemplatePage[] {
+  return updateComposerTermsElement(pages, pageId, elementId, (base) => {
+    const { title, items } = parseTermsFromProps(base);
+    const nextItems = items.map((item, index) => (index === itemIndex ? value : item));
+    return buildTermsProps(title, nextItems.length > 0 ? nextItems : [''], base);
+  });
+}
+
+export function addComposerTermsItem(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string
+): TemplatePage[] {
+  return updateComposerTermsElement(pages, pageId, elementId, (base) => {
+    const { title, items } = parseTermsFromProps(base);
+    return buildTermsProps(title, [...items, ''], base);
+  });
+}
+
+export function deleteComposerTermsItem(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  itemIndex: number
+): TemplatePage[] {
+  return updateComposerTermsElement(pages, pageId, elementId, (base) => {
+    const { title, items } = parseTermsFromProps(base);
+    const nextItems =
+      items.length <= 1
+        ? ['']
+        : items.filter((_, index) => index !== itemIndex);
+    return buildTermsProps(title, nextItems, base);
+  });
+}
+
+export function addComposerTerms(
+  pages: TemplatePage[],
+  pageId?: string
+): TemplatePage[] {
+  const targetPageId = pageId ?? resolveComposerTermsPageId(pages);
+  if (!targetPageId) return pages;
+
+  return pages.map((page) => {
+    if (page.id !== targetPageId) return page;
+    const margins = page.margins ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    const { width: pageWidth, height: pageHeight } = getPageDimensions(page);
+    const existing = page.elements.filter(
+      (element) => element.visible !== false && element.type === ComponentType.TERMS
+    );
+    const { width, height } = getDefaultElementSize(ComponentType.TERMS);
+    const x = margins.left + Math.max(0, (pageWidth - margins.left - margins.right - width) / 2);
+    let y = pageHeight - margins.bottom - height - 120;
+    if (existing.length > 0) {
+      const last = [...existing].sort((a, b) => b.y + b.height - (a.y + a.height))[0];
+      y = last.y + last.height + 12;
+    }
+    const maxZ = page.elements.reduce((max, element) => Math.max(max, element.zIndex ?? 0), 0);
+    const element: CanvasElement = {
+      id: uuidv4(),
+      type: ComponentType.TERMS,
+      x,
+      y,
+      width,
+      height,
+      zIndex: maxZ + 1,
+      props: getDefaultTermsProps(),
+    };
+    return { ...page, elements: [...page.elements, element] };
+  });
+}
+
+export function deleteComposerTerms(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string
+): TemplatePage[] {
+  return pages.map((page) => {
+    if (page.id !== pageId) return page;
+    return {
+      ...page,
+      elements: page.elements.filter((element) => element.id !== elementId),
+    };
+  });
+}
+
 export function scanComposerTextFields(pages: TemplatePage[]): ScannedTextField[] {
   const fields: ScannedTextField[] = [];
+  const typeCounts = new Map<string, number>();
   pages.forEach((page) => {
     page.elements.forEach((element) => {
       if (element.visible === false) return;
       if (isTableElementType(element.type)) return;
+      if (element.type === ComponentType.FOOTER) return;
+      if (element.type === ComponentType.TERMS) return;
       if (SKIP_TEXT_TYPES.has(element.type)) return;
       if (!TEXT_FORM_TYPES.has(element.type)) return;
+
+      const countKey = `${page.id}:${element.type}`;
+      const indexOnPage = (typeCounts.get(countKey) ?? 0) + 1;
+      typeCounts.set(countKey, indexOnPage);
 
       const props = (element.props ?? {}) as Record<string, unknown>;
       let value = '';
       let multiline = false;
 
-      if (element.type === ComponentType.TERMS) {
-        value = parseTermsFromProps(props).items.join('\n');
-        multiline = true;
-      } else if (element.type === ComponentType.ADDRESS) {
+      if (element.type === ComponentType.ADDRESS) {
         value = formatAddressFromProps(props);
         multiline = true;
       } else if (element.type === ComponentType.BARCODE) {
@@ -655,7 +1512,6 @@ export function scanComposerTextFields(pages: TemplatePage[]): ScannedTextField[
       } else if (getEditableTextKey(element.type)) {
         value = getEditableTextValue(props, element.type);
         multiline = element.type === ComponentType.NOTES
-          || element.type === ComponentType.TERMS
           || element.type === ComponentType.ADDRESS
           || element.type === ComponentType.PAYMENT_DETAILS
           || (element.type === ComponentType.TEXT && value.includes('\n'));
@@ -669,7 +1525,7 @@ export function scanComposerTextFields(pages: TemplatePage[]): ScannedTextField[
         pageName: page.name,
         elementId: element.id,
         elementType: element.type,
-        label: getLayerLabel(element),
+        label: composerTextFieldLabel(element, indexOnPage),
         value,
         multiline,
       });

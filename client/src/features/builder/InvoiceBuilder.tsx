@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import type { TemplateDocument } from '@invogen/shared';
 import {
   Undo2, Redo2, ZoomIn, ZoomOut, Grid3X3, Plus, Trash2, Save, ArrowLeft, Layers, Eye,
 } from 'lucide-react';
@@ -21,6 +23,10 @@ import { Button } from '@/components/ui/Button';
 import api from '@/api/client';
 import { toast } from 'sonner';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
+import {
+  invalidateTemplateCache,
+  publishSavedTemplateDocument,
+} from '@/features/template-gallery/template-loader';
 
 interface InvoiceBuilderProps {
   templateId: string;
@@ -36,6 +42,7 @@ export function InvoiceBuilder({
   onSave,
 }: InvoiceBuilderProps) {
   const dispatch = useAppDispatch();
+  const queryClient = useQueryClient();
   const { pages, activePageIndex, zoom, snapToGrid, isDirty, templateName, historyIndex, history } =
     useAppSelector((s) => s.builder);
   const canUndo = historyIndex > 0;
@@ -57,7 +64,23 @@ export function InvoiceBuilder({
     if (saving) return;
     setSaving(true);
     try {
-      await api.patch(`${apiBase}/${templateId}`, { pages, name: templateName });
+      const res = await api.patch(`${apiBase}/${templateId}`, { pages, name: templateName });
+      const updated = res.data?.data as TemplateDocument | undefined;
+      if (updated?._id) {
+        publishSavedTemplateDocument(queryClient, apiBase, updated);
+      } else {
+        invalidateTemplateCache(templateId);
+        await queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey;
+            if (key[0] === 'template-document' && key[2] === templateId) return true;
+            if (key[0] === 'invoice-composer-template' && key[2] === templateId) return true;
+            if (key[0] === 'template' && key[1] === templateId) return true;
+            if (key[0] === 'super-admin-template' && key[1] === templateId) return true;
+            return false;
+          },
+        });
+      }
       dispatch(markClean());
       clearBuilderDraft(templateId);
       toast.success('Template saved');
@@ -67,7 +90,7 @@ export function InvoiceBuilder({
     } finally {
       setSaving(false);
     }
-  }, [apiBase, templateId, pages, templateName, dispatch, onSave, saving]);
+  }, [apiBase, templateId, pages, templateName, dispatch, onSave, saving, queryClient]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

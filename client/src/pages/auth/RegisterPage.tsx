@@ -22,6 +22,7 @@ import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { uploadRegisterLogo } from '@/lib/upload';
 import { resolveMediaUrl } from '@/lib/media';
 import { getStatesForCountry } from '@/lib/location-data';
+import { validateFieldValue } from '@/lib/form-fields';
 import { toast } from 'sonner';
 
 const STEPS = [
@@ -108,10 +109,16 @@ export default function RegisterPage() {
       if (!form.firstName.trim()) nextErrors.firstName = 'First name is required';
       if (!form.lastName.trim()) nextErrors.lastName = 'Last name is required';
       if (!form.email.trim()) nextErrors.email = 'Email is required';
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) nextErrors.email = 'Invalid email';
+      else {
+        const emailErr = validateFieldValue('email', form.email, { required: true });
+        if (emailErr) nextErrors.email = emailErr;
+      }
       if (!isGoogleSignup) {
         if (!form.password) nextErrors.password = 'Password is required';
-        else if (form.password.length < 8) nextErrors.password = 'At least 8 characters';
+        else {
+          const pwdErr = validateFieldValue('password-new', form.password, { required: true });
+          if (pwdErr) nextErrors.password = pwdErr;
+        }
         if (form.password !== form.confirmPassword) nextErrors.confirmPassword = 'Passwords do not match';
       } else if (!googleCredential) {
         nextErrors.email = 'Connect your Google account to continue';
@@ -120,6 +127,18 @@ export default function RegisterPage() {
 
     if (current === 'company') {
       if (!form.companyName.trim()) nextErrors.companyName = 'Company name is required';
+      if (form.phone.trim()) {
+        const phoneErr = validateFieldValue('phone', form.phone);
+        if (phoneErr) nextErrors.phone = phoneErr;
+      }
+      if (form.gst.trim()) {
+        const gstErr = validateFieldValue('gstin', form.gst);
+        if (gstErr) nextErrors.gst = gstErr;
+      }
+      if (form.pan.trim()) {
+        const panErr = validateFieldValue('pan', form.pan);
+        if (panErr) nextErrors.pan = panErr;
+      }
     }
 
     if (current === 'address') {
@@ -127,6 +146,10 @@ export default function RegisterPage() {
       if (!form.state.trim()) nextErrors.state = 'State is required';
       if (!form.country.trim()) nextErrors.country = 'Country is required';
       if (!form.zipCode.trim()) nextErrors.zipCode = 'ZIP code is required';
+      else if (form.country === 'India') {
+        const pinErr = validateFieldValue('pincode', form.zipCode, { required: true });
+        if (pinErr) nextErrors.zipCode = pinErr;
+      }
     }
 
     if (current === 'review') {
@@ -354,7 +377,7 @@ export default function RegisterPage() {
                     </div>
                     <Input
                       label="Work email"
-                      type="email"
+                      fieldKind="email"
                       value={form.email}
                       onChange={(e) => {
                         if (!isGoogleSignup) setField('email', e.target.value);
@@ -370,14 +393,14 @@ export default function RegisterPage() {
                       <>
                         <Input
                           label="Password"
-                          type="password"
+                          fieldKind="password-new"
                           value={form.password}
                           onChange={(e) => setField('password', e.target.value)}
                           error={errors.password}
                         />
                         <Input
                           label="Confirm password"
-                          type="password"
+                          fieldKind="password-confirm"
                           value={form.confirmPassword}
                           onChange={(e) => setField('confirmPassword', e.target.value)}
                           error={errors.confirmPassword}
@@ -397,10 +420,10 @@ export default function RegisterPage() {
                     />
                     <Input
                       label="Phone number"
-                      type="tel"
-                      placeholder="+91 98765 43210"
+                      fieldKind="phone"
                       value={form.phone}
                       onChange={(e) => setField('phone', e.target.value)}
+                      error={errors.phone}
                     />
                     <FileUpload
                       label="Company logo"
@@ -420,15 +443,17 @@ export default function RegisterPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <Input
                         label="GST number (optional)"
-                        placeholder="29AABCU9603R1ZM"
+                        fieldKind="gstin"
                         value={form.gst}
                         onChange={(e) => setField('gst', e.target.value)}
+                        error={errors.gst}
                       />
                       <Input
                         label="PAN (optional)"
-                        placeholder="AABCU9603R"
+                        fieldKind="pan"
                         value={form.pan}
                         onChange={(e) => setField('pan', e.target.value)}
+                        error={errors.pan}
                       />
                     </div>
                   </div>
@@ -495,6 +520,7 @@ export default function RegisterPage() {
                       </div>
                       <Input
                         label="ZIP / Postal code"
+                        fieldKind={form.country === 'India' ? 'pincode' : undefined}
                         value={form.zipCode}
                         onChange={(e) => setField('zipCode', e.target.value)}
                         error={errors.zipCode}

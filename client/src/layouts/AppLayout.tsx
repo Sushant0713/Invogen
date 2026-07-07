@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { NavItem } from '@/config/navigation';
 import { isSubscriptionNavChildActive } from '@/lib/subscription-routes';
+import { isInvoiceNavChildActive } from '@/lib/invoice-routes';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import { logout } from '@/store/slices/authSlice';
 import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
@@ -15,6 +16,13 @@ interface AppLayoutProps {
   navItems: NavItem[];
   title: string;
   variant?: 'default' | 'builder';
+}
+
+function isNavChildActive(childPath: string, pathname: string) {
+  if (childPath.includes('/invoices')) {
+    return isInvoiceNavChildActive(childPath, pathname);
+  }
+  return isSubscriptionNavChildActive(childPath, pathname);
 }
 
 function NavItemLink({
@@ -30,7 +38,7 @@ function NavItemLink({
   const hasChildren = item.children && item.children.length > 0;
   const isChildActive =
     hasChildren &&
-    item.children!.some((c) => isSubscriptionNavChildActive(c.path, location.pathname));
+    item.children!.some((c) => isNavChildActive(c.path, location.pathname));
   const [open, setOpen] = useState(isChildActive);
 
   const linkClass = (isActive: boolean) =>
@@ -58,9 +66,7 @@ function NavItemLink({
   }
 
   if (compact) {
-    const activeChild = item.children!.find((c) =>
-      isSubscriptionNavChildActive(c.path, location.pathname)
-    );
+    const activeChild = item.children!.find((c) => isNavChildActive(c.path, location.pathname));
     return (
       <NavLink
         to={activeChild?.path || item.children![0].path}

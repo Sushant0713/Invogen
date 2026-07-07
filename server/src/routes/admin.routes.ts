@@ -45,9 +45,12 @@ router.post('/templates', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.cre
 router.patch('/templates/:id', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.updateTemplate);
 router.delete('/templates/:id', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.deleteTemplate);
 router.get('/invoices', ctrl.getInvoices);
+router.get('/invoices/shares', ctrl.getSharedInvoices);
 router.get('/invoices/:id', ctrl.getInvoice);
 router.post('/invoices', requirePermission(PERMISSIONS.INVOICE_CREATE), ctrl.createInvoice);
 router.patch('/invoices/:id', requirePermission(PERMISSIONS.INVOICE_EDIT), ctrl.updateInvoice);
+router.delete('/invoices/:id', requirePermission(PERMISSIONS.INVOICE_DELETE), ctrl.deleteInvoice);
+router.post('/invoices/:id/share', requirePermission(PERMISSIONS.INVOICE_CREATE), ctrl.shareInvoice);
 router.post('/invoices/:id/duplicate', requirePermission(PERMISSIONS.INVOICE_CREATE), ctrl.duplicateInvoice);
 router.get('/reports/:type', requirePermission(PERMISSIONS.REPORTS_VIEW), ctrl.getReports);
 

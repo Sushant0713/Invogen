@@ -38,7 +38,7 @@ export default function ResetPassword() {
       <div className="glass w-full max-w-md p-8">
         <h2 className="text-2xl font-bold">Reset Password</h2>
         <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
-          <Input label="New Password" type="password" {...register('password')} error={errors.password?.message as string} />
+          <Input label="New Password" fieldKind="password-new" {...register('password')} error={errors.password?.message as string} />
           <Button type="submit" className="w-full" loading={loading}>Reset Password</Button>
         </form>
         <p className="mt-4 text-center text-sm"><Link to="/admin/login" className="text-primary">Back to login</Link></p>

@@ -1,6 +1,7 @@
 import type { CanvasElement } from '@invogen/shared';
 import { getTextElementStyle } from './text-styles';
 import { getCardDisplayLines } from './card-components';
+import { getFieldKindPlaceholder, resolveFieldKind } from '@/lib/form-fields';
 
 interface Props {
   element: CanvasElement;
@@ -9,9 +10,17 @@ interface Props {
   onSelect?: () => void;
 }
 
+function customFieldPreviewPlaceholder(label: string): string {
+  const kind = resolveFieldKind({ label });
+  if (kind) return getFieldKindPlaceholder(kind) ?? 'Enter value';
+  return 'Enter value';
+}
+
 export function CardView({ element, props, isSelected, onSelect }: Props) {
   const textStyle = getTextElementStyle(props, element.type);
-  const lines = getCardDisplayLines(element.type, props);
+  const lines = getCardDisplayLines(element.type, props, {
+    customValuePlaceholder: customFieldPreviewPlaceholder,
+  });
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.detail >= 2 || !isSelected) {
@@ -41,7 +50,10 @@ export function CardView({ element, props, isSelected, onSelect }: Props) {
       {lines.map((line, index) => (
         <div
           key={`${line.text}-${index}`}
-          style={{ fontWeight: line.bold ? 700 : textStyle.fontWeight }}
+          style={{
+            fontWeight: line.bold ? 700 : textStyle.fontWeight,
+            opacity: line.isPlaceholder ? 0.55 : 1,
+          }}
         >
           {line.text}
         </div>

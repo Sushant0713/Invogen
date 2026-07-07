@@ -43,6 +43,9 @@ const AdminProducts = lazy(() => import('@/pages/admin/Products'));
 const AdminInvoices = lazy(() => import('@/pages/admin/Invoices'));
 const AdminInvoiceNew = lazy(() => import('@/pages/admin/InvoiceNew'));
 const AdminInvoiceComposerPage = lazy(() => import('@/pages/admin/InvoiceComposerPage'));
+const AdminInvoiceEditPage = lazy(() => import('@/pages/admin/InvoiceEditPage'));
+const AdminInvoiceViewPage = lazy(() => import('@/pages/admin/InvoiceViewPage'));
+const AdminSharedInvoices = lazy(() => import('@/pages/admin/SharedInvoices'));
 const AdminTemplates = lazy(() => import('@/pages/admin/Templates'));
 const AdminTemplateEdit = lazy(() => import('@/pages/admin/TemplateEdit'));
 const AdminSettings = lazy(() => import('@/pages/admin/Settings'));
@@ -61,12 +64,15 @@ const EmployeeDashboard = lazy(() => import('@/pages/employee/Dashboard'));
 const EmployeeInvoices = lazy(() => import('@/pages/employee/Invoices'));
 const EmployeeInvoiceNew = lazy(() => import('@/pages/employee/InvoiceNew'));
 const EmployeeInvoiceComposerPage = lazy(() => import('@/pages/employee/InvoiceComposerPage'));
+const EmployeeInvoiceEditPage = lazy(() => import('@/pages/employee/InvoiceEditPage'));
+const EmployeeInvoiceViewPage = lazy(() => import('@/pages/employee/InvoiceViewPage'));
 const EmployeeTemplates = lazy(() => import('@/pages/employee/Templates'));
 const EmployeeProfile = lazy(() => import('@/pages/Profile'));
 
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const Forbidden = lazy(() => import('@/pages/Forbidden'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
+const PublicInvoiceViewPage = lazy(() => import('@/pages/PublicInvoiceViewPage'));
 
 const withSuspense = (element: React.ReactNode) => (
   <Suspense fallback={<Loader fullScreen />}>{element}</Suspense>
@@ -93,6 +99,7 @@ export const router = createBrowserRouter([
   { path: '/reset-password', element: withSuspense(<ResetPassword />) },
   { path: '/verify-email', element: withSuspense(<VerifyEmail />) },
   { path: '/maintenance', element: withSuspense(<MaintenancePage />) },
+  { path: '/view/invoice/:token', element: withSuspense(<PublicInvoiceViewPage />) },
   {
     path: '/super-admin',
     element: (
@@ -138,8 +145,11 @@ export const router = createBrowserRouter([
           { path: 'customers', element: withSuspense(<AdminCustomers />) },
           { path: 'products', element: withSuspense(<AdminProducts />) },
           { path: 'invoices', element: withSuspense(<AdminInvoices />) },
+          { path: 'invoices/shared', element: withSuspense(<AdminSharedInvoices />) },
           { path: 'invoices/new', element: withSuspense(<AdminInvoiceNew />) },
           { path: 'invoices/new/:templateId', element: withSuspense(<AdminInvoiceComposerPage />) },
+          { path: 'invoices/:invoiceId/view', element: withSuspense(<AdminInvoiceViewPage />) },
+          { path: 'invoices/:invoiceId/edit', element: withSuspense(<AdminInvoiceEditPage />) },
           { path: 'invoices/create', element: <Navigate to="/admin/invoices/new" replace /> },
           { path: 'templates', element: withSuspense(<AdminTemplates />) },
           { path: 'templates/:id/edit', element: withSuspense(<AdminTemplateEdit />) },
@@ -171,6 +181,8 @@ export const router = createBrowserRouter([
       { path: 'invoices', element: withSuspense(<EmployeeInvoices />) },
       { path: 'invoices/new', element: withSuspense(<EmployeeInvoiceNew />) },
       { path: 'invoices/new/:templateId', element: withSuspense(<EmployeeInvoiceComposerPage />) },
+      { path: 'invoices/:invoiceId/view', element: withSuspense(<EmployeeInvoiceViewPage />) },
+      { path: 'invoices/:invoiceId/edit', element: withSuspense(<EmployeeInvoiceEditPage />) },
       { path: 'invoices/create', element: <Navigate to="/employee/invoices/new" replace /> },
       { path: 'templates', element: withSuspense(<EmployeeTemplates />) },
       { path: 'profile', element: withSuspense(<EmployeeProfile />) },

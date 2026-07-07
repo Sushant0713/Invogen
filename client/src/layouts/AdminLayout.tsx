@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
 import { adminNav } from '@/config/navigation';
 import { isSubscriptionCheckoutPath, isSubscriptionNavChildActive } from '@/lib/subscription-routes';
+import { isInvoiceNavChildActive } from '@/lib/invoice-routes';
 import { isFullHeightWorkspacePath } from '@/lib/builder-routes';
 import api from '@/api/client';
 import { Loader } from '@/components/ui/Loader';
@@ -51,12 +52,16 @@ function PlanSelectionShell({ children }: { children: React.ReactNode }) {
 export default function AdminLayout() {
   const location = useLocation();
   const current = adminNav.find((n) => {
-    if (n.children?.some((c) => isSubscriptionNavChildActive(c.path, location.pathname))) return true;
+    if (n.children?.some((c) => {
+      if (c.path.includes('/invoices')) return isInvoiceNavChildActive(c.path, location.pathname);
+      return isSubscriptionNavChildActive(c.path, location.pathname);
+    })) return true;
     return location.pathname.startsWith(n.path);
   });
-  const currentChild = current?.children?.find((c) =>
-    isSubscriptionNavChildActive(c.path, location.pathname)
-  );
+  const currentChild = current?.children?.find((c) => {
+    if (c.path.includes('/invoices')) return isInvoiceNavChildActive(c.path, location.pathname);
+    return isSubscriptionNavChildActive(c.path, location.pathname);
+  });
   const pageTitle = currentChild?.label || current?.label || 'Admin';
 
   const { data: status, isLoading } = useQuery({

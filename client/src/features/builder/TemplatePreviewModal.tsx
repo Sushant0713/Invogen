@@ -14,10 +14,10 @@ import { Button } from '@/components/ui/Button';
 import { CompanyBrandingProvider } from './CompanyBrandingProvider';
 import { TaxSettingsProvider } from './TaxSettingsProvider';
 import { TemplatePreviewPages } from './TemplatePreviewPages';
-import { getPageDimensions } from './builder-dnd';
 import {
   downloadPdfBlob,
   exportTemplatePagesToPdf,
+  readRenderedPageSize,
   templatePdfFilename,
 } from './template-pdf-export';
 import {
@@ -63,9 +63,9 @@ export function TemplatePreviewModal({
       if (nodes.length === 0) {
         throw new Error('Preview pages not ready');
       }
-      const pageInputs = nodes.map((element, index) => ({
+      const pageInputs = nodes.map((element) => ({
         element,
-        size: getPageDimensions(pages[index]),
+        size: readRenderedPageSize(element),
       }));
       const blob = await exportTemplatePagesToPdf(pageInputs);
       setPdfBlob(blob);

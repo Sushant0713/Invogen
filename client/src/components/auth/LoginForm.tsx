@@ -138,13 +138,13 @@ export function LoginForm({ portal, title, subtitle }: LoginFormProps) {
             <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
               <Input
                 label="Email"
-                type="email"
+                fieldKind="email"
                 {...register('email')}
                 error={errors.email?.message}
               />
               <Input
                 label="Password"
-                type="password"
+                fieldKind="password"
                 {...register('password')}
                 error={errors.password?.message}
               />

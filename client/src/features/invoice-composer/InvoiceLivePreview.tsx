@@ -10,9 +10,9 @@ import { Button } from '@/components/ui/Button';
 import {
   downloadPdfBlob,
   exportTemplatePagesToPdf,
+  readRenderedPageSize,
   templatePdfFilename,
 } from '@/features/builder/template-pdf-export';
-import { getPageDimensions } from '@/features/builder/builder-dnd';
 import { toast } from 'sonner';
 
 interface InvoiceLivePreviewProps {
@@ -23,6 +23,13 @@ interface InvoiceLivePreviewProps {
   brandingScope?: CompanyBrandingScope;
   /** Tables on pages are already recalculated in the composer. */
   trustTableProps?: boolean;
+  onTableCellChange?: (
+    pageId: string,
+    elementId: string,
+    rowId: string,
+    columnId: string,
+    value: string
+  ) => void;
 }
 
 export function InvoiceLivePreview({
@@ -31,6 +38,7 @@ export function InvoiceLivePreview({
   templateName,
   brandingScope = 'admin',
   trustTableProps = true,
+  onTableCellChange,
 }: InvoiceLivePreviewProps) {
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [exporting, setExporting] = useState(false);
@@ -47,9 +55,9 @@ export function InvoiceLivePreview({
         (node): node is HTMLDivElement => node != null
       );
       if (nodes.length === 0) throw new Error('Preview not ready');
-      const pageInputs = nodes.map((element, index) => ({
+      const pageInputs = nodes.map((element) => ({
         element,
-        size: getPageDimensions(pages[index]),
+        size: readRenderedPageSize(element),
       }));
       return await exportTemplatePagesToPdf(pageInputs);
     } finally {
@@ -133,6 +141,8 @@ export function InvoiceLivePreview({
               placeholderContext={formContext}
               previewMaxWidth={previewWidth}
               trustTableProps={trustTableProps}
+              editableTables={!!onTableCellChange}
+              onTableCellChange={onTableCellChange}
             />
           </div>
         </div>
@@ -163,9 +173,9 @@ export async function exportInvoicePreviewPdf(
     (node): node is HTMLDivElement => node != null
   );
   if (nodes.length === 0) throw new Error('Preview not ready');
-  const pageInputs = nodes.map((element, index) => ({
+  const pageInputs = nodes.map((element) => ({
     element,
-    size: getPageDimensions(pages[index]),
+    size: readRenderedPageSize(element),
   }));
   return exportTemplatePagesToPdf(pageInputs);
 }

@@ -56,6 +56,8 @@ interface Props {
   previewMode?: boolean;
   /** Tables already recalculated (invoice composer live preview). */
   trustTableProps?: boolean;
+  /** Composer live preview: allow picking products in table cells. */
+  onTableCellChange?: (rowId: string, columnId: string, value: string) => void;
   isShapeCropMode?: boolean;
   onSelect: (additive?: boolean) => void;
   onStartEdit?: () => void;
@@ -610,6 +612,7 @@ export function ElementRenderer({
   layerOpacity = 1,
   previewMode = false,
   trustTableProps = false,
+  onTableCellChange,
   isShapeCropMode = false,
   onSelect,
   onStartEdit,
@@ -769,6 +772,7 @@ export function ElementRenderer({
             containerHeight={element.height}
             previewMode={previewMode}
             trustTableProps={trustTableProps}
+            onTableCellChange={onTableCellChange}
             locked={!!element.locked}
             isSelected={isSelected}
             interactionMode={interactionMode}

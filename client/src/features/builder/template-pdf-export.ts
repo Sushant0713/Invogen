@@ -16,6 +16,14 @@ export function templatePdfFilename(templateName: string): string {
   return `${sanitizeFilename(templateName)}.pdf`;
 }
 
+/** Use the rendered preview node size (supports reflowed / taller pages). */
+export function readRenderedPageSize(element: HTMLElement): PageDimensions {
+  return {
+    width: Math.max(1, Math.round(element.offsetWidth)),
+    height: Math.max(1, Math.round(element.offsetHeight)),
+  };
+}
+
 async function waitForImages(root: HTMLElement): Promise<void> {
   const images = Array.from(root.querySelectorAll('img'));
   await Promise.all(

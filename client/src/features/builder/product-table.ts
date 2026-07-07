@@ -83,6 +83,31 @@ export function isProductColumn(col: Pick<ProductTableColumn, 'columnType'>): bo
   return getColumnType(col) === 'product';
 }
 
+/** Text-heavy columns wrap in preview; numeric/amount columns stay on one line. */
+export function isTableWrapFriendlyColumn(
+  col: Pick<ProductTableColumn, 'id' | 'label' | 'columnType'>
+): boolean {
+  if (isSerialColumn(col)) return false;
+  if (isProductColumn(col)) return true;
+
+  const token = `${col.id} ${col.label}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  if (
+    /\b(qty|quantity|rate|amount|discount|gst|cgst|sgst|tax|total|unit|units|price|mrp|hsn|sac|srno|serial|percent)\b/.test(
+      token
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(item|items|description|particular|service|product|name|detail|details|remarks|note)\b/.test(
+      token
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Default label when a column is first created. NA starts blank so the user names it. */
 export function defaultLabelForColumnType(type: TableColumnType, _index?: number): string {
   if (type === 'sr_no') return 'Sr.No.';
@@ -606,6 +631,236 @@ export function computeTableHeight(props: ProductTableProps) {
     ? (props.grandTotalFooterHeightPx ?? DEFAULT_ROW_HEIGHT_PX)
     : 0;
   return header + body + footer + 2;
+}
+
+const CELL_PADDING_X_PX = 16;
+const CELL_PADDING_Y_PX = 8;
+const DEFAULT_CELL_LINE_HEIGHT_RATIO = 1.4;
+
+function estimateCharsPerLine(columnWidthPx: number, fontSize: number): number {
+  const innerWidth = Math.max(20, columnWidthPx - CELL_PADDING_X_PX);
+  const avgCharWidth = Math.max(4, fontSize * 0.55);
+  return Math.max(1, Math.floor(innerWidth / avgCharWidth));
+}
+
+function estimateMinColumnWidthPx(text: string, fontSize: number): number {
+  const trimmed = text.trim();
+  if (!trimmed) return MIN_COL_WIDTH_PX;
+  return Math.ceil(trimmed.length * fontSize * 0.55 + CELL_PADDING_X_PX);
+}
+
+function maxColumnWidthForPreview(
+  containerWidthPx: number,
+  columnCount: number,
+  minWidthPx: number
+): number {
+  const share = columnCount <= 3 ? 0.55 : columnCount <= 5 ? 0.42 : 0.35;
+  return Math.max(minWidthPx, Math.floor(containerWidthPx * share));
+}
+
+function shrinkWidthsToFit(
+  widths: number[],
+  minWidths: number[],
+  targetTotal: number
+): number[] {
+  let result = widths.map((w, i) => Math.max(minWidths[i], w));
+  let total = result.reduce((sum, width) => sum + width, 0);
+  if (total <= targetTotal) return result.map((width) => Math.round(width));
+
+  for (let pass = 0; pass < 8 && total > targetTotal; pass += 1) {
+    const excess = total - targetTotal;
+    const shrinkable = result.reduce(
+      (sum, width, index) => sum + Math.max(0, width - minWidths[index]),
+      0
+    );
+    if (shrinkable <= 0) break;
+    result = result.map((width, index) => {
+      const room = Math.max(0, width - minWidths[index]);
+      if (room <= 0) return width;
+      return Math.max(minWidths[index], width - (excess * room) / shrinkable);
+    });
+    total = result.reduce((sum, width) => sum + width, 0);
+  }
+
+  return result.map((width) => Math.max(MIN_COL_WIDTH_PX, Math.round(width)));
+}
+
+/** Widen visible columns in preview so cell text is not clipped horizontally. */
+export function fitTableColumnWidthsForPreview(
+  props: ProductTableProps,
+  containerWidthPx: number
+): ProductTableProps {
+  if (containerWidthPx <= 0) return props;
+
+  const visibleColumnEntries = props.columns
+    .map((col, index) => ({ col, index }))
+    .filter(({ col }) => col.visible !== false);
+  if (visibleColumnEntries.length === 0) return props;
+
+  const visibleColumns = visibleColumnEntries.map(({ col }) => col);
+  const minWidths = visibleColumns.map((col) => Math.max(MIN_COL_WIDTH_PX, col.widthPx));
+  const targetWidths = [...minWidths];
+
+  visibleColumns.forEach((col, index) => {
+    const label = displayColumnLabel(col);
+    const fontSize = getTableCellStyle(props, null, col.id, true).fontSize ?? 12;
+    const maxWidth = maxColumnWidthForPreview(
+      containerWidthPx,
+      visibleColumns.length,
+      minWidths[index]
+    );
+    targetWidths[index] = Math.max(
+      targetWidths[index],
+      Math.min(estimateMinColumnWidthPx(label, fontSize), maxWidth)
+    );
+  });
+
+  for (const row of props.rows) {
+    visibleColumns.forEach((col, index) => {
+      if (isSerialColumn(col)) return;
+      const raw = String(row.cells[col.id] ?? '');
+      if (!raw.trim()) return;
+      const fontSize = getTableCellStyle(props, row.id, col.id, false).fontSize ?? 12;
+      const longestLine = raw
+        .split('\n')
+        .reduce((max, line) => (line.length > max.length ? line : max), '');
+      const maxWidth = maxColumnWidthForPreview(
+        containerWidthPx,
+        visibleColumns.length,
+        minWidths[index]
+      );
+      targetWidths[index] = Math.max(
+        targetWidths[index],
+        Math.min(estimateMinColumnWidthPx(longestLine, fontSize), maxWidth)
+      );
+    });
+  }
+
+  const fittedWidths = shrinkWidthsToFit(targetWidths, minWidths, containerWidthPx);
+  const columns = props.columns.map((col) => ({ ...col }));
+  visibleColumnEntries.forEach(({ index }, visibleIndex) => {
+    columns[index] = { ...columns[index], widthPx: fittedWidths[visibleIndex] };
+  });
+
+  return { ...props, columns };
+}
+
+function estimateWrappedLineCount(text: string, columnWidthPx: number, fontSize: number): number {
+  if (!text.trim()) return 1;
+  const charsPerLine = estimateCharsPerLine(columnWidthPx, fontSize);
+  return text.split('\n').reduce((total, paragraph) => {
+    const trimmed = paragraph.trim();
+    if (!trimmed) return total + 1;
+    const words = trimmed.split(/\s+/);
+    let lines = 1;
+    let currentLen = 0;
+    for (const word of words) {
+      const wordLen = word.length;
+      if (wordLen > charsPerLine) {
+        if (currentLen > 0) {
+          lines += 1;
+          currentLen = 0;
+        }
+        lines += Math.ceil(wordLen / charsPerLine);
+        currentLen = wordLen % charsPerLine;
+        continue;
+      }
+      if (currentLen === 0) {
+        currentLen = wordLen;
+        continue;
+      }
+      if (currentLen + 1 + wordLen <= charsPerLine) {
+        currentLen += 1 + wordLen;
+      } else {
+        lines += 1;
+        currentLen = wordLen;
+      }
+    }
+    return total + Math.max(1, lines);
+  }, 0);
+}
+
+function resolveColumnWidths(
+  columns: ProductTableColumn[],
+  columnWidthsPx?: number[]
+): number[] {
+  return columns.map((col, index) => columnWidthsPx?.[index] ?? col.widthPx);
+}
+
+/** Grow header height so labels like "Discount" are not clipped in preview. */
+export function fitTableHeaderHeightToText(
+  props: ProductTableProps,
+  columnWidthsPx?: number[]
+): ProductTableProps {
+  if (!props.showHeader) return props;
+  const visibleColumns = props.columns.filter((col) => col.visible !== false);
+  if (visibleColumns.length === 0) return props;
+
+  const widths = resolveColumnWidths(visibleColumns, columnWidthsPx);
+  let maxLines = 1;
+  let maxFontSize = 12;
+  visibleColumns.forEach((col, index) => {
+    const label = displayColumnLabel(col);
+    const fontSize = getTableCellStyle(props, null, col.id, true).fontSize ?? 12;
+    maxFontSize = Math.max(maxFontSize, fontSize);
+    maxLines = Math.max(
+      maxLines,
+      estimateWrappedLineCount(label, widths[index], fontSize)
+    );
+  });
+
+  const neededHeight = Math.ceil(maxLines * maxFontSize * DEFAULT_CELL_LINE_HEIGHT_RATIO + CELL_PADDING_Y_PX);
+  return {
+    ...props,
+    headerHeightPx: Math.max(MIN_ROW_HEIGHT_PX, props.headerHeightPx, neededHeight),
+  };
+}
+
+/** Grow row heights in preview/export so wrapped cell text is not clipped. */
+export function fitTableRowHeightsToText(
+  props: ProductTableProps,
+  columnWidthsPx?: number[],
+  options?: { includeAllTextColumns?: boolean }
+): ProductTableProps {
+  const visibleColumns = props.columns.filter((col) => col.visible !== false);
+  if (visibleColumns.length === 0) return props;
+
+  const widths = resolveColumnWidths(visibleColumns, columnWidthsPx);
+  const rows = props.rows.map((row) => {
+    let maxLines = 1;
+    let maxFontSize = 12;
+    visibleColumns.forEach((col, index) => {
+      if (isSerialColumn(col)) return;
+      if (!options?.includeAllTextColumns && !isTableWrapFriendlyColumn(col)) return;
+      const cellText = String(row.cells[col.id] ?? '');
+      const fontSize = getTableCellStyle(props, row.id, col.id, false).fontSize ?? 12;
+      maxFontSize = Math.max(maxFontSize, fontSize);
+      maxLines = Math.max(
+        maxLines,
+        estimateWrappedLineCount(cellText, widths[index], fontSize)
+      );
+    });
+    const lineHeight = maxFontSize * DEFAULT_CELL_LINE_HEIGHT_RATIO;
+    const neededHeight = Math.ceil(maxLines * lineHeight + CELL_PADDING_Y_PX);
+    return {
+      ...row,
+      heightPx: Math.max(MIN_ROW_HEIGHT_PX, row.heightPx, neededHeight),
+    };
+  });
+
+  return { ...props, rows };
+}
+
+/** Fit column widths, header, and line rows for preview rendering. */
+export function fitTableLayoutForPreview(
+  props: ProductTableProps,
+  containerWidthPx: number
+): ProductTableProps {
+  const withWidths = fitTableColumnWidthsForPreview(props, containerWidthPx);
+  const visibleColumns = withWidths.columns.filter((col) => col.visible !== false);
+  const columnWidths = visibleColumns.map((col) => col.widthPx);
+  const withHeader = fitTableHeaderHeightToText(withWidths, columnWidths);
+  return fitTableRowHeightsToText(withHeader, columnWidths, { includeAllTextColumns: true });
 }
 
 export function productTablePropsToRecord(props: ProductTableProps): Record<string, unknown> {

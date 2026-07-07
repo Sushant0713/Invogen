@@ -503,10 +503,10 @@ function CompanySettingPanel({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Input label="Company Name" value={form.name} onChange={(e) => update('name', e.target.value)} />
-        <Input label="Email" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} />
-        <Input label="Phone" value={form.phone} onChange={(e) => update('phone', e.target.value)} />
-        <Input label="GST Number" value={form.gst} onChange={(e) => update('gst', e.target.value)} />
-        <Input label="PAN Number" value={form.pan} onChange={(e) => update('pan', e.target.value)} />
+        <Input label="Email" fieldKind="email" value={form.email} onChange={(e) => update('email', e.target.value)} />
+        <Input label="Phone" fieldKind="phone" value={form.phone} onChange={(e) => update('phone', e.target.value)} />
+        <Input label="GST Number" fieldKind="gstin" value={form.gst} onChange={(e) => update('gst', e.target.value)} />
+        <Input label="PAN Number" fieldKind="pan" value={form.pan} onChange={(e) => update('pan', e.target.value)} />
       </div>
 
       <div className="space-y-4">
@@ -546,7 +546,7 @@ function CompanySettingPanel({
           <Input label="City" value={form.city} onChange={(e) => update('city', e.target.value)} />
           <Input label="State" value={form.state} onChange={(e) => update('state', e.target.value)} />
           <Input label="Country" value={form.country} onChange={(e) => update('country', e.target.value)} />
-          <Input label="ZIP Code" value={form.zipCode} onChange={(e) => update('zipCode', e.target.value)} />
+          <Input label="ZIP Code" fieldKind="pincode" value={form.zipCode} onChange={(e) => update('zipCode', e.target.value)} />
         </div>
       </div>
 
@@ -600,9 +600,7 @@ function TaxSetupPanel({
         <Input label="Tax label" value={form.taxLabel} onChange={(e) => update('taxLabel', e.target.value)} />
         <Input
           label="Default tax rate (%)"
-          type="number"
-          min={0}
-          max={100}
+          fieldKind="percentage"
           value={form.defaultRate}
           onChange={(e) => update('defaultRate', Number(e.target.value))}
         />
@@ -613,25 +611,19 @@ function TaxSetupPanel({
         <div className="grid gap-4 sm:grid-cols-3">
           <Input
             label="CGST (%)"
-            type="number"
-            min={0}
-            max={100}
+            fieldKind="percentage"
             value={form.cgstRate}
             onChange={(e) => update('cgstRate', Number(e.target.value))}
           />
           <Input
             label="SGST (%)"
-            type="number"
-            min={0}
-            max={100}
+            fieldKind="percentage"
             value={form.sgstRate}
             onChange={(e) => update('sgstRate', Number(e.target.value))}
           />
           <Input
             label="IGST (%)"
-            type="number"
-            min={0}
-            max={100}
+            fieldKind="percentage"
             value={form.igstRate}
             onChange={(e) => update('igstRate', Number(e.target.value))}
           />
@@ -820,15 +812,15 @@ function EmailSettingPanel({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Input label="From name" value={form.fromName} onChange={(e) => update('fromName', e.target.value)} />
-        <Input label="From email" type="email" value={form.fromEmail} onChange={(e) => update('fromEmail', e.target.value)} />
+        <Input label="From email" fieldKind="email" value={form.fromEmail} onChange={(e) => update('fromEmail', e.target.value)} />
         <Input label="SMTP host" value={form.smtpHost} onChange={(e) => update('smtpHost', e.target.value)} />
         <Input
           label="SMTP port"
-          type="number"
+          fieldKind="port"
           value={form.smtpPort}
           onChange={(e) => update('smtpPort', Number(e.target.value))}
         />
-        <Input label="SMTP username" value={form.smtpUser} onChange={(e) => update('smtpUser', e.target.value)} />
+        <Input label="SMTP username" fieldKind="email" value={form.smtpUser} onChange={(e) => update('smtpUser', e.target.value)} />
       </div>
 
       <SettingToggle
@@ -1131,7 +1123,14 @@ function AgreementPanel({
                 <Input
                   key={field.key}
                   label={field.label}
-                  type={field.key === 'effective_date' ? 'date' : 'text'}
+                  fieldKind={
+                    field.key === 'company_email'
+                      ? 'email'
+                      : field.key === 'company_phone'
+                        ? 'phone'
+                        : undefined
+                  }
+                  type={field.key === 'effective_date' ? 'date' : undefined}
                   value={form.fieldValues[field.key as keyof AgreementFieldValues]}
                   onChange={(e) =>
                     update({

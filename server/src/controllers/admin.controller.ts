@@ -52,6 +52,13 @@ export const updateInvoice = wrap((req) =>
 export const duplicateInvoice = wrap((req) =>
   adminService.duplicateInvoice(req.companyId!, req.user!.userId, param(req.params.id))
 );
+export const deleteInvoice = wrap(async (req) => {
+  await adminService.deleteInvoice(req.companyId!, param(req.params.id));
+});
+export const shareInvoice = wrap((req) =>
+  adminService.shareInvoice(req.companyId!, req.user!.userId, param(req.params.id), req.body)
+);
+export const getSharedInvoices = wrap((req) => adminService.getSharedInvoices(req.companyId!));
 export const getReports = wrap((req) =>
   adminService.getReports(req.companyId!, param(req.params.type), req.query)
 );

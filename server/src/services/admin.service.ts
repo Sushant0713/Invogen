@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { UserRole, EMPLOYEE_DEFAULT_PERMISSIONS } from '@invogen/shared';
 import {
@@ -357,6 +358,103 @@ export const adminService = {
       terms: obj.terms,
       createdBy: userId,
     });
+  },
+
+  async deleteInvoice(companyId: string, id: string) {
+    const invoice = await Invoice.findOneAndDelete({ _id: id, companyId });
+    if (!invoice) throw new AppError('Invoice not found', 404);
+    return { deleted: true };
+  },
+
+  async shareInvoice(
+    companyId: string,
+    userId: string,
+    id: string,
+    data: { recipientName?: string; recipientEmail?: string; method?: string }
+  ) {
+    const invoice = await Invoice.findOne({ _id: id, companyId });
+    if (!invoice) throw new AppError('Invoice not found', 404);
+
+    const method =
+      data.method === 'email' || data.method === 'whatsapp' ? data.method : 'link';
+    const token = crypto.randomBytes(24).toString('hex');
+    const share = {
+      token,
+      recipientName: data.recipientName?.trim() || undefined,
+      recipientEmail: data.recipientEmail?.trim() || undefined,
+      method,
+      sharedAt: new Date(),
+      sharedBy: new mongoose.Types.ObjectId(userId),
+    };
+
+    invoice.shares = [...(invoice.shares ?? []), share];
+    if (!invoice.sentAt) invoice.sentAt = new Date();
+    if (invoice.status === InvoiceStatus.DRAFT) invoice.status = InvoiceStatus.SENT;
+    await invoice.save();
+
+    return { token, share, invoiceNumber: invoice.invoiceNumber };
+  },
+
+  async getSharedInvoices(companyId: string) {
+    const invoices = await Invoice.find({
+      companyId,
+      'shares.0': { $exists: true },
+    })
+      .populate('customerId', 'name email')
+      .sort({ updatedAt: -1 })
+      .select('invoiceNumber customerSnapshot shares status sentAt createdAt');
+
+    type ShareRow = {
+      invoiceId: string;
+      invoiceNumber: string;
+      customerName: string;
+      recipientName: string;
+      recipientEmail: string;
+      method: string;
+      sharedAt: Date;
+      token: string;
+      status: string;
+    };
+
+    const rows: ShareRow[] = [];
+    for (const invoice of invoices) {
+      const customerName =
+        (invoice.customerSnapshot as { name?: string } | undefined)?.name
+        || (invoice.customerId as { name?: string } | undefined)?.name
+        || '-';
+      for (const share of invoice.shares ?? []) {
+        rows.push({
+          invoiceId: String(invoice._id),
+          invoiceNumber: invoice.invoiceNumber,
+          customerName,
+          recipientName: share.recipientName ?? '-',
+          recipientEmail: share.recipientEmail ?? '-',
+          method: share.method,
+          sharedAt: share.sharedAt,
+          token: share.token,
+          status: invoice.status,
+        });
+      }
+    }
+
+    rows.sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime());
+    return rows;
+  },
+
+  async getPublicInvoiceByToken(token: string) {
+    const invoice = await Invoice.findOne({ 'shares.token': token }).populate('companyId', 'name');
+    if (!invoice) throw new AppError('Invoice not found or link expired', 404);
+
+    const company = invoice.companyId as { name?: string } | null;
+    return {
+      invoiceNumber: invoice.invoiceNumber,
+      status: invoice.status,
+      templateSnapshot: invoice.templateSnapshot,
+      customerSnapshot: invoice.customerSnapshot,
+      totals: invoice.totals,
+      issueDate: invoice.issueDate,
+      companyName: company?.name ?? 'Company',
+    };
   },
 
   async getReports(companyId: string, type: string, query: Record<string, unknown>) {

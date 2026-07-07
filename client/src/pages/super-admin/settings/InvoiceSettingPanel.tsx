@@ -123,13 +123,13 @@ export function InvoiceSettingPanel({
               <Input label="Address line 2" value={form.seller.addressLine2} onChange={(e) => updateSeller('addressLine2', e.target.value)} className="sm:col-span-2" />
               <Input label="City" value={form.seller.city} onChange={(e) => updateSeller('city', e.target.value)} />
               <Input label="State" value={form.seller.state} onChange={(e) => updateSeller('state', e.target.value)} />
-              <Input label="ZIP code" value={form.seller.zipCode} onChange={(e) => updateSeller('zipCode', e.target.value)} />
+              <Input label="ZIP code" fieldKind="pincode" value={form.seller.zipCode} onChange={(e) => updateSeller('zipCode', e.target.value)} />
               <Input label="Country" value={form.seller.country} onChange={(e) => updateSeller('country', e.target.value)} />
-              <Input label="GSTIN" value={form.seller.gstin} onChange={(e) => updateSeller('gstin', e.target.value)} />
-              <Input label="PAN" value={form.seller.pan} onChange={(e) => updateSeller('pan', e.target.value)} />
-              <Input label="Email" type="email" value={form.seller.email} onChange={(e) => updateSeller('email', e.target.value)} />
-              <Input label="Phone" value={form.seller.phone} onChange={(e) => updateSeller('phone', e.target.value)} />
-              <Input label="Website" value={form.seller.website} onChange={(e) => updateSeller('website', e.target.value)} className="sm:col-span-2" />
+              <Input label="GSTIN" fieldKind="gstin" value={form.seller.gstin} onChange={(e) => updateSeller('gstin', e.target.value)} />
+              <Input label="PAN" fieldKind="pan" value={form.seller.pan} onChange={(e) => updateSeller('pan', e.target.value)} />
+              <Input label="Email" fieldKind="email" value={form.seller.email} onChange={(e) => updateSeller('email', e.target.value)} />
+              <Input label="Phone" fieldKind="phone" value={form.seller.phone} onChange={(e) => updateSeller('phone', e.target.value)} />
+              <Input label="Website" fieldKind="url" value={form.seller.website} onChange={(e) => updateSeller('website', e.target.value)} className="sm:col-span-2" />
             </div>
           </SectionCard>
 
@@ -137,9 +137,9 @@ export function InvoiceSettingPanel({
             <div className="grid gap-4 sm:grid-cols-2">
               <Input label="Bank name" value={form.bank.bankName} onChange={(e) => updateBank('bankName', e.target.value)} />
               <Input label="Account name" value={form.bank.accountName} onChange={(e) => updateBank('accountName', e.target.value)} />
-              <Input label="Account number" value={form.bank.accountNumber} onChange={(e) => updateBank('accountNumber', e.target.value)} />
-              <Input label="IFSC code" value={form.bank.ifscCode} onChange={(e) => updateBank('ifscCode', e.target.value)} />
-              <Input label="UPI ID" value={form.bank.upiId} onChange={(e) => updateBank('upiId', e.target.value)} className="sm:col-span-2" />
+              <Input label="Account number" fieldKind="account-number" value={form.bank.accountNumber} onChange={(e) => updateBank('accountNumber', e.target.value)} />
+              <Input label="IFSC code" fieldKind="ifsc" value={form.bank.ifscCode} onChange={(e) => updateBank('ifscCode', e.target.value)} />
+              <Input label="UPI ID" fieldKind="upi" value={form.bank.upiId} onChange={(e) => updateBank('upiId', e.target.value)} className="sm:col-span-2" />
             </div>
           </SectionCard>
 
@@ -179,7 +179,7 @@ export function InvoiceSettingPanel({
                 />
               </div>
               <Input label="Thank you note" value={form.thankYouNote} onChange={(e) => update('thankYouNote', e.target.value)} />
-              <Input label="Billing support email" type="email" value={form.billingSupportEmail} onChange={(e) => update('billingSupportEmail', e.target.value)} />
+              <Input label="Billing support email" fieldKind="email" value={form.billingSupportEmail} onChange={(e) => update('billingSupportEmail', e.target.value)} />
             </div>
           </SectionCard>
 
@@ -192,23 +192,19 @@ export function InvoiceSettingPanel({
               <Input label="Digital signature note" value={form.digitalSignatureNote} onChange={(e) => update('digitalSignatureNote', e.target.value)} className="sm:col-span-2" />
               <Input
                 label="Default discount (%)"
-                type="number"
-                min={0}
-                max={100}
+                fieldKind="percentage"
                 value={form.defaultDiscount}
                 onChange={(e) => update('defaultDiscount', Number(e.target.value))}
               />
               <Input
                 label="CGST rate (%)"
-                type="number"
-                min={0}
+                fieldKind="percentage"
                 value={form.cgstRate}
                 onChange={(e) => update('cgstRate', Number(e.target.value))}
               />
               <Input
                 label="SGST rate (%)"
-                type="number"
-                min={0}
+                fieldKind="percentage"
                 value={form.sgstRate}
                 onChange={(e) => update('sgstRate', Number(e.target.value))}
               />

@@ -12,6 +12,7 @@ export function ProductCellSelect({
   height,
   disabled,
   previewMode,
+  fullWidth,
   onChange,
 }: {
   value: string;
@@ -19,6 +20,7 @@ export function ProductCellSelect({
   height: number;
   disabled?: boolean;
   previewMode?: boolean;
+  fullWidth?: boolean;
   onChange: (productName: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -156,10 +158,15 @@ export function ProductCellSelect({
   if (previewMode || disabled) {
     return (
       <div
-        className="flex h-full items-center overflow-hidden px-2 text-xs text-gray-700"
-        style={{ width, height }}
+        className={`flex h-full items-start overflow-hidden px-2 py-1 text-xs text-gray-700 ${
+          fullWidth ? 'w-full' : ''
+        }`}
+        style={fullWidth ? { minHeight: height } : { width, height }}
+        title={value || undefined}
       >
-        <span className="truncate">{value || '\u00a0'}</span>
+        <span className="block w-full min-w-0 whitespace-pre-wrap break-words">
+          {value || '\u00a0'}
+        </span>
       </div>
     );
   }
@@ -321,7 +328,11 @@ export function ProductCellSelect({
     : null;
 
   return (
-    <div ref={rootRef} className="relative shrink-0" style={{ width, height }}>
+    <div
+      ref={rootRef}
+      className={`relative shrink-0 ${fullWidth ? 'w-full' : ''}`}
+      style={fullWidth ? { minHeight: height } : { width, height }}
+    >
       <div
         className="flex h-full w-full items-center gap-0.5 overflow-hidden px-1.5"
         onPointerDown={(e) => e.stopPropagation()}

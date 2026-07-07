@@ -446,16 +446,15 @@ export default function SuperAdminClients() {
               </div>
               <Input
                 label="Email"
-                type="email"
+                fieldKind="email"
                 required
                 value={createForm.email}
                 onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
               />
               <Input
                 label="Password"
-                type="password"
+                fieldKind="password-new"
                 required
-                minLength={8}
                 value={createForm.password}
                 onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
               />

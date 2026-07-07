@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Loader } from '@/components/ui/Loader';
+import { inferFieldKind, type FieldKind } from '@/lib/form-fields';
 import { toast } from 'sonner';
 
 function CrudPage({
@@ -18,7 +19,7 @@ function CrudPage({
   endpoint: string;
   queryKey: string;
   columns: { key: string; label: string; render?: (r: Record<string, unknown>) => React.ReactNode }[];
-  fields: { name: string; label: string; type?: string }[];
+  fields: { name: string; label: string; type?: string; fieldKind?: FieldKind }[];
   title: string;
 }) {
   const [showForm, setShowForm] = useState(false);
@@ -65,15 +66,19 @@ function CrudPage({
             onSubmit={(e) => { e.preventDefault(); createMutation.mutate(form); }}
             className="grid md:grid-cols-2 gap-4"
           >
-            {fields.map((f) => (
-              <Input
-                key={f.name}
-                label={f.label}
-                type={f.type || 'text'}
-                value={form[f.name] || ''}
-                onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
-              />
-            ))}
+            {fields.map((f) => {
+              const fieldKind = f.fieldKind ?? inferFieldKind(f.name);
+              return (
+                <Input
+                  key={f.name}
+                  label={f.label}
+                  fieldKind={fieldKind}
+                  type={f.type}
+                  value={form[f.name] || ''}
+                  onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
+                />
+              );
+            })}
             <div className="md:col-span-2">
               <Button type="submit" loading={createMutation.isPending}>Save</Button>
             </div>
@@ -109,8 +114,8 @@ export default function AdminEmployees() {
       fields={[
         { name: 'firstName', label: 'First Name' },
         { name: 'lastName', label: 'Last Name' },
-        { name: 'email', label: 'Email', type: 'email' },
-        { name: 'password', label: 'Password', type: 'password' },
+        { name: 'email', label: 'Email', fieldKind: 'email' },
+        { name: 'password', label: 'Password', fieldKind: 'password-new' },
         { name: 'department', label: 'Department' },
         { name: 'designation', label: 'Designation' },
       ]}
@@ -134,9 +139,9 @@ export function AdminCustomers() {
       title="Customer"
       fields={[
         { name: 'name', label: 'Name' },
-        { name: 'email', label: 'Email', type: 'email' },
-        { name: 'phone', label: 'Phone' },
-        { name: 'gst', label: 'GST Number' },
+        { name: 'email', label: 'Email', fieldKind: 'email' },
+        { name: 'phone', label: 'Phone', fieldKind: 'phone' },
+        { name: 'gst', label: 'GST Number', fieldKind: 'gstin' },
       ]}
       columns={[
         { key: 'name', label: 'Name' },
@@ -157,8 +162,8 @@ export function AdminProducts() {
       fields={[
         { name: 'name', label: 'Name' },
         { name: 'sku', label: 'SKU' },
-        { name: 'price', label: 'Price', type: 'number' },
-        { name: 'hsn', label: 'HSN' },
+        { name: 'price', label: 'Price', fieldKind: 'price' },
+        { name: 'hsn', label: 'HSN', fieldKind: 'hsn' },
         { name: 'category', label: 'Category' },
       ]}
       columns={[

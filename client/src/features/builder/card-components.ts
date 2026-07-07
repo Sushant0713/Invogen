@@ -8,6 +8,47 @@ export type CardFieldDef = {
   prefix?: string;
 };
 
+export interface CardCustomField {
+  id: string;
+  label: string;
+  value: string;
+}
+
+const PLACEHOLDER_TOKEN_RE = /^\{\{\w+\}\}$/;
+
+export function isUnresolvedCardPlaceholder(value: string): boolean {
+  const trimmed = value.trim();
+  return !trimmed || PLACEHOLDER_TOKEN_RE.test(trimmed);
+}
+
+export function parseCardCustomFields(raw: unknown): CardCustomField[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const id = typeof row.id === 'string' ? row.id : '';
+      const label = typeof row.label === 'string' ? row.label : '';
+      const value = typeof row.value === 'string' ? row.value : '';
+      if (!id) return null;
+      return { id, label, value };
+    })
+    .filter((item): item is CardCustomField => item !== null);
+}
+
+export function parseHiddenCardFields(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+export function createCardCustomField(label = 'New field'): CardCustomField {
+  return {
+    id: crypto.randomUUID(),
+    label,
+    value: '',
+  };
+}
+
 export const CARD_COMPONENT_TYPES = [
   ComponentType.COMPANY_CARD,
   ComponentType.CUSTOMER_CARD,
@@ -58,13 +99,25 @@ export function getCardFieldDefs(type: string): CardFieldDef[] {
   }
 }
 
+export function getCardFieldDef(type: string, key: string): CardFieldDef | undefined {
+  return getCardFieldDefs(type).find((field) => field.key === key);
+}
+
+export function getCardVisibleFieldDefs(type: string, props: Record<string, unknown>): CardFieldDef[] {
+  const hidden = new Set(parseHiddenCardFields(props.hiddenFields));
+  return getCardFieldDefs(type).filter((field) => !hidden.has(field.key));
+}
+
 export function getCardFieldValue(
   props: Record<string, unknown>,
   key: string,
   placeholder: string
 ): string {
   const raw = props[key];
-  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'string') {
+    if (isUnresolvedCardPlaceholder(raw)) return placeholder;
+    return raw;
+  }
   return placeholder;
 }
 
@@ -77,36 +130,59 @@ export function getCardDefaultProps(type: string): Record<string, unknown> {
   return out;
 }
 
-export type CardDisplayLine = { text: string; bold?: boolean };
+export type CardDisplayLine = { text: string; bold?: boolean; isPlaceholder?: boolean };
 
 export function getCardDisplayLines(
   type: string,
-  props: Record<string, unknown>
+  props: Record<string, unknown>,
+  options?: { customValuePlaceholder?: (label: string) => string }
 ): CardDisplayLine[] {
-  const defs = getCardFieldDefs(type);
-  if (!defs.length) return [];
+  const defs = getCardVisibleFieldDefs(type, props);
+  if (!defs.length && !parseCardCustomFields(props.customFields).length) return [];
 
   const lines: CardDisplayLine[] = [];
   const titleDef = defs.find((f) => f.key === 'title');
   if (titleDef) {
+    const raw = props[titleDef.key];
     const title = getCardFieldValue(props, titleDef.key, titleDef.placeholder);
-    if (title.trim()) lines.push({ text: title, bold: true });
+    if (title.trim()) {
+      lines.push({
+        text: title,
+        bold: true,
+        isPlaceholder: typeof raw === 'string' && isUnresolvedCardPlaceholder(raw),
+      });
+    }
   }
 
   for (const field of defs) {
     if (field.key === 'title') continue;
+    const raw = props[field.key];
     const value = getCardFieldValue(props, field.key, field.placeholder);
     if (!value.trim()) continue;
 
+    const isPlaceholder = typeof raw === 'string' && isUnresolvedCardPlaceholder(raw);
+
     if (field.multiline) {
       for (const line of value.split('\n')) {
-        if (line.trim()) lines.push({ text: line });
+        if (line.trim()) lines.push({ text: line, isPlaceholder });
       }
       continue;
     }
 
     const text = field.prefix ? `${field.prefix}${value}` : value;
-    lines.push({ text });
+    lines.push({ text, isPlaceholder });
+  }
+
+  const customFields = parseCardCustomFields(props.customFields);
+  for (const field of customFields) {
+    const label = field.label.trim() || 'New field';
+    const value = field.value.trim();
+    const sample = options?.customValuePlaceholder?.(label) ?? 'Enter value';
+    const displayValue = value || sample;
+    lines.push({
+      text: `${label}: ${displayValue}`,
+      isPlaceholder: !value,
+    });
   }
 
   return lines;

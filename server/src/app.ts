@@ -13,6 +13,7 @@ import adminRoutes from './routes/admin.routes';
 import employeeRoutes from './routes/employee.routes';
 import webhookRoutes from './routes/webhook.routes';
 import uploadRoutes from './routes/upload.routes';
+import publicRoutes from './routes/public.routes';
 import { enforceMaintenanceMode } from './middlewares/maintenance.middleware';
 
 const app = express();
@@ -49,6 +50,7 @@ app.use('/api/v1/admin', enforceMaintenanceMode, adminRoutes);
 app.use('/api/v1/employee', enforceMaintenanceMode, employeeRoutes);
 app.use('/api/v1/webhooks', webhookRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
+app.use('/api/v1/public', publicRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -55,7 +55,16 @@ export const adminNav: NavItem[] = [
   { label: 'Employees', path: '/admin/employees', icon: Users },
   { label: 'Customers', path: '/admin/customers', icon: Building2 },
   { label: 'Products', path: '/admin/products', icon: Package },
-  { label: 'Invoices', path: '/admin/invoices', icon: Receipt },
+  {
+    label: 'Invoices',
+    path: '/admin/invoices',
+    icon: Receipt,
+    children: [
+      { label: 'All Invoices', path: '/admin/invoices' },
+      { label: 'Shared Invoices', path: '/admin/invoices/shared' },
+      { label: 'New Invoice', path: '/admin/invoices/new' },
+    ],
+  },
   {
     label: 'Templates',
     path: '/admin/templates',

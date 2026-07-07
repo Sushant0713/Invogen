@@ -12,3 +12,21 @@ export const getTemplate = wrap((req) => employeeService.getTemplate(req.company
 export const createInvoice = wrap((req) =>
   employeeService.createInvoice(req.companyId!, req.user!.userId, req.body)
 );
+export const getInvoice = wrap((req) =>
+  employeeService.getInvoice(req.companyId!, req.user!.userId, param(req.params.id))
+);
+export const updateInvoice = wrap((req) =>
+  employeeService.updateInvoice(req.companyId!, req.user!.userId, param(req.params.id), req.body)
+);
+export const duplicateInvoice = wrap((req) =>
+  employeeService.duplicateInvoice(req.companyId!, req.user!.userId, param(req.params.id))
+);
+export const deleteInvoice = wrap(async (req) => {
+  await employeeService.deleteInvoice(req.companyId!, req.user!.userId, param(req.params.id));
+});
+export const shareInvoice = wrap((req) =>
+  employeeService.shareInvoice(req.companyId!, req.user!.userId, param(req.params.id), req.body)
+);
+export const getSharedInvoices = wrap((req) =>
+  employeeService.getSharedInvoices(req.companyId!, req.user!.userId)
+);

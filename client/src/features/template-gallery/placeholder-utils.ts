@@ -81,6 +81,10 @@ export function extractPlaceholderKeys(pages: TemplatePage[]): string[] {
 
 export const PLACEHOLDER_FIELD_LABELS: Record<string, string> = {
   CompanyName: 'Company name',
+  CompanyAddress: 'Company address',
+  CompanyEmail: 'Company email',
+  CompanyPhone: 'Company phone',
+  CompanyGST: 'Company GSTIN',
   ClientName: 'Customer name',
   InvoiceNumber: 'Invoice number',
   Date: 'Invoice date',

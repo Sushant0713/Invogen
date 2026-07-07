@@ -110,11 +110,13 @@ export default function AdminSettings() {
         />
         <Input
           label="GST Number"
+          fieldKind="gstin"
           value={form.gst}
           onChange={(e) => setForm({ ...form, gst: e.target.value })}
         />
         <Input
           label="PAN Number"
+          fieldKind="pan"
           value={form.pan}
           onChange={(e) => setForm({ ...form, pan: e.target.value })}
         />
@@ -184,17 +186,13 @@ export default function AdminSettings() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
               label="CGST (%)"
-              type="number"
-              min={0}
-              max={100}
+              fieldKind="percentage"
               value={taxForm.cgstRate}
               onChange={(e) => updateTax('cgstRate', Number(e.target.value))}
             />
             <Input
               label="SGST (%)"
-              type="number"
-              min={0}
-              max={100}
+              fieldKind="percentage"
               value={taxForm.sgstRate}
               onChange={(e) => updateTax('sgstRate', Number(e.target.value))}
             />
@@ -202,9 +200,7 @@ export default function AdminSettings() {
         ) : (
           <Input
             label="GST (%)"
-            type="number"
-            min={0}
-            max={100}
+            fieldKind="percentage"
             value={taxForm.gstRate}
             onChange={(e) => updateTax('gstRate', Number(e.target.value))}
           />

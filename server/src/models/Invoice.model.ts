@@ -15,6 +15,15 @@ export interface IRecurringConfig {
   endDate?: Date;
 }
 
+export interface IInvoiceShare {
+  token: string;
+  recipientName?: string;
+  recipientEmail?: string;
+  method: 'email' | 'whatsapp' | 'link';
+  sharedAt: Date;
+  sharedBy: mongoose.Types.ObjectId;
+}
+
 export interface IInvoice extends Document {
   companyId: mongoose.Types.ObjectId;
   invoiceNumber: string;
@@ -38,6 +47,7 @@ export interface IInvoice extends Document {
   createdBy: mongoose.Types.ObjectId;
   sentAt?: Date;
   paidAt?: Date;
+  shares?: IInvoiceShare[];
 }
 
 const lineItemSchema = new Schema(
@@ -89,6 +99,16 @@ const invoiceSchema = new Schema<IInvoice>(
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     sentAt: Date,
     paidAt: Date,
+    shares: [
+      {
+        token: { type: String, required: true },
+        recipientName: String,
+        recipientEmail: String,
+        method: { type: String, enum: ['email', 'whatsapp', 'link'], default: 'link' },
+        sharedAt: { type: Date, default: Date.now },
+        sharedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -96,5 +116,6 @@ const invoiceSchema = new Schema<IInvoice>(
 invoiceSchema.index({ companyId: 1, createdAt: -1 });
 invoiceSchema.index({ companyId: 1, invoiceNumber: 1 }, { unique: true });
 invoiceSchema.index({ status: 1 });
+invoiceSchema.index({ 'shares.token': 1 });
 
 export const Invoice = mongoose.model<IInvoice>('Invoice', invoiceSchema);

@@ -10,6 +10,7 @@ import {
 } from '@/features/template-gallery/placeholder-utils';
 import { applyInvoiceFormToPages } from '@/features/invoice-composer/apply-invoice-form';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
+import { reflowPagesForPreview, measurePreviewPageContentHeight } from '@/features/builder/preview-page-reflow';
 import {
   type CompanyBrandingScope,
 } from '@/features/builder/company-branding';
@@ -28,9 +29,23 @@ interface TemplatePreviewPagesProps {
   className?: string;
   /** Tables on pages are already recalculated (invoice composer). */
   trustTableProps?: boolean;
+  /** Enable product picker and other table cell edits in scaled live preview. */
+  editableTables?: boolean;
+  onTableCellChange?: (
+    pageId: string,
+    elementId: string,
+    rowId: string,
+    columnId: string,
+    value: string
+  ) => void;
 }
 
-function renderPageElements(page: TemplatePage, trustTableProps = false) {
+function renderPageElements(
+  page: TemplatePage,
+  trustTableProps = false,
+  editableTables = false,
+  onTableCellChange?: TemplatePreviewPagesProps['onTableCellChange']
+) {
   return sortByLayer(page.elements)
     .filter((element) => element.visible !== false)
     .map((element) => (
@@ -57,6 +72,12 @@ function renderPageElements(page: TemplatePage, trustTableProps = false) {
             isSelected={false}
             previewMode
             trustTableProps={trustTableProps}
+            onTableCellChange={
+              editableTables && onTableCellChange
+                ? (rowId, columnId, value) =>
+                    onTableCellChange(page.id, element.id, rowId, columnId, value)
+                : undefined
+            }
             onSelect={() => {}}
           />
         </div>
@@ -73,20 +94,25 @@ export function TemplatePreviewPages({
   pageRefs,
   className = '',
   trustTableProps = false,
+  editableTables = false,
+  onTableCellChange,
 }: TemplatePreviewPagesProps) {
   const renderPages = useMemo(() => {
-    if (placeholderContext) return applyInvoiceFormToPages(pages, placeholderContext);
-    if (useSampleData) return applyPlaceholdersToPages(pages, SAMPLE_PREVIEW_CONTEXT);
-    return pages;
+    let resolved = pages;
+    if (placeholderContext) resolved = applyInvoiceFormToPages(pages, placeholderContext);
+    else if (useSampleData) resolved = applyPlaceholdersToPages(pages, SAMPLE_PREVIEW_CONTEXT);
+    return reflowPagesForPreview(resolved);
   }, [pages, placeholderContext, useSampleData]);
 
   return (
     <div className={`flex flex-col items-center gap-8 ${className}`}>
       {renderPages.map((page, index) => {
         const { width, height } = getPageDimensions(page);
+        const contentHeight = measurePreviewPageContentHeight(page);
+        const pageHeight = Math.max(height, contentHeight);
         const scale = previewMaxWidth ? previewMaxWidth / width : 1;
         const scaledW = Math.round(width * scale);
-        const scaledH = Math.round(height * scale);
+        const scaledH = Math.round(pageHeight * scale);
 
         if (previewMaxWidth) {
           return (
@@ -97,14 +123,16 @@ export function TemplatePreviewPages({
                 style={{ width: scaledW, height: scaledH }}
               >
                 <div
-                  className="pointer-events-none absolute left-0 top-0 origin-top-left bg-white"
+                  className={`absolute left-0 top-0 origin-top-left bg-white ${
+                    editableTables ? '' : 'pointer-events-none'
+                  }`}
                   style={{
                     width,
-                    height,
+                    height: pageHeight,
                     transform: `scale(${scale})`,
                   }}
                 >
-                  {renderPageElements(page, trustTableProps)}
+                  {renderPageElements(page, trustTableProps, editableTables, onTableCellChange)}
                 </div>
               </div>
             </div>
@@ -119,9 +147,9 @@ export function TemplatePreviewPages({
             }}
             data-template-preview-page={page.id}
             className="relative bg-white"
-            style={{ width, height }}
+            style={{ width, height: pageHeight }}
           >
-            {renderPageElements(page, trustTableProps)}
+            {renderPageElements(page, trustTableProps, editableTables, onTableCellChange)}
           </div>
         );
       })}

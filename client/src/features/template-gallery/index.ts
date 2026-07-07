@@ -10,6 +10,7 @@ export {
   getCachedTemplate,
   primeTemplateCache,
   invalidateTemplateCache,
+  publishSavedTemplateDocument,
 } from './template-loader';
 export {
   getFavoriteTemplateIds,

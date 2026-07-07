@@ -1,13 +1,19 @@
 import {
   type ProductTableProps,
+  type ProductTableColumn,
   computeTableHeight,
+  fitTableLayoutForPreview,
   getDisplayTableTotalWidth,
+  isTableElementType,
+  productTablePropsToRecord,
   scaleTableLayout,
   MIN_COL_WIDTH_PX,
   MIN_ROW_HEIGHT_PX,
 } from './product-table';
-import { isInvoiceTable2Type, computeInvoiceTable2Height } from './invoice-table-2';
-import { isInvoiceTable3Type, computeInvoiceTable3Height } from './invoice-table-3';
+import { isInvoiceTable1Type, getVisibleInvoiceColumns } from './invoice-table';
+import { isInvoiceTable2Type, computeInvoiceTable2Height, getVisibleInvoice2Columns } from './invoice-table-2';
+import { isInvoiceTable3Type, computeInvoiceTable3Height, getVisibleInvoice3Columns } from './invoice-table-3';
+import { normalizeTablePropsForType } from './table-props-normalize';
 
 export function resolveTableElementSize(
   elementType: string | undefined,
@@ -21,6 +27,34 @@ export function resolveTableElementSize(
     height = computeInvoiceTable3Height(props);
   }
   return { width, height };
+}
+
+function tableDisplayColumns(elementType: string, table: ProductTableProps): ProductTableColumn[] {
+  if (isInvoiceTable1Type(elementType)) return getVisibleInvoiceColumns(table.columns);
+  if (isInvoiceTable2Type(elementType)) return getVisibleInvoice2Columns(table.columns);
+  if (isInvoiceTable3Type(elementType)) return getVisibleInvoice3Columns(table.columns);
+  return table.columns.filter((col) => col.visible !== false);
+}
+
+/** Fitted table layout for live preview (column widths, row heights, headers). */
+export function resolvePreviewTableFittedLayout(
+  elementType: string,
+  containerWidthPx: number,
+  rawProps: Record<string, unknown>
+): { width: number; height: number; tableProps: Record<string, unknown> } {
+  const table = normalizeTablePropsForType(elementType, rawProps);
+  const displayColumns = tableDisplayColumns(elementType, table);
+  const base =
+    displayColumns === table.columns
+      ? table
+      : { ...table, columns: displayColumns };
+  const fitted = fitTableLayoutForPreview(base, Math.max(1, containerWidthPx));
+  const size = resolveTableElementSize(elementType, fitted);
+  return {
+    width: size.width,
+    height: size.height,
+    tableProps: productTablePropsToRecord(fitted),
+  };
 }
 
 /** Keep table layout and box inside the template content area (inside page margins). */

@@ -1,6 +1,6 @@
 import { InvoiceComposer } from '@/features/invoice-composer/InvoiceComposer';
 
-export default function EmployeeInvoiceComposerPage() {
+export default function EmployeeInvoiceEditPage() {
   return (
     <InvoiceComposer
       config={{

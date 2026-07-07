@@ -1,17 +1,43 @@
-import { forwardRef, useState, type InputHTMLAttributes } from 'react';
+import { forwardRef, useState, type ChangeEvent, type InputHTMLAttributes } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  getFieldInputProps,
+  normalizeFieldInput,
+  type FieldKind,
+} from '@/lib/form-fields';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  /** Applies correct type, inputMode, pattern, autocomplete, and input normalization. */
+  fieldKind?: FieldKind;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, id, type, ...props }, ref) => {
+  ({ className, label, error, id, type, fieldKind, onChange, ...props }, ref) => {
     const [showPassword, setShowPassword] = useState(false);
-    const isPassword = type === 'password';
+    const kindProps = fieldKind ? getFieldInputProps(fieldKind) : {};
+    const resolvedType = type ?? kindProps.type ?? 'text';
+    const isPassword = resolvedType === 'password';
     const inputId = id || label?.toLowerCase().replace(/\s/g, '-');
+
+    const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+      if (fieldKind) {
+        const normalized = normalizeFieldInput(fieldKind, e.target.value);
+        if (normalized !== e.target.value) {
+          onChange?.({
+            ...e,
+            target: { ...e.target, value: normalized },
+            currentTarget: { ...e.currentTarget, value: normalized },
+          });
+          return;
+        }
+      }
+      onChange?.(e);
+    };
+
+    const { type: _kindType, onChange: _kindOnChange, ...restKindProps } = kindProps;
 
     return (
       <div className="space-y-1.5">
@@ -24,7 +50,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
-            type={isPassword && showPassword ? 'text' : type}
             className={cn(
               'w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 text-sm transition-all',
               'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
@@ -32,7 +57,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               isPassword && 'pr-11',
               className
             )}
+            {...restKindProps}
             {...props}
+            type={isPassword && showPassword ? 'text' : resolvedType}
+            onChange={handleChange}
           />
           {isPassword && (
             <button

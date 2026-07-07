@@ -1,16 +1,16 @@
 import { InvoiceComposer } from '@/features/invoice-composer/InvoiceComposer';
 
-export default function AdminInvoiceComposerPage() {
+export default function AdminInvoiceEditPage() {
   return (
     <InvoiceComposer
       config={{
         apiBase: '/admin',
         templatesApi: '/admin/templates',
         customersApi: '/admin/customers',
-        companyApi: '/admin/company',
         invoicesApi: '/admin/invoices',
         invoicesListQueryKey: ['admin-invoices'],
         sharesQueryKey: ['admin-invoice-shares'],
+        companyApi: '/admin/company',
         invoicesListPath: '/admin/invoices',
         templatePickPath: '/admin/invoices/new',
         composerPath: '/admin/invoices/new/:templateId',

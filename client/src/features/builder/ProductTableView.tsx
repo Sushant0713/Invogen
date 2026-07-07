@@ -29,6 +29,8 @@ import {
   getDisplayTableTotalWidth,
   getScaledColumnWidths,
   productTablePropsToRecord,
+  fitTableLayoutForPreview,
+  isTableWrapFriendlyColumn,
   tableCellRefKey,
   updateCell,
   updateColumnLabel,
@@ -84,6 +86,7 @@ import {
   getInvoice3GrandTotalFormatted,
   getInvoice3TotalFooterGap,
   getInvoice3TotalFooterHeight,
+  INVOICE3_COL_TOTAL,
   type InvoiceTable3Props,
 } from './invoice-table-3';
 import { resolveTableElementSize } from './table-element-size';
@@ -200,6 +203,8 @@ interface ProductTableViewProps {
   previewMode?: boolean;
   /** Invoice composer passes pre-calculated table props — skip preview re-normalize/recalc. */
   trustTableProps?: boolean;
+  /** Composer live preview: persist cell edits without Redux. */
+  onTableCellChange?: (rowId: string, columnId: string, value: string) => void;
   locked?: boolean;
   isSelected?: boolean;
   interactionMode?: CanvasInteractionMode;
@@ -267,6 +272,8 @@ interface TableCellProps {
   staticText?: boolean;
   editorClassName?: string;
   forceTextAlign?: 'left' | 'right' | 'center';
+  /** When false, preview shows a single truncated line (qty, rate, totals, etc.). */
+  wrapText?: boolean;
   onLiveChange?: (value: string) => void;
   onCommit: (value: string, options?: { recordHistory?: boolean }) => void;
   /** When false, keystrokes only call onLiveChange; commit happens on blur. */
@@ -288,6 +295,7 @@ function TableCell({
   staticText = false,
   editorClassName,
   forceTextAlign,
+  wrapText = true,
   onLiveChange,
   onCommit,
   commitOnInput = true,
@@ -335,22 +343,34 @@ function TableCell({
   const isComputed = (readOnly || staticText) && !isHeaderRow;
 
   if (previewMode || staticText) {
+    const compact = !wrapText;
     return (
       <div
         className="builder-table-cell box-border shrink-0 overflow-hidden"
-        style={{ width, height, borderRight, borderBottom }}
+        style={{
+          width,
+          height,
+          borderRight,
+          borderBottom,
+        }}
       >
         <div
           ref={editorRef}
-          className={`builder-table-cell-editor flex h-full min-h-0 w-full items-center overflow-hidden px-2 py-1 outline-none ${
-            isHeaderRow ? 'font-semibold' : ''
-          } ${editorClassName ?? ''} ${isComputed ? 'bg-gray-50 text-gray-700' : ''} ${
-            isCellSelected ? 'bg-primary/10 ring-1 ring-inset ring-primary/35' : ''
-          }`}
+          className={`builder-table-cell-editor flex w-full h-full min-h-0 px-2 py-1 outline-none ${
+            compact ? 'items-center' : 'items-start'
+          } ${isHeaderRow ? 'font-semibold' : ''} ${editorClassName ?? ''} ${
+            isComputed ? 'bg-gray-50 text-gray-700' : ''
+          } ${isCellSelected ? 'bg-primary/10 ring-1 ring-inset ring-primary/35' : ''}`}
           style={{
             ...cellTextStyle(style, !!isHeaderRow),
+            whiteSpace: compact ? 'nowrap' : 'pre-wrap',
+            wordBreak: compact ? 'normal' : 'break-word',
+            overflowWrap: compact ? undefined : 'anywhere',
+            overflow: compact ? 'hidden' : 'hidden',
+            textOverflow: compact ? 'ellipsis' : undefined,
             cursor: ctx?.locked || previewMode ? 'default' : 'cell',
           }}
+          title={compact && text ? text : undefined}
           onPointerDown={(e) => {
             if (!ctx || ctx.locked || previewMode) return;
             if (ctx.interactionMode === 'move') return;
@@ -365,9 +385,9 @@ function TableCell({
           onClick={(e) => e.stopPropagation()}
         >
           <span
-            className={`block w-full truncate ${
+            className={`block w-full min-w-0 ${compact ? 'truncate' : ''} ${
               forceTextAlign === 'right' ? 'text-right tabular-nums' : ''
-            }`}
+            } ${forceTextAlign === 'center' ? 'text-center' : ''}`}
           >
             {text || '\u00a0'}
           </span>
@@ -470,6 +490,7 @@ export function ProductTableView({
   containerHeight,
   previewMode = false,
   trustTableProps = false,
+  onTableCellChange,
   locked = false,
   isSelected = false,
   interactionMode = 'move',
@@ -511,6 +532,7 @@ export function ProductTableView({
   const isInvoiceTable3 = isInvoiceTable3Type(resolvedElementType);
   const isInvoiceLineTable = isInvoiceTable2 || isInvoiceTable3;
   const taxSettings = useTaxSettings();
+  const productPickerInteractive = !previewMode || !!onTableCellChange;
 
   useEffect(() => {
     pendingEditsRef.current = pendingCellEdits;
@@ -609,13 +631,23 @@ export function ProductTableView({
     return safeColumns;
   }, [isInvoiceTable1, isInvoiceTable2, isInvoiceTable3, safeColumns]);
 
-  const displayTable = useMemo(
-    () =>
+  const displayTable = useMemo(() => {
+    const base =
       displayColumns === safeColumns
         ? { ...table, columns: safeColumns, rows: safeRows }
-        : { ...table, columns: displayColumns, rows: safeRows },
-    [displayColumns, safeColumns, safeRows, table]
-  );
+        : { ...table, columns: displayColumns, rows: safeRows };
+    if (!previewMode) return base;
+    return fitTableLayoutForPreview(base, containerWidth);
+  }, [
+    displayColumns,
+    safeColumns,
+    safeRows,
+    table,
+    previewMode,
+    containerWidth,
+  ]);
+
+  const displayRows = Array.isArray(displayTable.rows) ? displayTable.rows : [];
 
   const tableCellFocusOrder = useMemo(
     () =>
@@ -626,8 +658,8 @@ export function ProductTableView({
   );
 
   const fittedElementSize = useMemo(
-    () => resolveTableElementSize(elementType, table),
-    [elementType, table]
+    () => resolveTableElementSize(elementType, previewMode ? displayTable : table),
+    [elementType, table, displayTable, previewMode]
   );
 
   const visibleColumnKey = useMemo(
@@ -689,13 +721,16 @@ export function ProductTableView({
     containerHeight,
   ]);
 
-  const intrinsicWidth = Math.max(getDisplayTableTotalWidth(table), 1);
+  const layoutTable = previewMode ? displayTable : table;
+  const intrinsicWidth = Math.max(getDisplayTableTotalWidth(layoutTable), 1);
   const intrinsicHeight = Math.max(fittedElementSize.height, 1);
-  const scale = Math.min(
-    containerWidth / intrinsicWidth,
-    containerHeight / intrinsicHeight,
-    1
-  ) || 1;
+  const scale = previewMode
+    ? Math.min(containerWidth / intrinsicWidth, 1) || 1
+    : Math.min(
+        containerWidth / intrinsicWidth,
+        containerHeight / intrinsicHeight,
+        1
+      ) || 1;
 
   const borderStyle = getTableBorderCss(table, scale);
   const scaledColumnWidths = useMemo(
@@ -709,12 +744,12 @@ export function ProductTableView({
   );
   const renderedHeight = Math.round(intrinsicHeight * scale);
   const headerBackground = getTableHeaderBackground(table);
-  const lastRowIndex = safeRows.length - 1;
+  const lastRowIndex = displayRows.length - 1;
   const footerHeightPx = table.showGrandTotalFooter
     ? (table.grandTotalFooterHeightPx ?? DEFAULT_ROW_HEIGHT_PX)
     : 0;
   const grandTotalText = isInvoiceTable1
-    ? getInvoiceGrandTotalFormatted(safeRows, taxSettings, safeColumns, {
+    ? getInvoiceGrandTotalFormatted(displayRows, taxSettings, safeColumns, {
         discountMode: (table as InvoiceTableProps).discountMode ?? 'amount',
         taxDisplayMode: (table as InvoiceTableProps).taxDisplayMode ?? 'split',
       })
@@ -1160,7 +1195,7 @@ export function ProductTableView({
             <div
               className="relative flex shrink-0"
               style={{
-                height: table.headerHeightPx * scale,
+                height: layoutTable.headerHeightPx * scale,
                 backgroundColor: headerBackground,
               }}
             >
@@ -1181,10 +1216,11 @@ export function ProductTableView({
                     isHeaderRow
                     text={displayColumnLabel(col)}
                     width={scaledColumnWidths[colIndex]}
-                    height={table.headerHeightPx * scale}
+                    height={layoutTable.headerHeightPx * scale}
                     borderRight={borderStyle}
                     borderBottom={borderStyle}
                     previewMode={previewMode}
+                    wrapText
                     onCommit={(value, options) => {
                       // Keep user-entered names; only fall back when the header was never named.
                       const fallback = displayColumnLabel(col);
@@ -1203,10 +1239,10 @@ export function ProductTableView({
             </div>
           )}
 
-          {safeRows.map((row, rowIndex) => (
+          {displayRows.map((row, rowIndex) => (
             <div
               key={row.id}
-              className="relative flex shrink-0"
+              className="relative flex shrink-0 items-stretch"
               style={{ height: row.heightPx * scale }}
             >
               {displayColumns.map((col, colIndex) => {
@@ -1236,6 +1272,10 @@ export function ProductTableView({
                     : resolveCellDisplayText(row.id, col.id, row.cells, pendingCellEdits);
 
                 const commitProductValue = (value: string) => {
+                  if (onTableCellChange) {
+                    onTableCellChange(row.id, col.id, value);
+                    return;
+                  }
                   if (isInvoiceTable2) {
                     commitInvoice2Pending(
                       { rowId: row.id, columnId: col.id, value },
@@ -1280,7 +1320,7 @@ export function ProductTableView({
                         value={cellText}
                         width={scaledColumnWidths[colIndex]}
                         height={row.heightPx * scale}
-                        previewMode={previewMode}
+                        previewMode={!productPickerInteractive}
                         disabled={locked || interactionMode === 'move'}
                         onChange={commitProductValue}
                       />
@@ -1302,6 +1342,7 @@ export function ProductTableView({
                     previewMode={previewMode}
                     readOnly={computed}
                     staticText={computed}
+                    wrapText={previewMode ? !computed && !isSerial : isProduct || isTableWrapFriendlyColumn(col)}
                     forceTextAlign={isSerial ? 'center' : undefined}
                     onLiveChange={(value) => {
                       if (!isInvoiceEditableTable || computed) return;
@@ -1350,7 +1391,18 @@ export function ProductTableView({
 
           </div>
 
-          {showInvoice3TotalFooter && (
+          {showInvoice3TotalFooter && (() => {
+            const totalColIndex = displayColumns.findIndex((col) => col.id === INVOICE3_COL_TOTAL);
+            const leadingWidth =
+              totalColIndex > 0
+                ? scaledColumnWidths
+                    .slice(0, totalColIndex)
+                    .reduce((sum, widthPx) => sum + widthPx, 0)
+                : 0;
+            const totalColWidth =
+              totalColIndex >= 0 ? scaledColumnWidths[totalColIndex] : 96 * scale;
+
+            return (
             <>
               <div
                 className="shrink-0"
@@ -1358,30 +1410,38 @@ export function ProductTableView({
                 aria-hidden
               />
               <div
-                className="flex shrink-0 items-center justify-center"
+                className="flex shrink-0 items-center"
                 style={{
                   width: renderedWidth,
                   height: invoice3TotalFooterHeightPx * scale,
-                  gap: 8 * scale,
                   fontFamily: 'Inter, sans-serif',
                   fontSize: 12 * scale,
                   color: '#111827',
                 }}
               >
-                <span className="font-semibold whitespace-pre">{invoice3TotalFooterLabel}</span>
-                <span
-                  className="inline-block min-w-[6rem] font-semibold tabular-nums text-center"
-                  style={{
-                    minWidth: 96 * scale,
-                    paddingBottom: 2 * scale,
-                    borderBottom: borderStyle.replace(/^\d+(\.\d+)?px/, `${Math.max(2, table.borderWidth * scale)}px`),
-                  }}
+                <div style={{ width: leadingWidth }} aria-hidden />
+                <div
+                  className="flex h-full items-center justify-end gap-2 px-2"
+                  style={{ width: totalColWidth }}
                 >
-                  {invoice3GrandTotalText}
-                </span>
+                  <span className="font-semibold whitespace-nowrap">{invoice3TotalFooterLabel}</span>
+                  <span
+                    className="inline-block min-w-[4.5rem] font-semibold tabular-nums text-right"
+                    style={{
+                      paddingBottom: 2 * scale,
+                      borderBottom: borderStyle.replace(
+                        /^\d+(\.\d+)?px/,
+                        `${Math.max(2, table.borderWidth * scale)}px`
+                      ),
+                    }}
+                  >
+                    {invoice3GrandTotalText}
+                  </span>
+                </div>
               </div>
             </>
-          )}
+            );
+          })()}
 
           {showInvoice2Summary && invoice2SummaryLayout && (
             <>

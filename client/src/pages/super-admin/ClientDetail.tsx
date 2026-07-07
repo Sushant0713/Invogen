@@ -372,7 +372,7 @@ export default function ClientDetail() {
               </div>
               <Input
                 label="Email"
-                type="email"
+                fieldKind="email"
                 value={profileForm.email}
                 onChange={(e) => setProfileForm((f) => ({ ...f, email: e.target.value }))}
               />
@@ -416,23 +416,26 @@ export default function ClientDetail() {
               />
               <Input
                 label="Company email"
-                type="email"
+                fieldKind="email"
                 value={profileForm.companyEmail}
                 onChange={(e) => setProfileForm((f) => ({ ...f, companyEmail: e.target.value }))}
               />
               <Input
                 label="Phone"
+                fieldKind="phone"
                 value={profileForm.companyPhone}
                 onChange={(e) => setProfileForm((f) => ({ ...f, companyPhone: e.target.value }))}
               />
               <div className="grid grid-cols-2 gap-4">
                 <Input
                   label="GST"
+                  fieldKind="gstin"
                   value={profileForm.gst}
                   onChange={(e) => setProfileForm((f) => ({ ...f, gst: e.target.value }))}
                 />
                 <Input
                   label="PAN"
+                  fieldKind="pan"
                   value={profileForm.pan}
                   onChange={(e) => setProfileForm((f) => ({ ...f, pan: e.target.value }))}
                 />
