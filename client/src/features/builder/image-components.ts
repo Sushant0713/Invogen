@@ -104,7 +104,7 @@ export function normalizeImageProps(props: Record<string, unknown>): ImageProps 
 export function getImageDefaultProps(type: string): Record<string, unknown> {
   const base = {
     src: '',
-    objectFit: 'contain' as ImageObjectFit,
+    objectFit: (type === ComponentType.SIGNATURE ? 'fill' : 'contain') as ImageObjectFit,
     borderRadius: type === ComponentType.LOGO ? 4 : 0,
     flipX: false,
     flipY: false,

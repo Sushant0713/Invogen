@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { normalizeShowProductSku } from './product-settings';
 
 export type TableTextAlign = 'left' | 'center' | 'right' | 'justify';
 
@@ -52,6 +53,8 @@ export interface ProductTableProps {
   cellStyles?: Record<string, TableCellStyle>;
   showGrandTotalFooter?: boolean;
   grandTotalFooterHeightPx?: number;
+  /** When true, picked products show as "Name (SKU)" in the product column. */
+  showProductSku?: boolean;
 }
 
 export const DEFAULT_ROW_HEIGHT_PX = 32;
@@ -81,6 +84,18 @@ export function isSerialColumn(col: Pick<ProductTableColumn, 'columnType'>): boo
 
 export function isProductColumn(col: Pick<ProductTableColumn, 'columnType'>): boolean {
   return getColumnType(col) === 'product';
+}
+
+/** Product picker + free-text name (catalog or custom) for product/item columns. */
+export function isProductLikeColumn(
+  col: Pick<ProductTableColumn, 'id' | 'label' | 'columnType'>
+): boolean {
+  if (isProductColumn(col)) return true;
+  if (isSerialColumn(col)) return false;
+  const type = getColumnType(col);
+  if (type !== 'na' && type !== 'text') return false;
+  const token = `${col.id} ${col.label}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  return /\b(item|items|product|products|description|particular|service|name)\b/.test(token);
 }
 
 /** Text-heavy columns wrap in preview; numeric/amount columns stay on one line. */
@@ -163,13 +178,19 @@ function migrateColumnLabel(col: ProductTableColumn, columnType: TableColumnType
   return defaultLabelForColumnType(columnType);
 }
 
-function migrateColumn(col: ProductTableColumn & { widthPercent?: number }, index: number, totalWidth: number): ProductTableColumn {
+function migrateColumn(
+  col: ProductTableColumn & { widthPercent?: number },
+  index: number,
+  totalWidth: number
+): ProductTableColumn {
   const columnType = normalizeColumnType(col.columnType);
+  // Some older templates stored columns without ids; keep them stable across renders.
+  const id = String(col.id || `col_${index + 1}`);
   const visible = col.visible !== false;
   const label = migrateColumnLabel(col, columnType);
   if (typeof col.widthPx === 'number' && col.widthPx > 0) {
     return {
-      id: col.id,
+      id,
       label,
       widthPx: col.widthPx,
       visible,
@@ -178,7 +199,7 @@ function migrateColumn(col: ProductTableColumn & { widthPercent?: number }, inde
   }
   if (typeof col.widthPercent === 'number') {
     return {
-      id: col.id,
+      id,
       label,
       widthPx: Math.max(MIN_COL_WIDTH_PX, Math.round((col.widthPercent / 100) * totalWidth)),
       visible,
@@ -186,7 +207,7 @@ function migrateColumn(col: ProductTableColumn & { widthPercent?: number }, inde
     };
   }
   return {
-    id: col.id,
+    id,
     label,
     widthPx: Math.max(MIN_COL_WIDTH_PX, Math.floor(totalWidth / 4)),
     visible,
@@ -239,12 +260,39 @@ export function applySerialNumbers<T extends ProductTableProps>(props: T): T {
   };
 }
 
+const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
+
+/** When a table is split across pages, edits must apply to the full row list. */
+export function resolveBuilderTablePropsForEdit(
+  raw: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const allRows = raw[PREVIEW_PAGINATION_ROWS_KEY];
+  if (Array.isArray(allRows) && allRows.length > 0) {
+    return { ...raw, rows: allRows };
+  }
+  return raw;
+}
+
 export function normalizeProductTableProps(raw: Record<string, unknown> = {}): ProductTableProps {
   if (Array.isArray(raw.columns) && raw.columns.length > 0) {
     const columns = normalizeColumns(raw.columns as Array<ProductTableColumn & { widthPercent?: number }>);
+    const paginationRows = raw.__previewPaginationRows;
+    const hasPaginationRange =
+      typeof raw.__previewPaginationStart === 'number'
+      && typeof raw.__previewPaginationEnd === 'number'
+      && Array.isArray(paginationRows);
+    const resolvedRows = hasPaginationRange
+      ? Array.isArray(raw.rows)
+        ? (raw.rows as ProductTableRow[])
+        : []
+      : Array.isArray(paginationRows)
+        ? (paginationRows as ProductTableRow[])
+        : Array.isArray(raw.rows)
+          ? (raw.rows as ProductTableRow[])
+          : [];
     return {
       columns,
-      rows: normalizeRows(Array.isArray(raw.rows) ? (raw.rows as ProductTableRow[]) : [], columns),
+      rows: normalizeRows(resolvedRows, columns),
       showHeader: raw.showHeader !== false,
       headerHeightPx:
         typeof raw.headerHeightPx === 'number' && raw.headerHeightPx > 0
@@ -262,6 +310,7 @@ export function normalizeProductTableProps(raw: Record<string, unknown> = {}): P
       ),
       headerStyles: normalizeStyleMap(raw.headerStyles),
       cellStyles: normalizeStyleMap(raw.cellStyles),
+      showProductSku: normalizeShowProductSku(raw.showProductSku),
     };
   }
   return structuredClone(DEFAULT_PRODUCT_TABLE_PROPS);

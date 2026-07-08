@@ -1,131 +1,184 @@
 import { memo, useCallback, useRef } from 'react';
 import type { CropCorner, CropEdge, ImageCropTransform } from './types';
 import type { CoverBaseSize } from './cropUtils';
-import { scaleImageInCrop } from './cropUtils';
-import { applyCropEdge, rectToPixels } from './cropRect';
+import { cropEdgeDrag } from './cropUtils';
+import { rectToPixels } from './cropRect';
+import { computeAnchoredResize, type ElementBounds } from '../element-resize';
+import { applyAspectRatioLock } from './transformUtils';
 
 type HandleKind =
   | { type: 'edge'; edge: CropEdge }
   | { type: 'corner'; corner: CropCorner };
+
+export interface CropFrameBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 interface Props {
   crop: ImageCropTransform;
   base: CoverBaseSize;
   frameW: number;
   frameH: number;
+  zoom?: number;
+  frameBounds: CropFrameBounds;
+  /** When true, drag/wheel pan and zoom the image inside the frame. */
+  panEnabled?: boolean;
   onCropChange: (crop: ImageCropTransform, recordHistory?: boolean) => void;
+  onFrameResize?: (bounds: ElementBounds, recordHistory?: boolean) => void;
 }
 
 const HANDLE = 14;
 const CORNER = 18;
+const MIN_FRAME = 24;
 
-function CropModeHandlesInner({ crop, base, frameW, frameH, onCropChange }: Props) {
+const CORNER_TO_DIR: Record<CropCorner, string> = {
+  nw: 'topLeft',
+  ne: 'topRight',
+  sw: 'bottomLeft',
+  se: 'bottomRight',
+};
+
+function edgeCumulativePx(edge: CropEdge, dx: number, dy: number): number {
+  switch (edge) {
+    case 'left':
+      return dx;
+    case 'right':
+      return dx;
+    case 'top':
+      return dy;
+    case 'bottom':
+      return dy;
+  }
+}
+
+function CropModeHandlesInner({
+  crop,
+  base,
+  frameW,
+  frameH,
+  zoom = 1,
+  frameBounds,
+  onCropChange,
+  onFrameResize,
+}: Props) {
   const sessionRef = useRef<{
     kind: HandleKind;
     startX: number;
     startY: number;
     startCrop: ImageCropTransform;
-    startDisplay: { width: number; height: number };
+    startFrame: CropFrameBounds;
+    lastFrame?: ElementBounds;
   } | null>(null);
 
   const rectPx = rectToPixels(crop.rect, frameW, frameH);
+  const handleRect = rectPx;
 
   const onHandlePointerDown = useCallback(
     (e: React.PointerEvent, kind: HandleKind) => {
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      const display = {
-        width: base.width * crop.scale,
-        height: base.height * crop.scale,
-      };
       sessionRef.current = {
         kind,
         startX: e.clientX,
         startY: e.clientY,
         startCrop: crop,
-        startDisplay: display,
+        startFrame: frameBounds,
       };
     },
-    [crop, base]
+    [crop, frameBounds]
   );
 
   const onHandlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       const session = sessionRef.current;
       if (!session) return;
-      const dx = e.clientX - session.startX;
-      const dy = e.clientY - session.startY;
-      const { startCrop } = session;
+
+      const dx = (e.clientX - session.startX) / Math.max(zoom, 0.01);
+      const dy = (e.clientY - session.startY) / Math.max(zoom, 0.01);
 
       if (session.kind.type === 'edge') {
-        let delta = 0;
-        switch (session.kind.edge) {
-          case 'left':
-            delta = dx;
-            break;
-          case 'right':
-            delta = dx;
-            break;
-          case 'top':
-            delta = dy;
-            break;
-          case 'bottom':
-            delta = dy;
-            break;
-        }
-        const nextRect = applyCropEdge(
-          startCrop.rect,
+        const cumulative = edgeCumulativePx(session.kind.edge, dx, dy);
+        const next = cropEdgeDrag(
+          session.startCrop,
+          base,
           session.kind.edge,
-          delta,
+          cumulative,
           frameW,
           frameH
         );
-        onCropChange({ ...startCrop, rect: nextRect }, false);
+        onCropChange(next, false);
         return;
       }
 
+      if (!onFrameResize) return;
+
       const { corner } = session.kind;
-      let diagonal = 0;
+      const dir = CORNER_TO_DIR[corner];
+      const { startFrame } = session;
+      const resizeSession = {
+        startX: startFrame.x,
+        startY: startFrame.y,
+        startW: startFrame.width,
+        startH: startFrame.height,
+      };
+
+      let position = { x: startFrame.x, y: startFrame.y };
+      let size = { width: startFrame.width, height: startFrame.height };
+
       switch (corner) {
         case 'se':
-          diagonal = (dx + dy) / 2;
+          size = { width: startFrame.width + dx, height: startFrame.height + dy };
           break;
         case 'sw':
-          diagonal = (-dx + dy) / 2;
+          position = { x: startFrame.x + dx, y: startFrame.y };
+          size = { width: startFrame.width - dx, height: startFrame.height + dy };
           break;
         case 'ne':
-          diagonal = (dx - dy) / 2;
+          position = { x: startFrame.x, y: startFrame.y + dy };
+          size = { width: startFrame.width + dx, height: startFrame.height - dy };
           break;
         case 'nw':
-          diagonal = (-dx - dy) / 2;
+          position = { x: startFrame.x + dx, y: startFrame.y + dy };
+          size = { width: startFrame.width - dx, height: startFrame.height - dy };
           break;
       }
-      const denom = Math.max(session.startDisplay.width, session.startDisplay.height, 48);
-      const scaleFactor = 1 + diagonal / denom;
-      const next = scaleImageInCrop(startCrop, base, frameW, frameH, scaleFactor);
-      onCropChange(next, false);
+
+      let bounds = computeAnchoredResize(resizeSession, dir, position, size, MIN_FRAME);
+      bounds = applyAspectRatioLock(bounds, resizeSession, dir, e.shiftKey);
+      session.lastFrame = bounds;
+      onFrameResize(bounds, false);
     },
-    [base, frameW, frameH, onCropChange]
+    [base, frameW, frameH, onCropChange, onFrameResize, zoom]
   );
 
   const onHandlePointerUp = useCallback(
     (e: React.PointerEvent) => {
-      if (!sessionRef.current) return;
+      const session = sessionRef.current;
+      if (!session) return;
+      const resizedFrame = session.kind.type === 'corner';
+      const lastFrame = session.lastFrame;
       sessionRef.current = null;
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      onCropChange(crop, true);
+      if (resizedFrame && onFrameResize && lastFrame) {
+        onFrameResize(lastFrame, true);
+      } else {
+        onCropChange(crop, true);
+      }
     },
-    [crop, onCropChange]
+    [crop, onCropChange, onFrameResize]
   );
 
   const edgeStyle = (edge: CropEdge): React.CSSProperties => {
-    const midX = rectPx.x + rectPx.width / 2;
-    const midY = rectPx.y + rectPx.height / 2;
+    const midX = handleRect.x + handleRect.width / 2;
+    const midY = handleRect.y + handleRect.height / 2;
     switch (edge) {
       case 'left':
         return {
-          left: rectPx.x - HANDLE / 2,
+          left: handleRect.x - HANDLE / 2,
           top: midY - HANDLE / 2,
           width: HANDLE,
           height: HANDLE,
@@ -133,7 +186,7 @@ function CropModeHandlesInner({ crop, base, frameW, frameH, onCropChange }: Prop
         };
       case 'right':
         return {
-          left: rectPx.x + rectPx.width - HANDLE / 2,
+          left: handleRect.x + handleRect.width - HANDLE / 2,
           top: midY - HANDLE / 2,
           width: HANDLE,
           height: HANDLE,
@@ -142,7 +195,7 @@ function CropModeHandlesInner({ crop, base, frameW, frameH, onCropChange }: Prop
       case 'top':
         return {
           left: midX - HANDLE / 2,
-          top: rectPx.y - HANDLE / 2,
+          top: handleRect.y - HANDLE / 2,
           width: HANDLE,
           height: HANDLE,
           cursor: 'ns-resize',
@@ -150,7 +203,7 @@ function CropModeHandlesInner({ crop, base, frameW, frameH, onCropChange }: Prop
       case 'bottom':
         return {
           left: midX - HANDLE / 2,
-          top: rectPx.y + rectPx.height - HANDLE / 2,
+          top: handleRect.y + handleRect.height - HANDLE / 2,
           width: HANDLE,
           height: HANDLE,
           cursor: 'ns-resize',
@@ -162,26 +215,26 @@ function CropModeHandlesInner({ crop, base, frameW, frameH, onCropChange }: Prop
     switch (corner) {
       case 'nw':
         return {
-          left: rectPx.x - CORNER / 2,
-          top: rectPx.y - CORNER / 2,
+          left: handleRect.x - CORNER / 2,
+          top: handleRect.y - CORNER / 2,
           cursor: 'nwse-resize',
         };
       case 'ne':
         return {
-          left: rectPx.x + rectPx.width - CORNER / 2,
-          top: rectPx.y - CORNER / 2,
+          left: handleRect.x + handleRect.width - CORNER / 2,
+          top: handleRect.y - CORNER / 2,
           cursor: 'nesw-resize',
         };
       case 'sw':
         return {
-          left: rectPx.x - CORNER / 2,
-          top: rectPx.y + rectPx.height - CORNER / 2,
+          left: handleRect.x - CORNER / 2,
+          top: handleRect.y + handleRect.height - CORNER / 2,
           cursor: 'nesw-resize',
         };
       case 'se':
         return {
-          left: rectPx.x + rectPx.width - CORNER / 2,
-          top: rectPx.y + rectPx.height - CORNER / 2,
+          left: handleRect.x + handleRect.width - CORNER / 2,
+          top: handleRect.y + handleRect.height - CORNER / 2,
           cursor: 'nwse-resize',
         };
     }
@@ -204,18 +257,17 @@ function CropModeHandlesInner({ crop, base, frameW, frameH, onCropChange }: Prop
 
   return (
     <div className="pointer-events-none absolute inset-0 z-30" aria-hidden>
-      {/* Crop rectangle border + grid */}
       <div
         className="pointer-events-none absolute border-2 border-white/90"
         style={{
-          left: rectPx.x,
-          top: rectPx.y,
-          width: rectPx.width,
-          height: rectPx.height,
+          left: handleRect.x,
+          top: handleRect.y,
+          width: handleRect.width,
+          height: handleRect.height,
           boxShadow: '0 0 0 1px rgba(0,0,0,0.45)',
         }}
       >
-        <CropGrid w={rectPx.width} h={rectPx.height} />
+        <CropGrid w={handleRect.width} h={handleRect.height} />
       </div>
 
       {edges.map((edge) => (

@@ -20,31 +20,34 @@ export default function SuperAdminTemplateEdit() {
     refetchOnWindowFocus: false,
   });
 
+  // Load once per template id. Do not re-run on query refetch after Save —
+  // that used to reset the builder and drop multi-page edits.
   useEffect(() => {
     if (!data?._id) return;
+    if (loadedIdRef.current === data._id) return;
 
-    if (loadedIdRef.current !== data._id) {
-      loadedIdRef.current = data._id;
-      const draft = loadBuilderDraft(data._id);
-      if (draft?.isDirty && draft.pages?.length) {
-        dispatch(
-          loadTemplate({
-            id: data._id,
-            name: draft.templateName || data.name,
-            pages: draft.pages,
-          })
-        );
-        dispatch(markDirty());
-      } else {
-        dispatch(loadTemplate({ id: data._id, name: data.name, pages: data.pages }));
-      }
+    loadedIdRef.current = data._id;
+    const draft = loadBuilderDraft(data._id);
+    if (draft?.isDirty && draft.pages?.length) {
+      dispatch(
+        loadTemplate({
+          id: data._id,
+          name: draft.templateName || data.name,
+          pages: draft.pages,
+        })
+      );
+      dispatch(markDirty());
+    } else {
+      dispatch(loadTemplate({ id: data._id, name: data.name, pages: data.pages }));
     }
+  }, [data, dispatch]);
 
+  useEffect(() => {
     return () => {
       loadedIdRef.current = null;
       dispatch(resetBuilder());
     };
-  }, [data, dispatch]);
+  }, [id, dispatch]);
 
   if (isLoading || !id) return <Loader fullScreen />;
 

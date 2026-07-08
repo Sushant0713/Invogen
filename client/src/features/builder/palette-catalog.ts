@@ -51,7 +51,6 @@ export const BUILDER_PALETTE: PaletteItem[] = [
   { id: 'media_image', type: ComponentType.IMAGE, label: 'Image', category: 'media', defaultProps: getImageDefaultProps(ComponentType.IMAGE) },
   { id: 'media_logo', type: ComponentType.LOGO, label: 'Logo', category: 'media', defaultProps: getImageDefaultProps(ComponentType.LOGO) },
   { id: 'media_signature', type: ComponentType.SIGNATURE, label: 'Signature', category: 'media', defaultProps: getImageDefaultProps(ComponentType.SIGNATURE) },
-  { id: 'media_qr', type: ComponentType.QR_CODE, label: 'QR code', category: 'media', defaultProps: { size: 100 } },
   {
     id: 'media_watermark',
     type: ComponentType.WATERMARK,

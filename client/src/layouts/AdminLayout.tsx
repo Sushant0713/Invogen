@@ -12,6 +12,7 @@ import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import { logout } from '@/store/slices/authSlice';
 import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
 import { useNavigate } from 'react-router-dom';
+import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
 
 function PlanSelectionShell({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch();
@@ -84,10 +85,12 @@ export default function AdminLayout() {
   }
 
   return (
-    <AppLayout
-      navItems={adminNav}
-      title={pageTitle}
-      variant={isFullHeightWorkspacePath(location.pathname) ? 'builder' : 'default'}
-    />
+    <MadeWithInvogenProvider source="admin">
+      <AppLayout
+        navItems={adminNav}
+        title={pageTitle}
+        variant={isFullHeightWorkspacePath(location.pathname) ? 'builder' : 'default'}
+      />
+    </MadeWithInvogenProvider>
   );
 }

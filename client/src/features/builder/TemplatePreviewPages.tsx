@@ -2,7 +2,7 @@ import { useMemo, type MutableRefObject } from 'react';
 import type { TemplatePage } from '@invogen/shared';
 import { ElementRenderer } from '@/features/builder/ElementRenderer';
 import { getPageDimensions } from '@/features/builder/builder-dnd';
-import { sortByLayer } from '@/features/builder/element-layers';
+import { sortByLayer, getBaseOpacity } from '@/features/builder/element-layers';
 import {
   applyPlaceholdersToPages,
   SAMPLE_PREVIEW_CONTEXT,
@@ -10,10 +10,12 @@ import {
 } from '@/features/template-gallery/placeholder-utils';
 import { applyInvoiceFormToPages } from '@/features/invoice-composer/apply-invoice-form';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
-import { reflowPagesForPreview, measurePreviewPageContentHeight } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview, applyPreviewPageNumbers } from '@/features/builder/preview-page-reflow';
+import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import {
   type CompanyBrandingScope,
 } from '@/features/builder/company-branding';
+import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
 
 export const TEMPLATE_PREVIEW_PAGE_ATTR = 'data-template-preview-page';
 
@@ -29,6 +31,11 @@ interface TemplatePreviewPagesProps {
   className?: string;
   /** Tables on pages are already recalculated (invoice composer). */
   trustTableProps?: boolean;
+  /**
+   * When true, expand overflowing blocks and push content on a preview-only copy.
+   * Leave false for builder/gallery so the saved template layout is unchanged.
+   */
+  autoReflow?: boolean;
   /** Enable product picker and other table cell edits in scaled live preview. */
   editableTables?: boolean;
   onTableCellChange?: (
@@ -38,13 +45,21 @@ interface TemplatePreviewPagesProps {
     columnId: string,
     value: string
   ) => void;
+  onTableProductPick?: (
+    pageId: string,
+    elementId: string,
+    rowId: string,
+    columnId: string,
+    product: import('./use-company-products').CompanyProductOption
+  ) => void;
 }
 
 function renderPageElements(
   page: TemplatePage,
   trustTableProps = false,
   editableTables = false,
-  onTableCellChange?: TemplatePreviewPagesProps['onTableCellChange']
+  onTableCellChange?: TemplatePreviewPagesProps['onTableCellChange'],
+  onTableProductPick?: TemplatePreviewPagesProps['onTableProductPick']
 ) {
   return sortByLayer(page.elements)
     .filter((element) => element.visible !== false)
@@ -58,6 +73,7 @@ function renderPageElements(
           width: element.width,
           height: element.height,
           zIndex: element.zIndex,
+          opacity: getBaseOpacity(element),
         }}
       >
         <div
@@ -78,6 +94,12 @@ function renderPageElements(
                     onTableCellChange(page.id, element.id, rowId, columnId, value)
                 : undefined
             }
+            onTableProductPick={
+              editableTables && onTableProductPick
+                ? (rowId, columnId, product) =>
+                    onTableProductPick(page.id, element.id, rowId, columnId, product)
+                : undefined
+            }
             onSelect={() => {}}
           />
         </div>
@@ -94,25 +116,28 @@ export function TemplatePreviewPages({
   pageRefs,
   className = '',
   trustTableProps = false,
+  autoReflow = false,
   editableTables = false,
   onTableCellChange,
+  onTableProductPick,
 }: TemplatePreviewPagesProps) {
   const renderPages = useMemo(() => {
     let resolved = pages;
     if (placeholderContext) resolved = applyInvoiceFormToPages(pages, placeholderContext);
     else if (useSampleData) resolved = applyPlaceholdersToPages(pages, SAMPLE_PREVIEW_CONTEXT);
-    return reflowPagesForPreview(resolved);
-  }, [pages, placeholderContext, useSampleData]);
+
+    const cloned = cloneTemplatePages(resolved);
+    if (!autoReflow) return applyPreviewPageNumbers(cloned);
+    return reflowPagesForPreview(cloned, { trustTableProps });
+  }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow]);
 
   return (
     <div className={`flex flex-col items-center gap-8 ${className}`}>
       {renderPages.map((page, index) => {
         const { width, height } = getPageDimensions(page);
-        const contentHeight = measurePreviewPageContentHeight(page);
-        const pageHeight = Math.max(height, contentHeight);
         const scale = previewMaxWidth ? previewMaxWidth / width : 1;
         const scaledW = Math.round(width * scale);
-        const scaledH = Math.round(pageHeight * scale);
+        const scaledH = Math.round(height * scale);
 
         if (previewMaxWidth) {
           return (
@@ -128,11 +153,18 @@ export function TemplatePreviewPages({
                   }`}
                   style={{
                     width,
-                    height: pageHeight,
+                    height,
                     transform: `scale(${scale})`,
                   }}
                 >
-                  {renderPageElements(page, trustTableProps, editableTables, onTableCellChange)}
+                  {renderPageElements(
+                    page,
+                    trustTableProps,
+                    editableTables,
+                    onTableCellChange,
+                    onTableProductPick
+                  )}
+                  <MadeWithInvogenBadge />
                 </div>
               </div>
             </div>
@@ -147,9 +179,16 @@ export function TemplatePreviewPages({
             }}
             data-template-preview-page={page.id}
             className="relative bg-white"
-            style={{ width, height: pageHeight }}
+            style={{ width, height }}
           >
-            {renderPageElements(page, trustTableProps, editableTables, onTableCellChange)}
+            {renderPageElements(
+              page,
+              trustTableProps,
+              editableTables,
+              onTableCellChange,
+              onTableProductPick
+            )}
+            <MadeWithInvogenBadge />
           </div>
         );
       })}

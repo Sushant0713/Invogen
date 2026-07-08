@@ -44,6 +44,7 @@ export default function PublicInvoiceViewPage() {
         <InvoiceViewer
           pages={pages}
           previewMaxWidth={Math.min(720, window.innerWidth - 32)}
+          madeWithInvogen={data.showMadeWithInvogen === true}
         />
       </div>
     </div>

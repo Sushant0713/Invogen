@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/Input';
 import {
   Trash2,
   Upload,
-  Crop,
   Sun,
   Contrast,
   Droplets,
@@ -16,9 +15,8 @@ import {
   RotateCcw,
   RotateCw,
   RefreshCw,
+  Crop,
 } from 'lucide-react';
-import { useAppDispatch } from '@/hooks/useAppDispatch';
-import { setImageCropMode } from '@/store/slices/builderSlice';
 import {
   type ImageObjectFit,
   normalizeImageProps,
@@ -32,6 +30,8 @@ import {
 import { useCompanyBranding } from './CompanyBrandingProvider';
 import { getImageUploadPatch } from './image-crop';
 import { useImageUpload } from './use-image-upload';
+import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
+import { setImageCropMode } from '@/store/slices/builderSlice';
 
 const FIT_OPTIONS: { value: ImageObjectFit; label: string }[] = [
   { value: 'contain', label: 'Fit (show all)' },
@@ -159,6 +159,7 @@ export function ImageProperties({
   onChangeMany,
 }: Props) {
   const dispatch = useAppDispatch();
+  const isCropMode = useAppSelector((s) => s.builder.imageCropElementId === elementId);
   const branding = useCompanyBranding();
   const image = normalizeImageProps(props);
   const isBrandingType = isBrandingImageType(elementType);
@@ -170,13 +171,7 @@ export function ImageProperties({
 
   const { input, pickFile, uploading } = useImageUpload((url) => {
     onChangeMany(getImageUploadPatch(url), true);
-    dispatch(setImageCropMode(elementId));
   });
-
-  const startCrop = () => {
-    if (!previewSrc) return;
-    dispatch(setImageCropMode(elementId));
-  };
 
   const rotation = image.rotation ?? 0;
   const rotateBy = (delta: number) => {
@@ -250,36 +245,41 @@ export function ImageProperties({
           {uploading ? 'Uploading…' : previewSrc ? 'Replace' : isBarcode ? 'Upload barcode' : isBrandingType ? 'Override' : 'Upload'}
         </Button>
         {previewSrc && (
-          <>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={startCrop}
-              disabled={uploading}
-              title="Crop on canvas"
-            >
-              <Crop className="h-3.5 w-3.5" />
-            </Button>
-            {(image.src || isBrandingType) && (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  isBrandingType
-                    ? onChangeMany({ src: '', useCompanyBranding: true }, true)
-                    : onChange('src', '', true)
-                }
-                title={isBrandingType && !image.src ? 'No custom override to remove' : 'Remove image'}
-                disabled={isBrandingType && !image.src}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </>
+          <Button
+            type="button"
+            size="sm"
+            variant={isCropMode ? 'primary' : 'secondary'}
+            onClick={() => dispatch(setImageCropMode(isCropMode ? null : elementId))}
+            title={isCropMode ? 'Done repositioning' : 'Pan / zoom inside frame'}
+          >
+            <Crop className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {previewSrc && (image.src || isBrandingType) && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() =>
+              isBrandingType
+                ? onChangeMany({ src: '', useCompanyBranding: true }, true)
+                : onChange('src', '', true)
+            }
+            title={isBrandingType && !image.src ? 'No custom override to remove' : 'Remove image'}
+            disabled={isBrandingType && !image.src}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         )}
       </div>
+
+      {previewSrc && (
+        <p className="text-[11px] text-gray-400">
+          {isCropMode
+            ? 'Drag to reposition · scroll to zoom · Esc to finish'
+            : 'Drag side edges to crop · corners to scale · drag box to move'}
+        </p>
+      )}
 
       {/* ── Barcode value ─────────────────────────────── */}
       {isBarcode && (
@@ -569,7 +569,7 @@ export function ImageProperties({
       </div>
 
       <p className="text-[11px] text-gray-400">
-        Double-click the image on canvas to enter crop mode.
+        Side edges crop immediately when selected. Use Crop for pan/zoom inside the frame.
       </p>
     </div>
   );

@@ -121,9 +121,9 @@ export function getElementResizeProps(
   isEditing: boolean,
   isCropMode = false,
   rotationDeg = 0,
-  options?: { canvaTable?: boolean }
+  options?: { canvaTable?: boolean; canvaImage?: boolean }
 ): Pick<RndProps, 'enableResizing' | 'resizeHandleComponent' | 'resizeHandleStyles'> {
-  if (isCropMode || rotationDeg !== 0) {
+  if (isCropMode || rotationDeg !== 0 || options?.canvaImage) {
     return { enableResizing: false };
   }
   // Tables keep resize handles while selected (even in cell-edit mode).

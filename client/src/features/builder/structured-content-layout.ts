@@ -12,7 +12,7 @@ function fontSizeFromProps(props: Record<string, unknown>, type: string): number
 }
 
 /** Rough wrapped line count for a fixed container width. */
-function estimateWrappedLineCount(text: string, fontSize: number, width: number): number {
+export function estimateWrappedLineCount(text: string, fontSize: number, width: number): number {
   const trimmed = text.trim();
   if (!trimmed) return 0;
 
@@ -68,6 +68,40 @@ export function estimateStructuredBlockHeight(
   }
 
   return minHeight;
+}
+
+function lineHeightPx(props: Record<string, unknown>, fontSize: number): number {
+  const raw = props.lineHeight;
+  if (typeof raw === 'number' && raw > 4) return raw;
+  if (typeof raw === 'number') return fontSize * raw;
+  return fontSize * LINE_HEIGHT;
+}
+
+function resolveTextBlockContent(props: Record<string, unknown>): string {
+  if (typeof props.content === 'string') return props.content;
+  if (typeof props.text === 'string') return props.text;
+  if (typeof props.value === 'string') return props.value;
+  return '';
+}
+
+/** Estimate height for text-like canvas blocks (TEXT, HEADING, NOTES, FOOTER, etc.). */
+export function estimateTextBlockHeight(
+  type: string,
+  props: Record<string, unknown>,
+  width: number,
+  minHeight = MIN_HEIGHT
+): number {
+  const fontSize = fontSizeFromProps(props, type);
+  const linePx = lineHeightPx(props, fontSize);
+  const safeWidth = Math.max(80, width);
+  const padding =
+    (typeof props.paddingLeft === 'number' ? props.paddingLeft : 0)
+    + (typeof props.textIndent === 'number' ? props.textIndent : 0)
+    + PADDING;
+  const content = resolveTextBlockContent(props);
+  const lineCount = estimateWrappedLineCount(content, fontSize, safeWidth);
+  if (lineCount === 0) return minHeight;
+  return Math.max(minHeight, Math.ceil(lineCount * linePx + padding));
 }
 
 export function isStructuredContentType(type: string): boolean {

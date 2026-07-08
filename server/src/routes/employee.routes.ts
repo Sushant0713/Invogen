@@ -7,6 +7,7 @@ const router = Router();
 
 router.use(authenticate, authorize(UserRole.EMPLOYEE), resolveTenant);
 
+router.get('/plan-advertising', ctrl.getPlanAdvertising);
 router.get('/dashboard', ctrl.getDashboard);
 router.get('/invoices', requirePermission(PERMISSIONS.INVOICE_VIEW), ctrl.getInvoices);
 router.get('/invoices/shares', requirePermission(PERMISSIONS.INVOICE_VIEW), ctrl.getSharedInvoices);

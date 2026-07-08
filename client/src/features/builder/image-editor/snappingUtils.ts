@@ -21,8 +21,10 @@ export function snapElementBounds(
   others: ElementBounds[],
   margins: PageMargins,
   snapToGrid: boolean,
-  gridSize: number
+  gridSize: number,
+  options?: { clampToMargins?: boolean }
 ): SnapResult {
+  const clampToMargins = options?.clampToMargins !== false;
   const guides: SnapGuide[] = [];
   let { x, y, width, height } = bounds;
   const cx = x + width / 2;
@@ -95,6 +97,11 @@ export function snapElementBounds(
     const snap = (v: number) => Math.round(v / gridSize) * gridSize;
     x = snap(x);
     y = snap(y);
+  }
+
+  if (clampToMargins) {
+    x = Math.max(margins.left, Math.min(x, PAGE_WIDTH - margins.right - width));
+    y = Math.max(margins.top, Math.min(y, PAGE_HEIGHT - margins.bottom - height));
   }
 
   return { x, y, guides };

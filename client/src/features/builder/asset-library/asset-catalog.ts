@@ -14,7 +14,6 @@ export const ASSET_SEARCH_META: Record<string, { tags?: string[]; aliases?: stri
   media_image: { tags: ['magic media', 'photo'], aliases: ['img'] },
   media_logo: { tags: ['magic media', 'brand'], aliases: [] },
   media_signature: { tags: ['magic media', 'sign'], aliases: [] },
-  media_qr: { tags: ['magic media', 'qr'], aliases: ['qr code'] },
   media_watermark: { tags: ['magic media', 'stamp', 'overlay'], aliases: ['draft', 'confidential'] },
   basic_divider: { tags: ['basic', 'line'], aliases: ['separator'] },
   basic_header: { tags: ['basic', 'title'], aliases: ['heading', 'h1'] },

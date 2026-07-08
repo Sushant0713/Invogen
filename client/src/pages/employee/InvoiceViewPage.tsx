@@ -46,7 +46,6 @@ export default function EmployeeInvoiceViewPage() {
         <InvoiceViewer
           pages={pages}
           previewMaxWidth={Math.min(720, window.innerWidth - 48)}
-          brandingScope="employee"
         />
       </div>
     </div>

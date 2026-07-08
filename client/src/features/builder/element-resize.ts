@@ -242,6 +242,27 @@ export function snapAnchoredBounds(
   );
 }
 
+/** Keep element box inside page margins (position + max size). */
+export function fitElementBoundsToPage(
+  bounds: ElementBounds,
+  margins: PageMargins,
+  minSize: number
+): ElementBounds {
+  const maxW = PAGE_WIDTH - margins.left - margins.right;
+  const maxH = PAGE_HEIGHT - margins.top - margins.bottom;
+  const width = Math.max(minSize, Math.min(bounds.width, maxW));
+  const height = Math.max(minSize, Math.min(bounds.height, maxH));
+  const x = Math.max(
+    margins.left,
+    Math.min(bounds.x, PAGE_WIDTH - margins.right - width)
+  );
+  const y = Math.max(
+    margins.top,
+    Math.min(bounds.y, PAGE_HEIGHT - margins.bottom - height)
+  );
+  return { x, y, width, height };
+}
+
 export function snapBounds(
   bounds: ElementBounds,
   snapToGrid: boolean,

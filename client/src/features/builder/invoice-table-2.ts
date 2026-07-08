@@ -38,6 +38,7 @@ import {
   type InvoiceTaxDisplayMode,
 } from './invoice-table';
 import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate } from './tax-settings';
+import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceTable2Props = ProductTableProps & {
   discountMode?: InvoiceDiscountMode;
@@ -375,16 +376,23 @@ export function calculateInvoice2LineTotal(
   columns: ProductTableColumn[] = [],
   discountMode: InvoiceDiscountMode = 'amount'
 ): number {
-  const directAmount = readInvoice2RowLineAmount(cells, columns);
   const qtyCol = resolveInvoice2QtyColumnId(columns, cells);
   const rateCol = resolveInvoice2RateColumnId(columns, cells);
   const qty = numericCellValue(cells, qtyCol, columns, true);
   const rate = numericCellValue(cells, rateCol, columns, false);
-  const computed = qty * rate;
-  const lineBase =
-    directAmount != null && directAmount > 0
-      ? directAmount
-      : computed;
+  const hasQtyRateInput =
+    Boolean(String(cells[qtyCol] ?? '').trim()) || Boolean(String(cells[rateCol] ?? '').trim());
+  const computed = roundAmount(qty * rate);
+
+  let lineBase: number;
+  if (hasQtyRateInput) {
+    // Prefer live QTY × Rate so stale Total column values do not block recalculation.
+    lineBase = computed;
+  } else {
+    const directAmount = readInvoice2RowLineAmount(cells, columns);
+    lineBase = directAmount != null && directAmount > 0 ? directAmount : 0;
+  }
+
   const discountInput = amountForVisibleColumn(cells, INVOICE2_COL_DISCOUNT, columns);
   const discountAmount = computeDiscountAmount(lineBase, discountInput, discountMode, columns);
   return Math.max(0, roundAmount(lineBase - discountAmount));
@@ -791,6 +799,7 @@ export function normalizeInvoiceTable2Props(raw: Record<string, unknown> = {}): 
     showGrandTotalFooter: false,
     headerStyles: normalizeStyleMap(raw.headerStyles),
     cellStyles: normalizeStyleMap(raw.cellStyles),
+    showProductSku: normalizeShowProductSku(raw.showProductSku),
   };
   return recalculateInvoiceTable2(base);
 }

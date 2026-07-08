@@ -20,7 +20,9 @@ import { CSS } from '@dnd-kit/utilities';
 import { Eye, EyeOff, GripVertical, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import type { ProductTableColumn } from './product-table';
-import { MIN_COL_WIDTH_PX, getColumnType, updateColumnType } from './product-table';
+import { useTaxSettings } from './TaxSettingsProvider';
+import { ProductColumnSkuInline } from './ProductColumnOptions';
+import { isProductColumn, MIN_COL_WIDTH_PX, getColumnType, updateColumnType } from './product-table';
 import { ColumnTypeSelect } from './AddColumnTypeSelect';
 import {
   getInvoice2FlexibleColumnBounds,
@@ -33,7 +35,6 @@ import {
   updateInvoice2ColumnLabel,
   type InvoiceTable2Props,
 } from './invoice-table-2';
-import { useTaxSettings } from './TaxSettingsProvider';
 
 function ColumnWidthSlider({
   table,
@@ -197,6 +198,14 @@ function SortableFlexibleColumnRow({
         </button>
       </div>
       <ColumnWidthSlider table={table} col={col} onChange={onChange} />
+      {isProductColumn(col) ? (
+        <ProductColumnSkuInline
+          tableShowProductSku={table.showProductSku}
+          onTableShowProductSkuChange={(value) =>
+            onChange({ ...table, showProductSku: value })
+          }
+        />
+      ) : null}
     </div>
   );
 }

@@ -7,7 +7,9 @@ import { SmartGuides } from './image-editor/SmartGuides';
 import { ElementRotationOverlay } from './ElementRotationOverlay';
 import { useBuilderKeyboard } from './image-editor/hooks/useBuilderKeyboard';
 import { snapElementBounds } from './image-editor/snappingUtils';
-import { applyAspectRatioLock } from './image-editor/transformUtils';
+import { constrainAspectResize } from './image-editor/transformUtils';
+import { ComponentType } from '@invogen/shared';
+import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
 import {
   getPageDimensions,
   createCanvasElement,
@@ -24,7 +26,6 @@ import {
   productTablePropsToRecord,
   scaleTableLayout,
 } from './product-table';
-import { clampTableElementToPage } from './table-element-size';
 import { normalizeTablePropsForType } from './table-props-normalize';
 import { getElementResizeProps } from './builder-resize-handles';
 import {
@@ -40,7 +41,13 @@ import {
   type CanvasInteractionMode,
   supportsInteractionModeToggle,
 } from './builder-interaction';
-import { isImageComponentType } from './image-components';
+import { isImageComponentType, normalizeImageProps } from './image-components';
+import {
+  cropTransformToProps,
+  getImageCropFromProps,
+  realignCropForFit,
+  shouldAutoCenterImageCrop,
+} from './image-editor/cropUtils';
 import {
   getElementRotation,
   getElementRotationTransformStyle,
@@ -74,6 +81,33 @@ const GRID_SIZE = 4;
 const MIN_ELEMENT_SIZE = 24;
 const DRAG_MOVE_THRESHOLD_PX = 4;
 export const BUILDER_ELEMENT_ID_ATTR = 'data-builder-element-id';
+
+const IMAGE_LAYOUT_NEUTRAL_PROP_KEYS = new Set(['imageNaturalW', 'imageNaturalH', 'imageCrop']);
+
+function isImageLayoutNeutralPatch(patch: Record<string, unknown>): boolean {
+  const keys = Object.keys(patch);
+  return keys.length > 0 && keys.every((key) => IMAGE_LAYOUT_NEUTRAL_PROP_KEYS.has(key));
+}
+
+function imageCropPatchForResize(
+  element: CanvasElement,
+  frameW: number,
+  frameH: number
+): Record<string, unknown> | undefined {
+  const props = (element.props ?? {}) as Record<string, unknown>;
+  const image = normalizeImageProps(props);
+  const naturalW = image.imageNaturalW ?? 0;
+  const naturalH = image.imageNaturalH ?? 0;
+  if (naturalW <= 0 || naturalH <= 0) return undefined;
+
+  const crop = getImageCropFromProps(props, frameW, frameH);
+  if (!shouldAutoCenterImageCrop(crop)) return undefined;
+
+  const fit = image.objectFit ?? 'contain';
+  return cropTransformToProps(
+    realignCropForFit(crop, frameW, frameH, naturalW, naturalH, fit)
+  );
+}
 
 function isPointerOnBuilderElement(target: HTMLElement, elementId: string): boolean {
   return !!target.closest(`[${BUILDER_ELEMENT_ID_ATTR}="${elementId}"]`);
@@ -127,7 +161,9 @@ export function BuilderCanvas() {
     height: number;
   } | null>(null);
   // Tracks resize session for anchor-based resizing
-  const resizeSessionRef = useRef<(ResizeSession & { id: string; dir: string }) | null>(null);
+  const resizeSessionRef = useRef<
+    (ResizeSession & { id: string; dir: string; startFont: number }) | null
+  >(null);
   const dragSessionRef = useRef<{
     id: string;
     startX: number;
@@ -330,7 +366,7 @@ export function BuilderCanvas() {
 
   const handleMarqueePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    if (imageCropElementId || shapeCropElementId || editingElementId) return;
+    if (shapeCropElementId || editingElementId) return;
 
     const pt = getCanvasPoint(e.clientX, e.clientY);
     if (!pt) return;
@@ -420,11 +456,11 @@ export function BuilderCanvas() {
 
   const handleStackedPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    if (imageCropElementId || shapeCropElementId || editingElementId) return;
+    if (shapeCropElementId || editingElementId) return;
     if (e.shiftKey || e.ctrlKey || e.metaKey) return;
 
     const target = e.target as HTMLElement;
-    if (target.closest('.builder-table-cell-editor')) return;
+    if (target.closest('.builder-table-cell-editor, .builder-table-product-cell, .product-cell-select')) return;
     if (selectedTableCell && selectedTableCells.length === 1) return;
 
     const pt = getCanvasPoint(e.clientX, e.clientY);
@@ -490,7 +526,16 @@ export function BuilderCanvas() {
       );
 
       const aspectLocked = isImageComponentType(element.type)
-        ? applyAspectRatioLock(snapped, session, direction, shiftKeyRef.current)
+        ? (element.type === ComponentType.SIGNATURE
+            ? snapped
+            : constrainAspectResize(
+              snapped,
+              session,
+              direction,
+              margins,
+              MIN_ELEMENT_SIZE,
+              shiftKeyRef.current
+            ))
         : snapped;
 
       if (isTableElementType(element.type)) {
@@ -498,25 +543,53 @@ export function BuilderCanvas() {
         const scaleX = aspectLocked.width / Math.max(element.width, 1);
         const scaleY = aspectLocked.height / Math.max(element.height, 1);
         const scaled = scaleTableLayout(table, scaleX, scaleY);
-        const tableClamped = clampTableElementToPage(
-          aspectLocked.x,
-          aspectLocked.y,
-          scaled,
-          pageSize.width,
-          pageSize.height,
-          margins,
-          element.type
-        );
         dispatch(updateElement({
           id,
           changes: {
-            x: tableClamped.x,
-            y: tableClamped.y,
-            width: tableClamped.width,
-            height: tableClamped.height,
-            props: productTablePropsToRecord(tableClamped.table),
+            x: aspectLocked.x,
+            y: aspectLocked.y,
+            width: aspectLocked.width,
+            height: aspectLocked.height,
+            props: productTablePropsToRecord(scaled),
           },
           recordHistory: true,
+          skipTableReflow: true,
+        }));
+        return;
+      }
+
+      if (isImageComponentType(element.type)) {
+        const cropPatch = imageCropPatchForResize(element, aspectLocked.width, aspectLocked.height);
+        dispatch(updateElement({
+          id,
+          changes: {
+            x: aspectLocked.x,
+            y: aspectLocked.y,
+            width: aspectLocked.width,
+            height: aspectLocked.height,
+            ...(cropPatch ? { props: cropPatch } : {}),
+          },
+          recordHistory: true,
+          skipDocumentLayout: true,
+        }));
+        return;
+      }
+
+      // Watermarks scale their text with the frame (drag to grow the whole mark).
+      if (element.type === 'watermark') {
+        const scaleX = aspectLocked.width / Math.max(session.startW, 1);
+        const scaleY = aspectLocked.height / Math.max(session.startH, 1);
+        const scale = Math.sqrt(scaleX * scaleY);
+        const props = (element.props ?? {}) as Record<string, unknown>;
+        const nextFont = Math.max(6, Math.round(session.startFont * scale));
+        dispatch(updateElement({
+          id,
+          changes: {
+            ...aspectLocked,
+            props: { ...props, fontSize: nextFont },
+          },
+          recordHistory: true,
+          skipDocumentLayout: true,
         }));
         return;
       }
@@ -525,6 +598,7 @@ export function BuilderCanvas() {
         id,
         changes: aspectLocked,
         recordHistory: true,
+        skipDocumentLayout: true,
       }));
     },
     [dispatch, margins, page.elements, snapToGrid]
@@ -532,6 +606,8 @@ export function BuilderCanvas() {
 
   const handleDragStop = useCallback(
     (id: string, x: number, y: number, width: number, height: number) => {
+      const dragged = page.elements.find((el) => el.id === id);
+      const isDraggedImage = dragged ? isImageComponentType(dragged.type) : false;
       const others = page.elements
         .filter((el) => el.id !== id)
         .map((el) => ({ x: el.x, y: el.y, width: el.width, height: el.height }));
@@ -541,7 +617,8 @@ export function BuilderCanvas() {
         others,
         margins,
         snapToGrid,
-        GRID_SIZE
+        GRID_SIZE,
+        { clampToMargins: !isDraggedImage }
       );
 
       setSnapGuides([]);
@@ -550,6 +627,7 @@ export function BuilderCanvas() {
         id,
         changes: { x: snapped.x, y: snapped.y },
         recordHistory: true,
+        skipDocumentLayout: true,
       }));
     },
     [dispatch, snapToGrid, margins, page.elements]
@@ -679,20 +757,22 @@ export function BuilderCanvas() {
             height: pageSize.height * zoom,
           }}
         >
-          <div
-            ref={canvasRef}
+      <div
+        ref={canvasRef}
             className={`builder-canvas absolute left-0 top-0 bg-white shadow-xl ring-1 transition-shadow ${
               isDragOver ? 'ring-2 ring-primary/40' : 'ring-black/5'
             }`}
-            style={{
+        style={{
               width: pageSize.width,
               height: pageSize.height,
-              transform: `scale(${zoom})`,
+          transform: `scale(${zoom})`,
               transformOrigin: 'top left',
-              overflow: shapeCropElementId ? 'visible' : 'hidden',
+              // Canva-style: allow elements to exist outside the page (artboard).
+              // Actual "printable" area is handled separately via margin clipping.
+              overflow: 'visible',
               zIndex: BUILDER_CANVAS_Z,
-            }}
-            onClick={handleCanvasClick}
+        }}
+        onClick={handleCanvasClick}
             onPointerDown={handleMarqueePointerDown}
             onPointerMove={handleMarqueePointerMove}
             onPointerUp={handleMarqueePointerUp}
@@ -725,7 +805,7 @@ export function BuilderCanvas() {
 
             <div
               ref={marginBoundsRef}
-              className="pointer-events-none absolute border border-dashed border-gray-200"
+              className="pointer-events-none absolute z-[9995] border border-dashed border-gray-200"
               style={{
                 top: page.margins.top,
                 right: page.margins.right,
@@ -739,7 +819,7 @@ export function BuilderCanvas() {
             {marqueeBox && marqueeBox.width > 0 && marqueeBox.height > 0 && (
               <div
                 className="pointer-events-none absolute z-[9996] border-2 border-dashed border-primary bg-primary/10"
-                style={{
+          style={{
                   left: marqueeBox.x,
                   top: marqueeBox.y,
                   width: marqueeBox.width,
@@ -755,7 +835,9 @@ export function BuilderCanvas() {
               const elementInteractionMode =
                 primarySelectedId === element.id ? interactionMode : 'move';
               const isDragging = draggingElementId === element.id;
-              const isCropMode = imageCropElementId === element.id || shapeCropElementId === element.id;
+              const isImage = isImageComponentType(element.type);
+              const isImageCropMode = imageCropElementId === element.id;
+              const isShapeCropMode = shapeCropElementId === element.id;
               const elementProps = (element.props ?? {}) as Record<string, unknown>;
               const isReferenceBg = elementProps.isReferenceBackground === true;
               const inlineEditKey = getInlineEditPropKey(element.type);
@@ -768,37 +850,58 @@ export function BuilderCanvas() {
               const elementRotation = getElementRotation(elementProps);
               const rotationStyle = getElementRotationTransformStyle(element.type, elementProps);
               const isRotatable = supportsElementRotation(element.type);
+              // Canva-style: elements may extend outside margins while editing,
+              // but anything outside the content area is visually clipped.
+              const contentLeft = margins.left;
+              const contentTop = margins.top;
+              const contentRight = pageSize.width - margins.right;
+              const contentBottom = pageSize.height - margins.bottom;
+              const clipLeft = Math.max(0, contentLeft - element.x);
+              const clipTop = Math.max(0, contentTop - element.y);
+              const clipRight = Math.max(0, element.x + element.width - contentRight);
+              const clipBottom = Math.max(0, element.y + element.height - contentBottom);
+              const clipStyle =
+                clipLeft > 0 || clipTop > 0 || clipRight > 0 || clipBottom > 0
+                  ? ({
+                      clipPath: `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px)`,
+                    } as React.CSSProperties)
+                  : undefined;
               const resizeProps = getElementResizeProps(
                 isSelected,
                 !!element.locked,
                 isDragging,
                 isEditing,
-                isCropMode,
+                isShapeCropMode || isImageCropMode,
                 elementRotation,
-                { canvaTable: isTable }
+                { canvaTable: isTable, canvaImage: isImage && isSelected }
               );
               return (
-              <Rnd
-                key={element.id}
+          <Rnd
+            key={element.id}
                 {...{ [BUILDER_ELEMENT_ID_ATTR]: element.id }}
                 scale={zoom}
-                bounds={dragBounds}
-                position={{ x: element.x, y: element.y }}
-                size={{ width: element.width, height: element.height }}
+                // Canva-style: images (logos) can be positioned outside the page bounds.
+                // Other elements stay within the margin bounds for safety.
+                bounds={isImage ? undefined : dragBounds}
+            position={{ x: element.x, y: element.y }}
+            size={{ width: element.width, height: element.height }}
                 dragGrid={grid}
                 resizeGrid={undefined}
-                // Tables move only via the bottom move control (dragHandleClassName).
+                // In edit mode a table drags only via the bottom handle (so cells stay
+                // clickable); in move mode the whole table body is draggable (Canva-like).
                 dragHandleClassName={
-                  isTable && isSelected && !element.locked
+                  isTable && isSelected && !element.locked && elementInteractionMode === 'edit'
                     ? 'builder-table-move-handle'
                     : undefined
                 }
                 cancel={
-                  isCropMode
+                  isShapeCropMode
                     ? '.shape-clip-handle'
                     : isEditing
                       ? '.builder-text-editor, .outline-list-editor'
-                      : undefined
+                      : isTable
+                        ? '.builder-table-product-cell, .product-cell-select'
+                        : undefined
                 }
                 onDragStart={() => {
                   stackedClickRef.current = null;
@@ -818,7 +921,7 @@ export function BuilderCanvas() {
                   if (!session || session.id !== element.id) return;
 
                   setDragPosition({ id: element.id, x: d.x, y: d.y });
-                  if (imageCropElementId || shapeCropElementId) return;
+                  if (shapeCropElementId) return;
 
                   const dx = Math.abs(d.x - session.startX);
                   const dy = Math.abs(d.y - session.startY);
@@ -835,13 +938,15 @@ export function BuilderCanvas() {
                     others,
                     margins,
                     snapToGrid,
-                    GRID_SIZE
+                    GRID_SIZE,
+                    { clampToMargins: !isImage }
                   );
                   setSnapGuides(snapped.guides);
                   dispatch(updateElement({
                     id: element.id,
                     changes: { x: snapped.x, y: snapped.y },
                     recordHistory: false,
+                    skipDocumentLayout: true,
                   }));
                 }}
                 onDragStop={(_e, d) => {
@@ -865,6 +970,11 @@ export function BuilderCanvas() {
                     startY: element.y,
                     startW: element.width,
                     startH: element.height,
+                    startFont:
+                      typeof (element.props as Record<string, unknown> | undefined)?.fontSize
+                        === 'number'
+                        ? ((element.props as Record<string, unknown>).fontSize as number)
+                        : 14,
                   };
                 }}
                 onResize={(_e, dir, ref, _delta, position) => {
@@ -882,19 +992,81 @@ export function BuilderCanvas() {
                       MIN_ELEMENT_SIZE
                     );
 
-                    if (isImageComponentType(element.type)) {
-                      bounds = applyAspectRatioLock(
+                    if (isImageComponentType(element.type) && element.type !== ComponentType.SIGNATURE) {
+                      bounds = constrainAspectResize(
                         bounds,
                         session,
                         dir as string,
+                        margins,
+                        MIN_ELEMENT_SIZE,
                         shiftKeyRef.current
                       );
+                    }
+
+                    if (isTableElementType(element.type)) {
+                      const table = normalizeTablePropsForType(
+                        element.type,
+                        (element.props ?? {}) as Record<string, unknown>
+                      );
+                      const scaleX = bounds.width / Math.max(element.width, 1);
+                      const scaleY = bounds.height / Math.max(element.height, 1);
+                      const scaled = scaleTableLayout(table, scaleX, scaleY);
+                      dispatch(updateElement({
+                        id: element.id,
+                        changes: {
+                          x: bounds.x,
+                          y: bounds.y,
+                          width: bounds.width,
+                          height: bounds.height,
+                          props: productTablePropsToRecord(scaled),
+                        },
+                        recordHistory: false,
+                        skipTableReflow: true,
+                      }));
+                      return;
+                    }
+
+                    if (isImageComponentType(element.type)) {
+                      const cropPatch = imageCropPatchForResize(
+                        element,
+                        bounds.width,
+                        bounds.height
+                      );
+                      dispatch(updateElement({
+                        id: element.id,
+                        changes: {
+                          x: bounds.x,
+                          y: bounds.y,
+                          width: bounds.width,
+                          height: bounds.height,
+                          ...(cropPatch ? { props: cropPatch } : {}),
+                        },
+                        recordHistory: false,
+                        skipDocumentLayout: true,
+                      }));
+                      return;
+                    }
+
+                    if (element.type === 'watermark') {
+                      const scaleX = bounds.width / Math.max(session.startW, 1);
+                      const scaleY = bounds.height / Math.max(session.startH, 1);
+                      const scale = Math.sqrt(scaleX * scaleY);
+                      const props = (element.props ?? {}) as Record<string, unknown>;
+                      const nextFont = Math.max(6, Math.round(session.startFont * scale));
+                      dispatch(updateElement({
+                        id: element.id,
+                        changes: { ...bounds, props: { ...props, fontSize: nextFont } },
+                        recordHistory: false,
+                        skipDocumentLayout: true,
+                      }));
+                      return;
                     }
 
                     dispatch(updateElement({
                       id: element.id,
                       changes: bounds,
                       recordHistory: false,
+                      skipDocumentLayout: true,
                     }));
                   });
                 }}
@@ -911,7 +1083,7 @@ export function BuilderCanvas() {
                 {...resizeProps}
                 disableDragging={
                   !!element.locked
-                  || isCropMode
+                  || isShapeCropMode
                   || !isSelected
                   || (isEditing && !isTable)
                 }
@@ -921,7 +1093,7 @@ export function BuilderCanvas() {
                     isSelected
                       ? [
                           isTable ? 'builder-rnd-table-selected' : 'builder-rnd-selected',
-                          isCropMode ? 'builder-crop-active' : '',
+                          isShapeCropMode ? 'builder-crop-active' : '',
                           isRotatable && !isTable ? 'builder-rnd-rotatable' : '',
                           elementRotation !== 0 ? 'builder-rnd-rotated' : '',
                           isTable && isDragging ? 'builder-rnd-table-dragging' : '',
@@ -939,7 +1111,8 @@ export function BuilderCanvas() {
                       && selectedTableCells.length === 1,
                   }),
                   overflow:
-                    isCropMode
+                    isShapeCropMode
+                    || (isImage && isSelected)
                     || elementRotation !== 0
                     || isTable
                     || (isSelected && !isEditing && !isStructuredContentType(element.type))
@@ -954,10 +1127,10 @@ export function BuilderCanvas() {
               >
                 <div
                   className="builder-element-rotate h-full w-full"
-                  style={rotationStyle ?? undefined}
-                >
-                <ElementRenderer
-                  element={element}
+                  style={{ ...(rotationStyle ?? {}), ...(clipStyle ?? {}) }}
+          >
+            <ElementRenderer
+              element={element}
                   isSelected={isSelected}
                   isEditing={isEditing}
                   interactionMode={elementInteractionMode}
@@ -989,9 +1162,16 @@ export function BuilderCanvas() {
                   onUpdateContent={
                     inlineEditKey
                       ? (value) => {
+                          // Patch only the edited key; clear textRuns so display
+                          // shows this plain content (not a stale rich-run snapshot).
                           dispatch(updateElement({
                             id: element.id,
-                            changes: { props: { ...elementProps, [inlineEditKey]: value } },
+                            changes: {
+                              props: {
+                                [inlineEditKey]: value,
+                                textRuns: undefined,
+                              },
+                            },
                             recordHistory: false,
                           }));
                         }
@@ -1002,7 +1182,12 @@ export function BuilderCanvas() {
                       ? (value) => {
                           dispatch(updateElement({
                             id: element.id,
-                            changes: { props: { ...elementProps, [inlineEditKey]: value } },
+                            changes: {
+                              props: {
+                                [inlineEditKey]: value,
+                                textRuns: undefined,
+                              },
+                            },
                             recordHistory: true,
                           }));
                           setEditingElementId(null);
@@ -1035,8 +1220,26 @@ export function BuilderCanvas() {
                       id: element.id,
                       changes: { props: patch },
                       recordHistory: !!recordHistory,
+                      skipDocumentLayout:
+                        shapeCropElementId === element.id
+                        || (isImage && isImageLayoutNeutralPatch(patch)),
                     }));
                   }}
+                  onFrameResize={(bounds, cropPatch, recordHistory) => {
+                    dispatch(updateElement({
+                      id: element.id,
+                      changes: {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: bounds.height,
+                        props: cropPatch,
+                      },
+                      recordHistory: !!recordHistory,
+                      skipDocumentLayout: true,
+                    }));
+                  }}
+                  zoom={zoom}
                   onStructuredContentHeight={
                     isStructuredContentType(element.type)
                       ? (height) => {
@@ -1055,6 +1258,7 @@ export function BuilderCanvas() {
             );
             })}
 
+          <MadeWithInvogenBadge />
           </div>
 
           <div
@@ -1062,7 +1266,7 @@ export function BuilderCanvas() {
             className="pointer-events-none absolute inset-0"
             style={{ zIndex: BUILDER_OVERLAY_Z }}
           >
-          {selectedElement && isSingleSelection && !imageCropElementId && (
+          {selectedElement && isSingleSelection && (
             <ElementFloatingActions
               element={selectedElement}
               elements={page.elements}
@@ -1078,13 +1282,13 @@ export function BuilderCanvas() {
               }
               onInteractionModeChange={(mode) => applyInteractionMode(mode, selectedElement.id)}
               toolbarBelow={supportsElementRotation(selectedElement.type)}
+              reserveBottomChrome={isTableElementType(selectedElement.type) ? 56 : 0}
             />
           )}
 
           {selectedElement &&
             isSingleSelection &&
             supportsElementRotation(selectedElement.type) &&
-            !imageCropElementId &&
             shapeCropElementId !== selectedElement.id &&
             editingElementId !== selectedElement.id && (
               <ElementRotationOverlay
@@ -1095,7 +1299,10 @@ export function BuilderCanvas() {
                 rotation={getElementRotation(selectedElement.props as Record<string, unknown>)}
                 zoom={zoom}
                 minSize={MIN_ELEMENT_SIZE}
-                lockAspectRatio={isImageComponentType(selectedElement.type)}
+                lockAspectRatio={
+                  isImageComponentType(selectedElement.type)
+                  && selectedElement.type !== ComponentType.SIGNATURE
+                }
                 overlayRef={overlayRef}
                 onRotate={(nextRotation, recordHistory) => {
                   const p = (selectedElement.props ?? {}) as Record<string, unknown>;

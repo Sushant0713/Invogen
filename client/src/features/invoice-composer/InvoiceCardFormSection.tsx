@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import {
@@ -13,6 +13,7 @@ import {
   getComposerCardPropRawValue,
   type ScannedCard,
 } from './invoice-document';
+import { parseHiddenCardFields, isCustomCardFieldHidden } from '@/features/builder/card-components';
 
 interface InvoiceCardFormSectionProps {
   card: ScannedCard;
@@ -21,7 +22,7 @@ interface InvoiceCardFormSectionProps {
   onFormContextChange: (key: string, value: string) => void;
   onCardPropChange: (pageId: string, elementId: string, key: string, value: string) => void;
   onDeleteStandardField: (pageId: string, elementId: string, fieldKey: string, formContextKey?: string) => void;
-  onAddCustomField: (pageId: string, elementId: string) => void;
+  onToggleStandardField: (pageId: string, elementId: string, fieldKey: string, hidden: boolean) => void;
   onUpdateCustomField: (
     pageId: string,
     elementId: string,
@@ -29,6 +30,7 @@ interface InvoiceCardFormSectionProps {
     patch: { label?: string; value?: string }
   ) => void;
   onDeleteCustomField: (pageId: string, elementId: string, fieldId: string) => void;
+  onToggleCustomField: (pageId: string, elementId: string, fieldId: string, hidden: boolean) => void;
   customers?: CustomerRecord[];
   selectedCustomerId?: string;
   onSelectCustomer?: (customerId: string) => void;
@@ -62,6 +64,8 @@ function CardFieldInput({
   fieldKind,
   placeholder,
   onDelete,
+  onToggle,
+  hidden,
 }: {
   label: string;
   value: string;
@@ -70,29 +74,62 @@ function CardFieldInput({
   fieldKind?: FieldKind;
   placeholder?: string;
   onDelete?: () => void;
+  onToggle?: () => void;
+  hidden?: boolean;
 }) {
+  const selectAllIfPlaceholder = (el: HTMLInputElement | HTMLTextAreaElement) => {
+    // UX: when a field still contains the template sample placeholder text,
+    // clicking it should select-all so typing replaces the whole value (like Canva).
+    if (!placeholder) return false;
+    if (typeof value === 'string' && value.trim() === placeholder.trim()) {
+      el.select?.();
+      return true;
+    }
+    return false;
+  };
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <label className="block text-sm font-medium text-gray-700">{label}</label>
-        {onDelete ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
-            onClick={onDelete}
-            title={`Remove ${label}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-1">
+          {onToggle ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+              onClick={onToggle}
+              title={hidden ? `Show ${label}` : `Hide ${label}`}
+            >
+              {hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </Button>
+          ) : null}
+          {onDelete ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={onDelete}
+              title={`Remove ${label}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
       {multiline ? (
         <textarea
           className="min-h-[88px] w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
           value={value}
           placeholder={placeholder}
+          disabled={hidden}
+          onMouseDown={(e) => {
+            if (selectAllIfPlaceholder(e.currentTarget)) {
+              // Prevent the click from moving the caret after we select-all.
+              e.preventDefault();
+            }
+          }}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
@@ -100,6 +137,12 @@ function CardFieldInput({
           fieldKind={fieldKind}
           value={value}
           placeholder={placeholder}
+          disabled={hidden}
+          onMouseDown={(e) => {
+            if (selectAllIfPlaceholder(e.currentTarget)) {
+              e.preventDefault();
+            }
+          }}
           onChange={(e) => onChange(e.target.value)}
         />
       )}
@@ -120,13 +163,21 @@ export function InvoiceCardFormSection({
   onFormContextChange,
   onCardPropChange,
   onDeleteStandardField,
-  onAddCustomField,
+  onToggleStandardField,
   onUpdateCustomField,
   onDeleteCustomField,
+  onToggleCustomField,
   customers = [],
   selectedCustomerId = '',
   onSelectCustomer,
 }: InvoiceCardFormSectionProps) {
+  const hidden = new Set(
+    parseHiddenCardFields(
+      pages.find((p) => p.id === card.pageId)?.elements.find((e) => e.id === card.elementId)?.props
+        ?.hiddenFields
+    )
+  );
+
   const resolveValue = (field: ScannedCard['fields'][number]): string => {
     if (field.valueSource === 'formContext' && field.formContextKey) {
       return formContext[field.formContextKey] ?? '';
@@ -189,6 +240,10 @@ export function InvoiceCardFormSection({
             placeholderKey: field.formContextKey,
             label: field.label,
           })}
+          hidden={hidden.has(field.key)}
+          onToggle={() =>
+            onToggleStandardField(card.pageId, card.elementId, field.key, !hidden.has(field.key))
+          }
           onDelete={() =>
             onDeleteStandardField(card.pageId, card.elementId, field.key, field.formContextKey)
           }
@@ -207,20 +262,42 @@ export function InvoiceCardFormSection({
               <span className="text-xs font-medium uppercase tracking-wide text-gray-400">
                 Custom field
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
-                onClick={() => onDeleteCustomField(card.pageId, card.elementId, field.id)}
-                title="Remove field"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+                  onClick={() =>
+                    onToggleCustomField(
+                      card.pageId,
+                      card.elementId,
+                      field.id,
+                      !isCustomCardFieldHidden(hidden, field.id)
+                    )
+                  }
+                  title={isCustomCardFieldHidden(hidden, field.id) ? 'Show field' : 'Hide field'}
+                >
+                  {isCustomCardFieldHidden(hidden, field.id)
+                    ? <EyeOff className="h-3.5 w-3.5" />
+                    : <Eye className="h-3.5 w-3.5" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  onClick={() => onDeleteCustomField(card.pageId, card.elementId, field.id)}
+                  title="Remove field"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
             <Input
               label="Field name"
               value={field.label}
+              disabled={isCustomCardFieldHidden(hidden, field.id)}
               onChange={(e) =>
                 onUpdateCustomField(card.pageId, card.elementId, field.id, {
                   label: e.target.value,
@@ -236,21 +313,12 @@ export function InvoiceCardFormSection({
               }
               fieldKind={fieldKind}
               placeholder={valuePlaceholder}
+              hidden={isCustomCardFieldHidden(hidden, field.id)}
             />
           </div>
         );
       })}
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="w-full"
-        onClick={() => onAddCustomField(card.pageId, card.elementId)}
-      >
-        <Plus className="h-4 w-4" />
-        Add field
-      </Button>
     </FormSection>
   );
 }

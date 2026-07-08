@@ -19,10 +19,11 @@ function CrudPage({
   endpoint: string;
   queryKey: string;
   columns: { key: string; label: string; render?: (r: Record<string, unknown>) => React.ReactNode }[];
-  fields: { name: string; label: string; type?: string; fieldKind?: FieldKind }[];
+  fields: { name: string; label: string; type?: string; fieldKind?: FieldKind; suggest?: boolean }[];
   title: string;
 }) {
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
 
@@ -31,18 +32,55 @@ function CrudPage({
     queryFn: async () => (await api.get(endpoint)).data,
   });
 
+  const rows: Record<string, unknown>[] = data?.data || [];
+
+  const suggestionsFor = (name: string): string[] =>
+    Array.from(
+      new Set(
+        rows
+          .map((row) => row[name])
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .map((value) => value.trim())
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditId(null);
+    setForm({});
+  };
+
+  const buildPayload = (body: Record<string, string>, isUpdate = false) => {
+    const parsed = { ...body };
+    if (parsed.price) parsed.price = String(Number(parsed.price));
+    if (isUpdate) {
+      // On edit, drop untouched empty fields so we never clobber values (e.g. password).
+      Object.keys(parsed).forEach((key) => {
+        if (parsed[key] === '') delete parsed[key];
+      });
+    }
+    return parsed;
+  };
+
   const createMutation = useMutation({
-    mutationFn: (body: Record<string, string>) => {
-      const parsed = { ...body };
-      if (parsed.price) parsed.price = String(Number(parsed.price));
-      return api.post(endpoint, parsed);
-    },
+    mutationFn: (body: Record<string, string>) => api.post(endpoint, buildPayload(body)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [queryKey] });
-      setShowForm(false);
-      setForm({});
+      closeForm();
       toast.success(`${title} created`);
     },
+    onError: () => toast.error(`Failed to create ${title.toLowerCase()}`),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Record<string, string> }) =>
+      api.patch(`${endpoint}/${id}`, buildPayload(body, true)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [queryKey] });
+      closeForm();
+      toast.success(`${title} updated`);
+    },
+    onError: () => toast.error(`Failed to update ${title.toLowerCase()}`),
   });
 
   const deleteMutation = useMutation({
@@ -53,34 +91,70 @@ function CrudPage({
     },
   });
 
+  const startEdit = (row: Record<string, unknown>) => {
+    const next: Record<string, string> = {};
+    fields.forEach((f) => {
+      const value = row[f.name];
+      next[f.name] = value == null ? '' : String(value);
+    });
+    setForm(next);
+    setEditId(row._id as string);
+    setShowForm(true);
+  };
+
+  const submitting = createMutation.isPending || updateMutation.isPending;
+
   if (isLoading) return <Loader />;
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button onClick={() => setShowForm(!showForm)}>Add {title}</Button>
+        <Button onClick={() => (showForm ? closeForm() : setShowForm(true))}>
+          {showForm ? 'Close' : `Add ${title}`}
+        </Button>
       </div>
       {showForm && (
         <Card>
           <form
-            onSubmit={(e) => { e.preventDefault(); createMutation.mutate(form); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (editId) updateMutation.mutate({ id: editId, body: form });
+              else createMutation.mutate(form);
+            }}
             className="grid md:grid-cols-2 gap-4"
           >
             {fields.map((f) => {
               const fieldKind = f.fieldKind ?? inferFieldKind(f.name);
+              const listId = f.suggest ? `${queryKey}-${f.name}-suggestions` : undefined;
+              const suggestions = f.suggest ? suggestionsFor(f.name) : [];
               return (
-                <Input
-                  key={f.name}
-                  label={f.label}
-                  fieldKind={fieldKind}
-                  type={f.type}
-                  value={form[f.name] || ''}
-                  onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
-                />
+                <div key={f.name}>
+                  <Input
+                    label={f.label}
+                    fieldKind={fieldKind}
+                    type={f.type}
+                    list={listId}
+                    autoComplete={listId ? 'off' : undefined}
+                    value={form[f.name] || ''}
+                    onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
+                  />
+                  {listId && (
+                    <datalist id={listId}>
+                      {suggestions.map((value) => (
+                        <option key={value} value={value} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
               );
             })}
-            <div className="md:col-span-2">
-              <Button type="submit" loading={createMutation.isPending}>Save</Button>
+            <div className="md:col-span-2 flex items-center gap-2">
+              <Button type="submit" loading={submitting}>
+                {editId ? 'Update' : 'Save'}
+              </Button>
+              <Button type="button" variant="outline" onClick={closeForm}>
+                Cancel
+              </Button>
             </div>
           </form>
         </Card>
@@ -92,13 +166,18 @@ function CrudPage({
             key: 'actions',
             label: 'Actions',
             render: (r) => (
-              <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(r._id as string)}>
-                Delete
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => startEdit(r)}>
+                  Edit
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(r._id as string)}>
+                  Delete
+                </Button>
+              </div>
             ),
           },
         ]}
-        data={data?.data || []}
+        data={rows}
         keyField="_id"
       />
     </div>
@@ -164,7 +243,7 @@ export function AdminProducts() {
         { name: 'sku', label: 'SKU' },
         { name: 'price', label: 'Price', fieldKind: 'price' },
         { name: 'hsn', label: 'HSN', fieldKind: 'hsn' },
-        { name: 'category', label: 'Category' },
+        { name: 'category', label: 'Category', suggest: true },
       ]}
       columns={[
         { key: 'name', label: 'Name' },
@@ -174,4 +253,8 @@ export function AdminProducts() {
       ]}
     />
   );
+}
+
+export function AdminProductsCrud() {
+  return <AdminProducts />;
 }

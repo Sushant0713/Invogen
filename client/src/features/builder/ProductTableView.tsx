@@ -29,14 +29,15 @@ import {
   getDisplayTableTotalWidth,
   getScaledColumnWidths,
   productTablePropsToRecord,
-  fitTableLayoutForPreview,
+  fitTableHeaderHeightToText,
+  fitTableRowHeightsToText,
   isTableWrapFriendlyColumn,
   tableCellRefKey,
   updateCell,
   updateColumnLabel,
   isSameTableCell,
   isSerialColumn,
-  isProductColumn,
+  isProductLikeColumn,
   displayColumnLabel,
   recalculateProductTable,
   type ProductTableProps,
@@ -45,6 +46,8 @@ import {
   type TableGridCoord,
 } from './product-table';
 import { ProductCellSelect } from './ProductCellSelect';
+import { applyProductPickToTable } from './product-cell';
+import type { CompanyProductOption } from './use-company-products';
 import { normalizeTablePropsForType, resolveTableElementType } from './table-props-normalize';
 import { refreshTablePropsForLivePreview, isSummaryOnlyTable } from './composer-table-preview';
 import {
@@ -58,7 +61,6 @@ import {
   type InvoiceTableProps,
 } from './invoice-table';
 import {
-  updateInvoice2Cell,
   applyInvoice2CellEdits,
   isInvoice2ComputedColumn,
   isInvoice2SummaryRowId,
@@ -91,11 +93,29 @@ import {
 } from './invoice-table-3';
 import { resolveTableElementSize } from './table-element-size';
 import { useTaxSettings } from './TaxSettingsProvider';
+import { useProductSettings } from './ProductSettingsProvider';
+import { resolveShowProductSku } from './product-settings';
 import type { TaxSettings } from './tax-settings';
 import type { CanvasInteractionMode } from './builder-interaction';
 
+const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
+const PREVIEW_PAGINATION_RANGE_START_KEY = '__previewPaginationStart';
+const PREVIEW_PAGINATION_RANGE_END_KEY = '__previewPaginationEnd';
+
 function pendingCellKey(rowId: string, columnId: string) {
   return `${rowId}\0${columnId}`;
+}
+
+function mergeFittedRowHeights(
+  full: ProductTableProps,
+  fittedSegment: ProductTableProps
+): ProductTableProps['rows'] {
+  const fittedById = new Map(fittedSegment.rows.map((row) => [row.id, row]));
+  return full.rows.map((row) => {
+    const fitted = fittedById.get(row.id);
+    if (!fitted || fitted.heightPx === row.heightPx) return row;
+    return { ...row, heightPx: fitted.heightPx };
+  });
 }
 
 function resolveCellDisplayText(
@@ -205,6 +225,12 @@ interface ProductTableViewProps {
   trustTableProps?: boolean;
   /** Composer live preview: persist cell edits without Redux. */
   onTableCellChange?: (rowId: string, columnId: string, value: string) => void;
+  /** Composer live preview: catalog pick updates product + rate together. */
+  onTableProductPick?: (
+    rowId: string,
+    columnId: string,
+    product: CompanyProductOption
+  ) => void;
   locked?: boolean;
   isSelected?: boolean;
   interactionMode?: CanvasInteractionMode;
@@ -491,6 +517,7 @@ export function ProductTableView({
   previewMode = false,
   trustTableProps = false,
   onTableCellChange,
+  onTableProductPick,
   locked = false,
   isSelected = false,
   interactionMode = 'move',
@@ -532,6 +559,7 @@ export function ProductTableView({
   const isInvoiceTable3 = isInvoiceTable3Type(resolvedElementType);
   const isInvoiceLineTable = isInvoiceTable2 || isInvoiceTable3;
   const taxSettings = useTaxSettings();
+  const productSettings = useProductSettings();
   const productPickerInteractive = !previewMode || !!onTableCellChange;
 
   useEffect(() => {
@@ -556,7 +584,7 @@ export function ProductTableView({
       : normalizeTablePropsForType(resolvedElementType, props);
     if (isInvoiceTable2) {
       if (previewMode && Object.keys(pendingCellEdits).length === 0) {
-        return base as InvoiceTable2Props;
+        return recalculateInvoiceTable2(base as InvoiceTable2Props, taxSettings);
       }
       return applyInvoice2PendingEdits(base as InvoiceTable2Props, pendingCellEdits, taxSettings);
     }
@@ -623,6 +651,39 @@ export function ProductTableView({
 
   const safeColumns = Array.isArray(table.columns) ? table.columns : [];
   const safeRows = Array.isArray(table.rows) ? table.rows : [];
+  const paginationAllRows = useMemo(() => {
+    const raw = props as Record<string, unknown>;
+    const stored = raw[PREVIEW_PAGINATION_ROWS_KEY];
+    return Array.isArray(stored) ? (stored as ProductTableProps['rows']) : null;
+  }, [props]);
+  const paginationStart = useMemo(() => {
+    const raw = props as Record<string, unknown>;
+    const value = raw[PREVIEW_PAGINATION_RANGE_START_KEY];
+    return typeof value === 'number' && value >= 0 ? Math.floor(value) : null;
+  }, [props]);
+  const paginationEnd = useMemo(() => {
+    const raw = props as Record<string, unknown>;
+    const value = raw[PREVIEW_PAGINATION_RANGE_END_KEY];
+    return typeof value === 'number' && value >= 0 ? Math.floor(value) : null;
+  }, [props]);
+  const isPaginatedSegment =
+    !!paginationAllRows
+    && paginationStart != null
+    && paginationEnd != null
+    && paginationEnd >= paginationStart;
+  const tableForEdit = useMemo(() => {
+    if (!isPaginatedSegment || !paginationAllRows) return table;
+    return { ...table, rows: paginationAllRows };
+  }, [table, isPaginatedSegment, paginationAllRows]);
+  const rowsForDisplay = useMemo(() => {
+    if (!isPaginatedSegment || paginationStart == null || paginationEnd == null) return safeRows;
+    const source = paginationAllRows ?? safeRows;
+    return source.slice(paginationStart, paginationEnd);
+  }, [safeRows, isPaginatedSegment, paginationStart, paginationEnd, paginationAllRows]);
+  const showProductSku = useMemo(
+    () => resolveShowProductSku(table.showProductSku, productSettings),
+    [table.showProductSku, productSettings]
+  );
 
   const displayColumns = useMemo(() => {
     if (isInvoiceTable2) return getVisibleInvoice2Columns(safeColumns);
@@ -634,18 +695,13 @@ export function ProductTableView({
   const displayTable = useMemo(() => {
     const base =
       displayColumns === safeColumns
-        ? { ...table, columns: safeColumns, rows: safeRows }
-        : { ...table, columns: displayColumns, rows: safeRows };
-    if (!previewMode) return base;
-    return fitTableLayoutForPreview(base, containerWidth);
-  }, [
-    displayColumns,
-    safeColumns,
-    safeRows,
-    table,
-    previewMode,
-    containerWidth,
-  ]);
+        ? { ...tableForEdit, columns: safeColumns, rows: rowsForDisplay }
+        : { ...tableForEdit, columns: displayColumns, rows: rowsForDisplay };
+    const columnWidths = displayColumns.map((col) => col.widthPx);
+    let fitted = fitTableHeaderHeightToText(base, columnWidths);
+    fitted = fitTableRowHeightsToText(fitted, columnWidths, { includeAllTextColumns: true });
+    return fitted;
+  }, [displayColumns, safeColumns, rowsForDisplay, tableForEdit]);
 
   const displayRows = Array.isArray(displayTable.rows) ? displayTable.rows : [];
 
@@ -658,79 +714,69 @@ export function ProductTableView({
   );
 
   const fittedElementSize = useMemo(
-    () => resolveTableElementSize(elementType, previewMode ? displayTable : table),
-    [elementType, table, displayTable, previewMode]
+    () => resolveTableElementSize(elementType, displayTable),
+    [elementType, displayTable]
   );
 
-  const visibleColumnKey = useMemo(
-    () => displayColumns.map((col) => col.id).join('\0'),
-    [displayColumns]
-  );
+  const rowHeightSyncKey = useMemo(() => {
+    const header = displayTable.headerHeightPx ?? 0;
+    const rows = displayTable.rows.map((row) => `${row.id}:${row.heightPx}`).join('\0');
+    return `${header}\0${rows}`;
+  }, [displayTable]);
 
-  const elementSizeKey = useMemo(() => {
-    const summaryKey = isInvoiceTable2
-      ? `${invoice2SummaryRows.length}\0${taxSettings.cgstRate}\0${taxSettings.sgstRate}\0${taxSettings.gstRate}\0${taxSettings.isEnabled}\0${table2Props ? resolveInvoice2TaxOptions(table2Props, taxSettings).taxDisplayMode : 'split'}`
-      : isInvoiceTable3
-        ? `${table3Props?.showTotalFooter !== false ? '1' : '0'}\0${taxSettings.cgstRate}\0${taxSettings.sgstRate}\0${taxSettings.gstRate}\0${taxSettings.isEnabled}`
-        : '';
-    return `${visibleColumnKey}\0${fittedElementSize.width}\0${fittedElementSize.height}\0${summaryKey}`;
-  }, [
-    visibleColumnKey,
-    fittedElementSize.width,
-    fittedElementSize.height,
-    isInvoiceTable2,
-    isInvoiceTable3,
-    invoice2SummaryRows.length,
-    taxSettings,
-    table2Props,
-    table3Props,
-  ]);
-
-  const prevElementSizeKeyRef = useRef<string | null>(null);
+  const prevRowHeightSyncKeyRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     if (previewMode || locked) return;
-    const isFirstLayout = prevElementSizeKeyRef.current === null;
-    const sizeChanged = prevElementSizeKeyRef.current !== elementSizeKey;
-    if (!isFirstLayout && !sizeChanged) return;
-    prevElementSizeKeyRef.current = elementSizeKey;
+    const isFirstLayout = prevRowHeightSyncKeyRef.current === null;
+    const heightsChanged = prevRowHeightSyncKeyRef.current !== rowHeightSyncKey;
+    if (!isFirstLayout && !heightsChanged) return;
+    prevRowHeightSyncKeyRef.current = rowHeightSyncKey;
 
-    const widthDiff = Math.abs(containerWidth - fittedElementSize.width);
     const heightDiff = Math.abs(containerHeight - fittedElementSize.height);
-    if (widthDiff <= 1 && heightDiff <= 1) return;
+    if (heightDiff <= 1) return;
 
     dispatch(
       updateElement({
         id: elementId,
         changes: {
-          width: fittedElementSize.width,
+          props: productTablePropsToRecord(
+            isPaginatedSegment && paginationAllRows
+              ? { ...tableForEdit, rows: mergeFittedRowHeights(tableForEdit, displayTable) }
+              : displayTable
+          ),
           height: fittedElementSize.height,
         },
+        replaceProps: true,
         recordHistory: false,
+        skipTableReflow: true,
       })
     );
   }, [
-    elementSizeKey,
-    fittedElementSize.width,
+    rowHeightSyncKey,
     fittedElementSize.height,
     previewMode,
     locked,
     elementId,
     dispatch,
-    containerWidth,
     containerHeight,
+    displayTable,
+    tableForEdit,
+    isPaginatedSegment,
+    paginationAllRows,
   ]);
 
   const layoutTable = previewMode ? displayTable : table;
   const intrinsicWidth = Math.max(getDisplayTableTotalWidth(layoutTable), 1);
   const intrinsicHeight = Math.max(fittedElementSize.height, 1);
-  const scale = previewMode
-    ? Math.min(containerWidth / intrinsicWidth, 1) || 1
-    : Math.min(
-        containerWidth / intrinsicWidth,
-        containerHeight / intrinsicHeight,
-        1
-      ) || 1;
+  const widthScale = containerWidth / intrinsicWidth || 1;
+  const heightScale = containerHeight / intrinsicHeight || 1;
+  const scale =
+    previewMode && trustTableProps
+      ? Math.min(widthScale, 1) || 1
+      : previewMode
+        ? Math.min(widthScale, heightScale, 1) || 1
+        : Math.min(widthScale, heightScale, 1);
 
   const borderStyle = getTableBorderCss(table, scale);
   const scaledColumnWidths = useMemo(
@@ -1001,15 +1047,20 @@ export function ProductTableView({
       } else if (isInvoiceTable1) {
         persisted = recalculateInvoiceTable(next, taxSettings);
       }
+      // Persist full row set when editing a paginated segment.
+      if (isPaginatedSegment && paginationAllRows && next.rows.length === paginationAllRows.length) {
+        persisted = { ...persisted, rows: next.rows };
+      }
       dispatch(
         updateElement({
           id: elementId,
           changes: { props: productTablePropsToRecord(persisted) },
+          replaceProps: true,
           recordHistory,
         })
       );
     },
-    [dispatch, elementId, isInvoiceTable2, isInvoiceTable3, isInvoiceTable1, taxSettings]
+    [dispatch, elementId, isInvoiceTable2, isInvoiceTable3, isInvoiceTable1, taxSettings, isPaginatedSegment, paginationAllRows]
   );
 
   const commitInvoice3Pending = useCallback(
@@ -1058,6 +1109,61 @@ export function ProductTableView({
     [commitTable, elementType, props, taxSettings]
   );
 
+  const handleProductPick = useCallback(
+    (rowId: string, columnId: string, product: CompanyProductOption) => {
+      if (onTableProductPick) {
+        onTableProductPick(rowId, columnId, product);
+        return;
+      }
+
+      let baseTable = table;
+      if (isInvoiceTable2 && Object.keys(pendingEditsRef.current).length > 0) {
+        const base = normalizeTablePropsForType(
+          resolveTableElementType(elementType ?? '', props),
+          props
+        ) as InvoiceTable2Props;
+        baseTable = applyInvoice2PendingEdits(
+          base,
+          pendingEditsRef.current,
+          taxSettings
+        );
+        pendingEditsRef.current = {};
+        setPendingCellEdits({});
+      } else if (
+        (isInvoiceTable1 || isInvoiceTable3)
+        && Object.keys(pendingEditsRef.current).length > 0
+      ) {
+        baseTable = applyPendingCellEdits(table, pendingEditsRef.current);
+        pendingEditsRef.current = {};
+        setPendingCellEdits({});
+      }
+
+      const next = applyProductPickToTable(
+        resolvedElementType,
+        baseTable,
+        rowId,
+        columnId,
+        product,
+        showProductSku,
+        taxSettings
+      );
+      commitTable(next, true);
+    },
+    [
+      commitTable,
+      elementType,
+      isInvoiceTable1,
+      isInvoiceTable2,
+      isInvoiceTable3,
+      onTableProductPick,
+      props,
+      resolvedElementType,
+      table,
+      taxSettings,
+      showProductSku,
+    ]
+  );
+
   const registerCell = useCallback((key: string, el: HTMLDivElement | null) => {
     if (el) cellRegistry.current.set(key, el);
     else cellRegistry.current.delete(key);
@@ -1087,7 +1193,7 @@ export function ProductTableView({
       const nextCol = displayColumns.find((col) => col.id === next.columnId);
       const isComputedTarget =
         (nextCol != null && isSerialColumn(nextCol))
-        || (nextCol != null && isProductColumn(nextCol))
+        || (nextCol != null && isProductLikeColumn(nextCol))
         || (isInvoiceTable1 && isInvoiceComputedColumn(next.columnId))
         || (isInvoiceTable2 && isInvoice2ComputedColumn(next.columnId, next.rowId, displayColumns))
         || (isInvoiceTable3 && isInvoice3ComputedColumn(next.columnId))
@@ -1131,13 +1237,16 @@ export function ProductTableView({
           // Move only via the bottom move control — never drag from the table body.
           if ((e.target as HTMLElement).closest('.builder-table-move-handle')) return;
           if (isMoveMode) {
+            if ((e.target as HTMLElement).closest('.builder-table-product-cell, .product-cell-select')) return;
             // Select on press; do not start a table-body drag.
             dispatch(selectElement(elementId));
             dispatch(clearTableCellSelection());
             setEditingCellKey(null);
             return;
           }
-          if ((e.target as HTMLElement).closest('.builder-table-cell-editor')) return;
+          if ((e.target as HTMLElement).closest('.builder-table-cell-editor, .builder-table-product-cell, .product-cell-select')) {
+            return;
+          }
           dispatch(clearTableCellSelection());
           dispatch(selectElement(elementId));
           setEditingCellKey(null);
@@ -1229,7 +1338,7 @@ export function ProductTableView({
                           ? (col.label || '')
                           : value;
                       commitTable(
-                        updateColumnLabel(table, col.id, nextLabel),
+                        updateColumnLabel(tableForEdit, col.id, nextLabel),
                         options?.recordHistory ?? true
                       );
                     }}
@@ -1257,7 +1366,7 @@ export function ProductTableView({
                   isHeader: false,
                 };
                 const isSerial = isSerialColumn(col);
-                const isProduct = isProductColumn(col);
+                const isProduct = isProductLikeColumn(col);
                 const computed =
                   isSerial
                   || (isInvoiceTable1 && isInvoiceComputedColumn(col.id))
@@ -1290,11 +1399,11 @@ export function ProductTableView({
                     );
                     return;
                   }
-                  let nextTable: ProductTableProps = table;
+                  let nextTable: ProductTableProps = tableForEdit;
                   if (isInvoiceTable1) {
-                    nextTable = updateInvoiceCell(table, row.id, col.id, value, taxSettings);
+                    nextTable = updateInvoiceCell(tableForEdit, row.id, col.id, value, taxSettings);
                   } else {
-                    nextTable = updateCell(table, row.id, col.id, value);
+                    nextTable = updateCell(tableForEdit, row.id, col.id, value);
                   }
                   commitTable(nextTable, true);
                 };
@@ -1303,17 +1412,12 @@ export function ProductTableView({
                   return (
                     <div
                       key={`${row.id}:${col.id}:product`}
-                      className="builder-table-cell shrink-0 overflow-visible"
+                      className="builder-table-cell builder-table-product-cell shrink-0 overflow-visible"
                       style={{
                         width: scaledColumnWidths[colIndex],
                         height: row.heightPx * scale,
                         borderRight: borderStyle,
                         borderBottom: rowHasBottomBorder(rowIndex) ? borderStyle : undefined,
-                      }}
-                      onPointerDown={(e) => {
-                        if (interactionMode === 'move') return;
-                        e.stopPropagation();
-                        onSelectCell(cellRef, gridCoord, e.shiftKey);
                       }}
                     >
                       <ProductCellSelect
@@ -1321,8 +1425,12 @@ export function ProductTableView({
                         width={scaledColumnWidths[colIndex]}
                         height={row.heightPx * scale}
                         previewMode={!productPickerInteractive}
-                        disabled={locked || interactionMode === 'move'}
+                        disabled={locked}
+                        showSku={showProductSku}
                         onChange={commitProductValue}
+                        onProductSelect={(product) =>
+                          handleProductPick(row.id, col.id, product)
+                        }
                       />
                     </div>
                   );
@@ -1375,11 +1483,11 @@ export function ProductTableView({
                           return next;
                         });
                       }
-                      let nextTable: ProductTableProps = table;
+                      let nextTable: ProductTableProps = tableForEdit;
                       if (isInvoiceTable1) {
-                        nextTable = updateInvoiceCell(table, row.id, col.id, value, taxSettings);
+                        nextTable = updateInvoiceCell(tableForEdit, row.id, col.id, value, taxSettings);
                       } else {
-                        nextTable = updateCell(table, row.id, col.id, value);
+                        nextTable = updateCell(tableForEdit, row.id, col.id, value);
                       }
                       commitTable(nextTable, options?.recordHistory ?? true);
                     }}

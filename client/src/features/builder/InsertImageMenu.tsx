@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { ChevronDown, ImageIcon, Stamp, PenLine, Building2, Barcode } from 'lucide-react';
 import { ComponentType } from '@invogen/shared';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
-import { addElement, setImageCropMode } from '@/store/slices/builderSlice';
+import { addElement } from '@/store/slices/builderSlice';
 import { createCanvasElement, getDefaultElementSize, PAGE_WIDTH } from './builder-dnd';
 import { getPaletteItem } from './palette-catalog';
 import { getImageDefaultProps } from './image-components';
@@ -40,9 +40,6 @@ export function InsertImageMenu() {
       page.margins
     );
     dispatch(addElement(element));
-    if (src) {
-      dispatch(setImageCropMode(element.id));
-    }
     setOpen(false);
   };
 

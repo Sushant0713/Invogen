@@ -47,6 +47,7 @@ export interface PublicInvoiceView {
   totals?: { total?: number };
   issueDate?: string;
   companyName: string;
+  showMadeWithInvogen?: boolean;
 }
 
 export async function fetchPublicInvoiceView(token: string): Promise<PublicInvoiceView> {

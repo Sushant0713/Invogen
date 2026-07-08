@@ -36,6 +36,8 @@ import {
 } from './invoice-table';
 import type { TaxSettings } from './tax-settings';
 import { ColumnTypeSelect } from './AddColumnTypeSelect';
+import { ProductColumnSkuInline } from './ProductColumnOptions';
+import { isProductColumn } from './product-table';
 
 function ColumnWidthSlider({
   table,
@@ -202,6 +204,14 @@ function SortableFlexibleColumnRow({
         </button>
       </div>
       <ColumnWidthSlider table={table} col={col} onChange={onChange} />
+      {isProductColumn(col) ? (
+        <ProductColumnSkuInline
+          tableShowProductSku={table.showProductSku}
+          onTableShowProductSkuChange={(value) =>
+            onChange({ ...table, showProductSku: value })
+          }
+        />
+      ) : null}
     </div>
   );
 }

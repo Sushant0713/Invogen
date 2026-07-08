@@ -4,10 +4,11 @@ import {
   MAX_CROP_SCALE,
   MIN_CROP_SCALE,
   type CoverBaseSize,
+  type CropEdge,
   type CropRect,
   type ImageCropTransform,
 } from './types';
-import { clampCropRect } from './cropRect';
+import { applyCropEdge, clampCropRect } from './cropRect';
 
 export type ImageFitMode = 'contain' | 'cover' | 'fill';
 
@@ -30,6 +31,20 @@ export function isDefaultImageCrop(crop: ImageCropTransform): boolean {
     && rect.width === 1
     && rect.height === 1
   );
+}
+
+/** True when the image has not been manually cropped/zoomed/panned — safe to auto-layout in the frame. */
+export function shouldAutoCenterImageCrop(crop: ImageCropTransform): boolean {
+  if (isDefaultImageCrop(crop)) return true;
+  const rect = crop.rect;
+  const fullFrame =
+    rect.x === 0
+    && rect.y === 0
+    && rect.width === 1
+    && rect.height === 1;
+  if (!fullFrame || crop.scale !== 1 || crop.rotation !== 0) return false;
+  // User dragged the image inside the frame — keep their placement.
+  return Math.abs(crop.offsetX) <= 0.5 && Math.abs(crop.offsetY) <= 0.5;
 }
 
 export function getFitBaseSize(
@@ -91,6 +106,23 @@ export function normalizeImageCropTransform(raw: unknown): ImageCropTransform {
   };
 }
 
+function fitOffsets(
+  frameW: number,
+  frameH: number,
+  displayW: number,
+  displayH: number,
+  objectFit: ImageFitMode
+): { offsetX: number; offsetY: number } {
+  // Contain pins to the top-left so logos can be placed flush to page margins.
+  if (objectFit === 'contain' || objectFit === 'fill') {
+    return { offsetX: 0, offsetY: 0 };
+  }
+  return {
+    offsetX: (frameW - displayW) / 2,
+    offsetY: (frameH - displayH) / 2,
+  };
+}
+
 export function defaultCropForFrame(
   frameW: number,
   frameH: number,
@@ -100,10 +132,17 @@ export function defaultCropForFrame(
 ): ImageCropTransform {
   const base = getFitBaseSize(frameW, frameH, naturalW, naturalH, objectFit);
   const display = { width: base.width, height: base.height };
+  const { offsetX, offsetY } = fitOffsets(
+    frameW,
+    frameH,
+    display.width,
+    display.height,
+    objectFit
+  );
   return {
     rect: { ...FULL_CROP_RECT },
-    offsetX: (frameW - display.width) / 2,
-    offsetY: (frameH - display.height) / 2,
+    offsetX,
+    offsetY,
     scale: 1,
     rotation: 0,
   };
@@ -119,10 +158,17 @@ export function realignCropForFit(
 ): ImageCropTransform {
   const base = getFitBaseSize(frameW, frameH, naturalW, naturalH, objectFit);
   const display = getDisplayedImageSize(crop, base);
+  const { offsetX, offsetY } = fitOffsets(
+    frameW,
+    frameH,
+    display.width,
+    display.height,
+    objectFit
+  );
   return {
     ...crop,
-    offsetX: (frameW - display.width) / 2,
-    offsetY: (frameH - display.height) / 2,
+    offsetX,
+    offsetY,
   };
 }
 
@@ -151,12 +197,19 @@ export function migrateLegacyCropProps(
   const hasLegacyRegion =
     cropX > 0.001 || cropY > 0.001 || cropW < 0.999 || cropH < 0.999;
 
-  let offsetX = (frameW - base.width) / 2;
-  let offsetY = (frameH - base.height) / 2;
+  const { offsetX: fitX, offsetY: fitY } = fitOffsets(
+    frameW,
+    frameH,
+    base.width,
+    base.height,
+    objectFit
+  );
+  let offsetX = fitX;
+  let offsetY = fitY;
 
   if (hasLegacyRegion) {
-    offsetX = (frameW - base.width) / 2 - cropX * base.width;
-    offsetY = (frameH - base.height) / 2 - cropY * base.height;
+    offsetX = fitX - cropX * base.width;
+    offsetY = fitY - cropY * base.height;
   } else if (typeof props.cropOffsetX === 'number' || typeof props.cropOffsetY === 'number') {
     offsetX = typeof props.cropOffsetX === 'number' ? props.cropOffsetX : offsetX;
     offsetY = typeof props.cropOffsetY === 'number' ? props.cropOffsetY : offsetY;
@@ -209,6 +262,17 @@ export function getDisplayedImageSize(
   };
 }
 
+/** Image is smaller than the frame on at least one axis — hand-drag can reposition it inside the box. */
+export function canPanImageInFrame(
+  crop: ImageCropTransform,
+  base: CoverBaseSize,
+  frameW: number,
+  frameH: number
+): boolean {
+  const display = getDisplayedImageSize(crop, base);
+  return display.width < frameW - 0.5 || display.height < frameH - 0.5;
+}
+
 /** Scale image inside crop mask — anchored at crop-rect center (corners). */
 export function scaleImageInCrop(
   crop: ImageCropTransform,
@@ -251,6 +315,77 @@ export function panImageInCrop(
     ...crop,
     offsetX: crop.offsetX + dx,
     offsetY: crop.offsetY + dy,
+  };
+}
+
+const CROP_EDGE_TOL = 0.001;
+
+export function isCropAtFrameEdge(rect: CropRect, edge: CropEdge): boolean {
+  switch (edge) {
+    case 'left':
+      return rect.x <= CROP_EDGE_TOL;
+    case 'right':
+      return rect.x + rect.width >= 1 - CROP_EDGE_TOL;
+    case 'top':
+      return rect.y <= CROP_EDGE_TOL;
+    case 'bottom':
+      return rect.y + rect.height >= 1 - CROP_EDGE_TOL;
+  }
+}
+
+/** Edge drag: shrink/expand crop window; at full frame, outward drag zooms out to reveal more image. */
+export function cropEdgeDrag(
+  start: ImageCropTransform,
+  base: CoverBaseSize,
+  edge: CropEdge,
+  cumulativePx: number,
+  frameW: number,
+  frameH: number
+): ImageCropTransform {
+  const isExpanding =
+    (edge === 'right' && cumulativePx > 0)
+    || (edge === 'left' && cumulativePx < 0)
+    || (edge === 'bottom' && cumulativePx > 0)
+    || (edge === 'top' && cumulativePx < 0);
+
+  if (!isExpanding) {
+    return { ...start, rect: applyCropEdge(start.rect, edge, cumulativePx, frameW, frameH) };
+  }
+
+  const nextRect = applyCropEdge(start.rect, edge, cumulativePx, frameW, frameH);
+  const rectGrew =
+    nextRect.width > start.rect.width + CROP_EDGE_TOL
+    || nextRect.height > start.rect.height + CROP_EDGE_TOL
+    || (edge === 'left' && nextRect.x < start.rect.x - CROP_EDGE_TOL)
+    || (edge === 'top' && nextRect.y < start.rect.y - CROP_EDGE_TOL);
+
+  if (rectGrew || !isCropAtFrameEdge(start.rect, edge)) {
+    return { ...start, rect: nextRect };
+  }
+
+  const outward = Math.abs(cumulativePx);
+  const denom =
+    edge === 'left' || edge === 'right'
+      ? Math.max(frameW, 64)
+      : Math.max(frameH, 64);
+  const factor = Math.max(MIN_CROP_SCALE / Math.max(start.scale, MIN_CROP_SCALE), 1 - outward / denom);
+  return scaleImageInCrop(start, base, frameW, frameH, factor);
+}
+
+/** Keep image placement proportional when the element frame is resized (crop mode corners). */
+export function scaleCropForFrameResize(
+  crop: ImageCropTransform,
+  oldFrameW: number,
+  oldFrameH: number,
+  newFrameW: number,
+  newFrameH: number
+): ImageCropTransform {
+  const rx = newFrameW / Math.max(oldFrameW, 1);
+  const ry = newFrameH / Math.max(oldFrameH, 1);
+  return {
+    ...crop,
+    offsetX: crop.offsetX * rx,
+    offsetY: crop.offsetY * ry,
   };
 }
 

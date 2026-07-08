@@ -7,6 +7,8 @@ export type PlanTemplateAccess = {
   templateAccessConfigured: boolean;
   templateIds: string[];
   canAddTemplate: boolean;
+  /** When true, show "Made with Invogen" badge on templates/invoices. */
+  showMadeWithInvogen: boolean;
 };
 
 function toObjectId(id: string): mongoose.Types.ObjectId | null {
@@ -44,7 +46,7 @@ export async function getCompanyPlanAccess(
   if (!subscription?.planId) return null;
 
   const plan = await Plan.findById(subscription.planId)
-    .select('templateIds canAddTemplate templateAccessConfigured')
+    .select('templateIds canAddTemplate templateAccessConfigured showMadeWithInvogen')
     .lean();
 
   if (!plan) return null;
@@ -61,6 +63,7 @@ export async function getCompanyPlanAccess(
     templateAccessConfigured: configured,
     templateIds,
     canAddTemplate: configured ? plan.canAddTemplate === true : true,
+    showMadeWithInvogen: plan.showMadeWithInvogen === true,
   };
 }
 

@@ -445,7 +445,12 @@ export const adminService = {
     const invoice = await Invoice.findOne({ 'shares.token': token }).populate('companyId', 'name');
     if (!invoice) throw new AppError('Invoice not found or link expired', 404);
 
-    const company = invoice.companyId as { name?: string } | null;
+    const company = invoice.companyId as { _id?: { toString(): string }; name?: string } | null;
+    const companyId =
+      company && typeof company === 'object' && company._id
+        ? company._id.toString()
+        : invoice.get('companyId')?.toString?.() || '';
+    const access = companyId ? await getCompanyPlanAccess(companyId) : null;
     return {
       invoiceNumber: invoice.invoiceNumber,
       status: invoice.status,
@@ -454,6 +459,7 @@ export const adminService = {
       totals: invoice.totals,
       issueDate: invoice.issueDate,
       companyName: company?.name ?? 'Company',
+      showMadeWithInvogen: access?.showMadeWithInvogen === true,
     };
   },
 
@@ -508,6 +514,7 @@ export const adminService = {
       canAddTemplate: access ? access.canAddTemplate : true,
       templateAccessConfigured: access?.templateAccessConfigured === true,
       allowedTemplateIds: access?.templateAccessConfigured ? access.templateIds : null,
+      showMadeWithInvogen: access?.showMadeWithInvogen === true,
     };
   },
 

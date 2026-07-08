@@ -16,17 +16,14 @@ import {
   Wind,
   Sparkles,
   RefreshCw,
-  Crop,
-  Check,
 } from 'lucide-react';
-import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
-import { setImageCropMode } from '@/store/slices/builderSlice';
 import {
   type ImageObjectFit,
   normalizeImageProps,
 } from './image-components';
 import { resolveBrandingImageSrc } from './company-branding';
 import { useCompanyBranding } from './CompanyBrandingProvider';
+import { useAppSelector } from '@/hooks/useAppDispatch';
 import { getImageUploadPatch } from './image-crop';
 import {
   cropTransformToProps,
@@ -413,14 +410,11 @@ export function ImageToolbar({
   onForward,
   onBackward,
 }: Props) {
-  const dispatch = useAppDispatch();
   const branding = useCompanyBranding();
-  const imageCropElementId = useAppSelector((s) => s.builder.imageCropElementId);
   const element = useAppSelector((s) => {
     const page = s.builder.pages[s.builder.activePageIndex];
     return page.elements.find((el) => el.id === elementId);
   });
-  const isCropMode = imageCropElementId === elementId;
   const image = normalizeImageProps(props);
   const resolvedSrc = resolveBrandingImageSrc(
     element?.type ?? '',
@@ -431,7 +425,6 @@ export function ImageToolbar({
 
   const { input, pickFile, uploading } = useImageUpload((url) => {
     onUpdateProps(getImageUploadPatch(url), true);
-    dispatch(setImageCropMode(elementId));
   });
 
   const cycleFit = () => {
@@ -501,28 +494,6 @@ export function ImageToolbar({
           >
             <Upload className="h-4 w-4" />
           </ToolbarIconButton>
-
-          {resolvedSrc && (
-            <>
-              <Divider />
-              {isCropMode ? (
-                <ToolbarIconButton
-                  title="Done cropping (Esc)"
-                  active
-                  onClick={() => dispatch(setImageCropMode(null))}
-                >
-                  <Check className="h-4 w-4" />
-                </ToolbarIconButton>
-              ) : (
-                <ToolbarIconButton
-                  title="Crop image"
-                  onClick={() => dispatch(setImageCropMode(elementId))}
-                >
-                  <Crop className="h-4 w-4" />
-                </ToolbarIconButton>
-              )}
-            </>
-          )}
 
           <Divider />
 

@@ -1,13 +1,13 @@
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import type { ImageCropTransform } from './types';
 import type { CoverBaseSize } from './cropUtils';
-import { getDisplayedImageSize } from './cropUtils';
+import { zoomCropAtPoint } from './cropUtils';
 import { rectToPixels } from './cropRect';
 import { CroppedImageDisplay } from './CroppedImageDisplay';
-import { CropModeHandles } from './CropModeHandles';
+import { CropModeHandles, type CropFrameBounds } from './CropModeHandles';
 import { useImageCrop } from './hooks/useImageCrop';
 import type { ImageProps } from '../image-components';
-import { buildImageFilter } from '../image-components';
+import type { ElementBounds } from '../element-resize';
 
 interface Props {
   src: string;
@@ -17,7 +17,12 @@ interface Props {
   base: CoverBaseSize;
   crop: ImageCropTransform;
   image: ImageProps;
+  zoom?: number;
+  frameBounds: CropFrameBounds;
+  /** When true, drag/wheel pan and zoom the image inside the frame. */
+  panEnabled?: boolean;
   onCropChange: (crop: ImageCropTransform, recordHistory?: boolean) => void;
+  onFrameResize?: (bounds: ElementBounds, recordHistory?: boolean) => void;
 }
 
 function CropModeEditorInner({
@@ -28,10 +33,14 @@ function CropModeEditorInner({
   base,
   crop,
   image,
+  zoom,
+  frameBounds,
+  panEnabled = false,
   onCropChange,
+  onFrameResize,
 }: Props) {
   const panHandlers = useImageCrop({
-    enabled: true,
+    enabled: panEnabled,
     crop,
     base,
     frameW,
@@ -39,103 +48,91 @@ function CropModeEditorInner({
     onChange: onCropChange,
   });
 
-  const display = getDisplayedImageSize(crop, base);
   const rectPx = rectToPixels(crop.rect, frameW, frameH);
-  const filter = buildImageFilter(image);
-  const dim = 'rgba(0,0,0,0.55)';
+  const dim = 'rgba(0,0,0,0.45)';
 
-  const flipScale = image.flipX && image.flipY
-    ? 'scale(-1,-1)'
-    : image.flipX
-      ? 'scaleX(-1)'
-      : image.flipY
-        ? 'scaleY(-1)'
-        : '';
+  const isPartialCrop =
+    crop.rect.x > 0.001
+    || crop.rect.y > 0.001
+    || crop.rect.width < 0.999
+    || crop.rect.height < 0.999;
+  const showDim = panEnabled || isPartialCrop;
 
-  const imgTransform = [`rotate(${crop.rotation}deg)`, flipScale].filter(Boolean).join(' ');
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!panEnabled) return;
+      panHandlers.onWheel(e);
+    },
+    [panEnabled, panHandlers]
+  );
 
   return (
     <div
       className="relative h-full w-full"
       style={{ overflow: 'visible' }}
-      onPointerDown={(e) => e.stopPropagation()}
+      onWheel={onWheel}
     >
-      {/* Full image — draggable to reposition inside crop mask */}
-      <div
-        className="absolute inset-0 overflow-visible"
-        style={{ zIndex: 1 }}
-        {...panHandlers}
-      >
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          className="absolute max-w-none cursor-grab select-none active:cursor-grabbing"
-          style={{
-            left: crop.offsetX,
-            top: crop.offsetY,
-            width: display.width,
-            height: display.height,
-            transform: imgTransform || undefined,
-            transformOrigin: 'center center',
-            filter,
-          }}
-        />
-      </div>
+      <CroppedImageDisplay
+        src={src}
+        alt={alt}
+        frameW={frameW}
+        frameH={frameH}
+        base={base}
+        crop={crop}
+        image={image}
+        interactive={panEnabled}
+        cropHandlers={panEnabled ? panHandlers : undefined}
+      />
 
-      {/* Dim regions outside the crop rectangle */}
-      {rectPx.y > 0 && (
-        <div
-          className="pointer-events-none absolute left-0 right-0 z-10"
-          style={{ top: 0, height: rectPx.y, background: dim }}
-        />
-      )}
-      {rectPx.y + rectPx.height < frameH && (
-        <div
-          className="pointer-events-none absolute left-0 right-0 z-10"
-          style={{ top: rectPx.y + rectPx.height, height: frameH - rectPx.y - rectPx.height, background: dim }}
-        />
-      )}
-      {rectPx.x > 0 && (
-        <div
-          className="pointer-events-none absolute z-10"
-          style={{ left: 0, top: rectPx.y, width: rectPx.x, height: rectPx.height, background: dim }}
-        />
-      )}
-      {rectPx.x + rectPx.width < frameW && (
-        <div
-          className="pointer-events-none absolute z-10"
-          style={{
-            left: rectPx.x + rectPx.width,
-            top: rectPx.y,
-            width: frameW - rectPx.x - rectPx.width,
-            height: rectPx.height,
-            background: dim,
-          }}
-        />
+      {showDim && (
+        <>
+          {rectPx.y > 0 && (
+            <div
+              className="pointer-events-none absolute left-0 right-0 z-10"
+              style={{ top: 0, height: rectPx.y, background: dim }}
+            />
+          )}
+          {rectPx.y + rectPx.height < frameH && (
+            <div
+              className="pointer-events-none absolute left-0 right-0 z-10"
+              style={{
+                top: rectPx.y + rectPx.height,
+                height: frameH - rectPx.y - rectPx.height,
+                background: dim,
+              }}
+            />
+          )}
+          {rectPx.x > 0 && (
+            <div
+              className="pointer-events-none absolute z-10"
+              style={{ left: 0, top: rectPx.y, width: rectPx.x, height: rectPx.height, background: dim }}
+            />
+          )}
+          {rectPx.x + rectPx.width < frameW && (
+            <div
+              className="pointer-events-none absolute z-10"
+              style={{
+                left: rectPx.x + rectPx.width,
+                top: rectPx.y,
+                width: frameW - rectPx.x - rectPx.width,
+                height: rectPx.height,
+                background: dim,
+              }}
+            />
+          )}
+        </>
       )}
 
-      {/* Crop handles: sides crop edges, corners scale image */}
       <CropModeHandles
         crop={crop}
         base={base}
         frameW={frameW}
         frameH={frameH}
+        zoom={zoom}
+        frameBounds={frameBounds}
         onCropChange={onCropChange}
+        onFrameResize={onFrameResize}
       />
-
-      {/* Clip preview of final result */}
-      <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden" style={{ borderRadius: image.borderRadius }}>
-        <CroppedImageDisplay
-          src={src}
-          alt={alt}
-          frameW={frameW}
-          frameH={frameH}
-          base={base}
-          crop={crop}
-          image={image}
-        />
-      </div>
     </div>
   );
 }

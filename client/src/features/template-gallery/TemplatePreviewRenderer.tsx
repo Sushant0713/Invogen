@@ -10,6 +10,7 @@ import {
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
+import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
 import {
   type CompanyBrandingScope,
 } from '@/features/builder/company-branding';
@@ -97,6 +98,8 @@ export function TemplatePreviewRenderer({
             </div>
           ))}
       </div>
+      {/* Outside the CSS scale so the badge stays readable on gallery thumbnails. */}
+      <MadeWithInvogenBadge compact />
     </div>
     </TaxSettingsProvider>
     </CompanyBrandingProvider>

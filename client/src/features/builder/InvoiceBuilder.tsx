@@ -18,6 +18,7 @@ import { PositionFloatingPanel } from './PositionPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { CompanyBrandingProvider } from './CompanyBrandingProvider';
 import { TaxSettingsProvider } from './TaxSettingsProvider';
+import { ProductSettingsProvider } from './ProductSettingsProvider';
 import { brandingScopeFromApiBase } from './company-branding';
 import { Button } from '@/components/ui/Button';
 import api from '@/api/client';
@@ -64,7 +65,13 @@ export function InvoiceBuilder({
     if (saving) return;
     setSaving(true);
     try {
-      const res = await api.patch(`${apiBase}/${templateId}`, { pages, name: templateName });
+      // Deep-clone so Redux proxies / circular refs cannot break JSON serialization
+      // when many pages and components are present.
+      const payload = {
+        name: templateName,
+        pages: JSON.parse(JSON.stringify(pages)) as typeof pages,
+      };
+      const res = await api.patch(`${apiBase}/${templateId}`, payload);
       const updated = res.data?.data as TemplateDocument | undefined;
       if (updated?._id) {
         publishSavedTemplateDocument(queryClient, apiBase, updated);
@@ -85,8 +92,24 @@ export function InvoiceBuilder({
       clearBuilderDraft(templateId);
       toast.success('Template saved');
       onSave?.();
-    } catch {
-      toast.error('Failed to save template');
+    } catch (error) {
+      const message =
+        error
+        && typeof error === 'object'
+        && 'response' in error
+        && (error as { response?: { data?: { message?: string }; status?: number } }).response
+          ?.data?.message;
+      const status =
+        error
+        && typeof error === 'object'
+        && 'response' in error
+          ? (error as { response?: { status?: number } }).response?.status
+          : undefined;
+      if (status === 413) {
+        toast.error('Template is too large to save. Remove unused images or split content.');
+      } else {
+        toast.error(message || 'Failed to save template');
+      }
     } finally {
       setSaving(false);
     }
@@ -141,6 +164,7 @@ export function InvoiceBuilder({
   return (
     <CompanyBrandingProvider scope={brandingScopeFromApiBase(apiBase)}>
     <TaxSettingsProvider scope={brandingScopeFromApiBase(apiBase)}>
+    <ProductSettingsProvider>
     <div className="flex h-full min-h-0 flex-col bg-gray-100">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3">
         <Link
@@ -239,6 +263,7 @@ export function InvoiceBuilder({
         <PropertiesPanel />
       </div>
     </div>
+    </ProductSettingsProvider>
     </TaxSettingsProvider>
     <TemplatePreviewModal
       open={previewOpen}

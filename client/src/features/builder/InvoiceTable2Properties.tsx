@@ -8,6 +8,7 @@ import {
   MAX_BORDER_WIDTH_PX,
   clampBorderOpacity,
   clampBorderWidth,
+  resolveBuilderTablePropsForEdit,
 } from './product-table';
 import {
   productTablePropsToRecord,
@@ -34,6 +35,7 @@ import { useTaxSettings } from './TaxSettingsProvider';
 import { getCombinedGstRate } from './tax-settings';
 import { InvoiceTable2ColumnList } from './InvoiceTable2ColumnList';
 import { AddColumnTypeSelect } from './AddColumnTypeSelect';
+import { ProductColumnOptions } from './ProductColumnOptions';
 
 export function InvoiceTable2Properties({
   props,
@@ -44,7 +46,7 @@ export function InvoiceTable2Properties({
 }) {
   const taxSettings = useTaxSettings();
   const table = useMemo(
-    () => recalculateInvoiceTable2(normalizeInvoiceTable2Props(props), taxSettings),
+    () => recalculateInvoiceTable2(normalizeInvoiceTable2Props(resolveBuilderTablePropsForEdit(props)), taxSettings),
     [props, taxSettings]
   );
   const taxOptions = useMemo(
@@ -104,6 +106,12 @@ export function InvoiceTable2Properties({
         Line total = QTY × Rate − Discount. CGST, SGST, and GST rates come from Admin → Settings →
         Set up tax. Tax is applied on the subtotal in the summary block.
       </p>
+
+      <ProductColumnOptions
+        columns={table.columns}
+        showProductSku={table.showProductSku}
+        onShowProductSkuChange={(value) => commit({ ...table, showProductSku: value })}
+      />
 
       <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Tax (from settings)</p>

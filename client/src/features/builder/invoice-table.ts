@@ -33,6 +33,7 @@ import {
 } from './product-table';
 import { arrayMove } from '@dnd-kit/sortable';
 import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate } from './tax-settings';
+import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceDiscountMode = 'amount' | 'percent';
 export type InvoiceTaxDisplayMode = 'split' | 'combined';
@@ -517,6 +518,7 @@ export function normalizeInvoiceTableProps(raw: Record<string, unknown> = {}): I
         : DEFAULT_ROW_HEIGHT_PX,
     headerStyles: normalizeStyleMap(raw.headerStyles),
     cellStyles: normalizeStyleMap(raw.cellStyles),
+    showProductSku: normalizeShowProductSku(raw.showProductSku),
   };
   return recalculateInvoiceTable(base);
 }

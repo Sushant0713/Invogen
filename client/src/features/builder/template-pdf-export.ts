@@ -42,6 +42,42 @@ async function waitForImages(root: HTMLElement): Promise<void> {
   );
 }
 
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Fetch every <img> src and swap it for an inline data URL so rasterization
+ * never depends on cross-origin fetches (logos/signatures live on the API origin).
+ */
+async function inlineImages(root: HTMLElement): Promise<void> {
+  const images = Array.from(root.querySelectorAll('img'));
+  await Promise.all(
+    images.map(async (img) => {
+      const src = img.currentSrc || img.getAttribute('src') || '';
+      if (!src || src.startsWith('data:')) return;
+      try {
+        let response = await fetch(src).catch(() => null);
+        if (!response || !response.ok) {
+          // Retry sending cookies in case the upload endpoint requires auth.
+          response = await fetch(src, { credentials: 'include' }).catch(() => null);
+        }
+        if (!response || !response.ok) return;
+        const dataUrl = await blobToDataUrl(await response.blob());
+        img.setAttribute('src', dataUrl);
+        img.removeAttribute('srcset');
+      } catch {
+        // Leave the original src; html-to-image will make a best effort.
+      }
+    })
+  );
+}
+
 export async function exportTemplatePagesToPdf(
   pages: TemplatePdfPageInput[]
 ): Promise<Blob> {
@@ -67,10 +103,11 @@ export async function exportTemplatePagesToPdf(
       );
     }
 
+    await inlineImages(element);
     await waitForImages(element);
 
     const dataUrl = await toPng(element, {
-      cacheBust: true,
+      cacheBust: false,
       pixelRatio: 2,
       backgroundColor: '#ffffff',
       skipFonts: false,

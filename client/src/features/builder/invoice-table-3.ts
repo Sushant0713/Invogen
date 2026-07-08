@@ -32,6 +32,7 @@ import {
 } from './product-table';
 import { type InvoiceDiscountMode } from './invoice-table';
 import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate } from './tax-settings';
+import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceTable3Props = ProductTableProps & {
   discountMode?: InvoiceDiscountMode;
@@ -484,6 +485,7 @@ export function normalizeInvoiceTable3Props(
     showGrandTotalFooter: false,
     headerStyles: normalizeStyleMap(raw.headerStyles),
     cellStyles: normalizeStyleMap(raw.cellStyles),
+    showProductSku: normalizeShowProductSku(raw.showProductSku),
   };
   return recalculateInvoiceTable3(base, tax);
 }

@@ -3,6 +3,8 @@ import {
   type ProductTableColumn,
   computeTableHeight,
   fitTableLayoutForPreview,
+  fitTableHeaderHeightToText,
+  fitTableRowHeightsToText,
   getDisplayTableTotalWidth,
   isTableElementType,
   productTablePropsToRecord,
@@ -36,6 +38,29 @@ function tableDisplayColumns(elementType: string, table: ProductTableProps): Pro
   return table.columns.filter((col) => col.visible !== false);
 }
 
+/** Grow header/row heights for wrapped cell text — column widths unchanged. */
+export function fitTableHeightsPreservingWidths(
+  elementType: string,
+  rawProps: Record<string, unknown>
+): { height: number; tableProps: Record<string, unknown> } {
+  const table = normalizeTablePropsForType(elementType, rawProps) as ProductTableProps;
+  const displayColumns = tableDisplayColumns(elementType, table);
+  const base =
+    displayColumns === table.columns
+      ? table
+      : { ...table, columns: displayColumns };
+  const columnWidths = displayColumns.map((col) => col.widthPx);
+  const withHeader = fitTableHeaderHeightToText(base, columnWidths);
+  const fitted = fitTableRowHeightsToText(withHeader, columnWidths, {
+    includeAllTextColumns: true,
+  });
+  const size = resolveTableElementSize(elementType, fitted);
+  return {
+    height: size.height,
+    tableProps: productTablePropsToRecord(fitted),
+  };
+}
+
 /** Fitted table layout for live preview (column widths, row heights, headers). */
 export function resolvePreviewTableFittedLayout(
   elementType: string,
@@ -57,6 +82,11 @@ export function resolvePreviewTableFittedLayout(
   };
 }
 
+export type ClampTableElementOptions = {
+  /** When false, keep row/column sizes and let preview reflow paginate instead of scaling down. */
+  allowScale?: boolean;
+};
+
 /** Keep table layout and box inside the template content area (inside page margins). */
 export function clampTableElementToPage(
   x: number,
@@ -70,7 +100,8 @@ export function clampTableElementToPage(
     bottom: 0,
     left: 0,
   },
-  elementType?: string
+  elementType?: string,
+  options: ClampTableElementOptions = {}
 ): {
   x: number;
   y: number;
@@ -78,6 +109,7 @@ export function clampTableElementToPage(
   height: number;
   table: ProductTableProps;
 } {
+  const allowScale = options.allowScale !== false;
   const minX = margins.left;
   const minY = margins.top;
   const maxRight = pageWidth - margins.right;
@@ -91,7 +123,7 @@ export function clampTableElementToPage(
   let resultTable = table;
   let fitted = resolveTableElementSize(elementType, resultTable);
 
-  if (fitted.width > maxW || fitted.height > maxH) {
+  if (allowScale && (fitted.width > maxW || fitted.height > maxH)) {
     const scale = Math.min(maxW / fitted.width, maxH / fitted.height, 1);
     if (scale < 1) {
       resultTable = scaleTableLayout(resultTable, scale, scale);
@@ -99,8 +131,8 @@ export function clampTableElementToPage(
     }
   }
 
-  const width = Math.min(fitted.width, maxW);
-  const height = Math.min(fitted.height, maxH);
+  const width = allowScale ? Math.min(fitted.width, maxW) : fitted.width;
+  const height = allowScale ? Math.min(fitted.height, maxH) : fitted.height;
   const clampedX = Math.max(minX, Math.min(originX, maxRight - width));
   const clampedY = Math.max(minY, Math.min(originY, maxBottom - height));
 

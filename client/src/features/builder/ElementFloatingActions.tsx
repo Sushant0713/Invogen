@@ -7,10 +7,12 @@ import {
   deleteElement,
   toggleElementLock,
   updateElement,
+  setImageCropMode,
   setShapeCropMode,
 } from '@/store/slices/builderSlice';
 import { isShapeComponentType } from './shape-components';
 import { isTableElementType } from './product-table';
+import { isImageComponentType } from './image-components';
 import type { CanvasInteractionMode } from './builder-interaction';
 import {
   getOpacityPercent,
@@ -33,6 +35,8 @@ interface Props {
   onInteractionModeChange?: (mode: CanvasInteractionMode) => void;
   /** Keep the action bar off the top edge so the rotation handle stays reachable. */
   toolbarBelow?: boolean;
+  /** Space reserved below the element (e.g. table move handle) so the toolbar does not cover it. */
+  reserveBottomChrome?: number;
 }
 
 function getElementPosition(
@@ -55,17 +59,28 @@ export function ElementFloatingActions({
   supportsInteractionToggle = false,
   onInteractionModeChange,
   toolbarBelow = false,
+  reserveBottomChrome = 0,
 }: Props) {
   const dispatch = useAppDispatch();
   const locked = !!element.locked;
   const isShape = isShapeComponentType(element.type);
   const isTable = isTableElementType(element.type);
+  const isImage = isImageComponentType(element.type);
   const isShapeCropMode = shapeCropElementId === element.id;
+  const isImageCropMode = useAppSelector((s) => s.builder.imageCropElementId === element.id);
   const { x, y } = getElementPosition(element, dragPosition);
   const centerX = (x + element.width / 2) * zoom;
   const topY = y * zoom;
   const bottomY = (y + element.height) * zoom;
-  const showAbove = !isShapeCropMode && !toolbarBelow && y >= 44;
+  const prefersAbove = reserveBottomChrome > 0 || y >= 44;
+  const showAbove = !isShapeCropMode && !toolbarBelow && prefersAbove;
+  const toolbarTop = isShapeCropMode
+    ? bottomY + 10
+    : showAbove
+      ? topY - 6
+      : bottomY + 6 + reserveBottomChrome;
+  const toolbarTransform =
+    isShapeCropMode || !showAbove ? 'translate(-50%, 0)' : 'translate(-50%, -100%)';
 
   const elementProps = (element.props ?? {}) as Record<string, unknown>;
 
@@ -86,8 +101,8 @@ export function ElementFloatingActions({
       className="pointer-events-auto absolute"
       style={{
         left: centerX,
-        top: isShapeCropMode ? bottomY + 10 : showAbove ? topY - 6 : bottomY + 6,
-        transform: isShapeCropMode || !showAbove ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+        top: toolbarTop,
+        transform: toolbarTransform,
         zIndex: getToolbarZIndex(elements) + 1,
       }}
       onMouseDown={stopBubble}
@@ -126,6 +141,16 @@ export function ElementFloatingActions({
             <FloatingIconButton
               title="Cut shape"
               onClick={() => dispatch(setShapeCropMode(element.id))}
+            >
+              <Crop className="h-4 w-4" />
+            </FloatingIconButton>
+          )}
+
+          {isImage && !locked && (
+            <FloatingIconButton
+              title={isImageCropMode ? 'Done repositioning' : 'Pan / zoom inside frame'}
+              active={isImageCropMode}
+              onClick={() => dispatch(setImageCropMode(isImageCropMode ? null : element.id))}
             >
               <Crop className="h-4 w-4" />
             </FloatingIconButton>

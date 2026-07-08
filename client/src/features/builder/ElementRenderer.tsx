@@ -7,7 +7,12 @@ import { OutlineListEditor } from './OutlineListEditor';
 import { TermsDisplay } from './TermsDisplay';
 import { AddressDisplay } from './AddressDisplay';
 import { termsItemsToContent, termsPropsFromOutlineContent, parseTermsFromProps } from './terms-content';
-import { formatAddressValue, parseAddressFromProps, buildAddressProps } from './address-content';
+import {
+  formatAddressValue,
+  parseAddressFromProps,
+  buildAddressProps,
+  parseHiddenAddressFields,
+} from './address-content';
 import { CardView } from './CardView';
 import { ImageView } from './ImageView';
 import { isCardComponentType } from './card-components';
@@ -44,6 +49,8 @@ import {
   isStructuredContentType,
 } from './structured-content-layout';
 import { getElementRotation, supportsElementRotation } from './element-rotation';
+import { TextWithPlaceholderChips, readContentEditablePlainText } from './TextWithPlaceholderChips';
+import type { CompanyProductOption } from './use-company-products';
 
 interface Props {
   element: CanvasElement;
@@ -58,6 +65,11 @@ interface Props {
   trustTableProps?: boolean;
   /** Composer live preview: allow picking products in table cells. */
   onTableCellChange?: (rowId: string, columnId: string, value: string) => void;
+  onTableProductPick?: (
+    rowId: string,
+    columnId: string,
+    product: CompanyProductOption
+  ) => void;
   isShapeCropMode?: boolean;
   onSelect: (additive?: boolean) => void;
   onStartEdit?: () => void;
@@ -73,6 +85,12 @@ interface Props {
   onPendingEditCharConsumed?: () => void;
   onUpdateProps?: (patch: Record<string, unknown>, recordHistory?: boolean) => void;
   onStructuredContentHeight?: (height: number) => void;
+  onFrameResize?: (
+    bounds: import('./element-resize').ElementBounds,
+    cropPatch: Record<string, unknown>,
+    recordHistory?: boolean
+  ) => void;
+  zoom?: number;
 }
 
 function EditableText({
@@ -110,7 +128,7 @@ function EditableText({
   onStructuredContentHeight?: (height: number) => void;
   previewMode?: boolean;
 }) {
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement | HTMLDivElement>(null);
   const initRef = useRef(false);
   const textStyle = getTextElementStyle(props, element.type);
   const displayStyle = getTextDisplayStyle(props, element.type);
@@ -121,28 +139,34 @@ function EditableText({
   const textRuns = getTextRuns(props);
   const hasRichRuns = textRuns && textRuns.length > 0 && listStyle === 'none';
 
-  // Only seed editor once when entering edit mode — never reset while typing.
+  // Seed plain textarea once when entering edit mode — never reset while typing.
   useEffect(() => {
-    if (!isEditing) {
-      initRef.current = false;
+    if (!isEditing || hasRichRuns || isOutlineList) {
+      if (!isEditing) initRef.current = false;
       return;
     }
     if (initRef.current || !editorRef.current) return;
     initRef.current = true;
     const initial = pendingEditChar ? `${editValue}${pendingEditChar}` : editValue;
-    editorRef.current.textContent = initial;
+    const node = editorRef.current;
+    if (!(node instanceof HTMLTextAreaElement)) return;
+    node.value = initial;
     if (pendingEditChar) {
       onUpdateContent?.(initial);
       onPendingEditCharConsumed?.();
     }
-    editorRef.current.focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(editorRef.current);
-    range.collapse(false);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  }, [isEditing, editValue, pendingEditChar, onPendingEditCharConsumed, onUpdateContent]);
+    node.focus();
+    const end = node.value.length;
+    node.setSelectionRange(end, end);
+  }, [
+    isEditing,
+    editValue,
+    pendingEditChar,
+    onPendingEditCharConsumed,
+    onUpdateContent,
+    hasRichRuns,
+    isOutlineList,
+  ]);
 
   const stopTextEdit = (e: React.SyntheticEvent) => {
     e.stopPropagation();
@@ -217,12 +241,12 @@ function EditableText({
       );
     }
 
+    // Use textarea (not contentEditable) so `<your name>` stays literal text
+    // instead of being parsed as HTML — which previously doubled the string on blur.
     return (
-      <div
-        ref={editorRef}
-        className="builder-text-editor h-full w-full"
-        contentEditable
-        suppressContentEditableWarning
+      <textarea
+        ref={editorRef as React.RefObject<HTMLTextAreaElement>}
+        className="builder-text-editor h-full w-full resize-none border-0 bg-transparent p-0"
         style={{
           ...textStyle,
           outline: 'none',
@@ -231,12 +255,14 @@ function EditableText({
           minHeight: '1em',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
+          overflow: 'hidden',
         }}
+        defaultValue={pendingEditChar ? `${editValue}${pendingEditChar}` : editValue}
         onMouseDown={stopTextEdit}
         onPointerDown={stopTextEdit}
         onClick={stopTextEdit}
-        onInput={(e) => onUpdateContent?.(e.currentTarget.textContent ?? '')}
-        onBlur={(e) => onCommitContent?.(e.currentTarget.textContent ?? '')}
+        onChange={(e) => onUpdateContent?.(e.currentTarget.value)}
+        onBlur={(e) => onCommitContent?.(e.currentTarget.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Escape') {
@@ -250,7 +276,8 @@ function EditableText({
 
   const surfaceProps = {
     className: 'builder-text-surface h-full w-full',
-    style: textStyle,
+    // Preserve multiple spaces in display mode too (not just while editing).
+    style: { ...textStyle, whiteSpace: 'break-spaces', wordBreak: 'break-word' } as React.CSSProperties,
     onPointerDown: handleSurfacePointerDown,
     onClick: (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -362,7 +389,16 @@ function EditableText({
     );
   }
 
-  return <div {...surfaceProps}>{displayValue}</div>;
+  return (
+    <div
+      {...surfaceProps}
+      onPointerDown={surfaceProps.onPointerDown}
+      onClick={surfaceProps.onClick}
+      onDoubleClick={surfaceProps.onDoubleClick}
+    >
+      <TextWithPlaceholderChips text={displayValue} />
+    </div>
+  );
 }
 
 /** Invoice data fields (GST, date, etc.) — label in properties; value editable on canvas or in panel. */
@@ -402,7 +438,9 @@ function DataFieldSurface({
   const isAddress = element.type === ComponentType.ADDRESS;
   const label = (props.label as string) || 'Label';
   const editValue = isAddress
-    ? formatAddressValue(parseAddressFromProps(props))
+    ? formatAddressValue(parseAddressFromProps(props), {
+        hidden: new Set(parseHiddenAddressFields(props.hiddenFields)),
+      })
     : getDataFieldValue(props, element.type);
   const displayValue = getDisplayText(props, element.type, element.type);
   const isMultiline = isAddress;
@@ -432,7 +470,9 @@ function DataFieldSurface({
   useEffect(() => {
     if (!isEditing || !isAddress || !editorRef.current) return;
     if (document.activeElement === editorRef.current) return;
-    const next = formatAddressValue(parseAddressFromProps(props));
+    const next = formatAddressValue(parseAddressFromProps(props), {
+      hidden: new Set(parseHiddenAddressFields(props.hiddenFields)),
+    });
     if (editorRef.current.textContent !== next) {
       editorRef.current.textContent = next;
     }
@@ -523,8 +563,8 @@ function DataFieldSurface({
               contentEditable
               suppressContentEditableWarning
               style={{ outline: 'none', cursor: 'text', userSelect: 'text', display: 'inline' }}
-              onInput={(e) => onUpdateContent?.(e.currentTarget.textContent ?? '')}
-              onBlur={(e) => onCommitContent?.(e.currentTarget.textContent ?? '')}
+              onInput={(e) => onUpdateContent?.(readContentEditablePlainText(e.currentTarget))}
+              onBlur={(e) => onCommitContent?.(readContentEditablePlainText(e.currentTarget))}
               onKeyDown={(e) => {
                 e.stopPropagation();
                 if (e.key === 'Escape') {
@@ -598,7 +638,11 @@ function DataFieldSurface({
         enterEdit();
       }}
     >
-      {displayValue}
+      {displayValue.includes('<') || displayValue.includes('{{') ? (
+        <TextWithPlaceholderChips text={displayValue} />
+      ) : (
+        displayValue
+      )}
     </div>
   );
 }
@@ -613,7 +657,9 @@ export function ElementRenderer({
   previewMode = false,
   trustTableProps = false,
   onTableCellChange,
+  onTableProductPick,
   isShapeCropMode = false,
+  // Image crop mode is controlled by the builder canvas.
   onSelect,
   onStartEdit,
   onInteractionModeChange,
@@ -624,6 +670,8 @@ export function ElementRenderer({
   onPendingEditCharConsumed,
   onUpdateProps,
   onStructuredContentHeight,
+  onFrameResize,
+  zoom,
 }: Props) {
   const isDataField = isDataFieldType(element.type);
   const isStructured = isStructuredContentType(element.type);
@@ -634,6 +682,8 @@ export function ElementRenderer({
       s.builder.selectedTableCell?.elementId === element.id
       && s.builder.selectedTableCells.length === 1
   );
+  const imageCropElementId = useAppSelector((s) => s.builder.imageCropElementId);
+  const isImageCropMode = imageCropElementId === element.id;
   const inlineTextEditable = !previewMode && !isDataField && isInlineCanvasEditable(element.type) && !element.locked;
   const inlineFieldEditable = !previewMode && isDataField && !element.locked;
   const usesCanvasEdit = inlineTextEditable || inlineFieldEditable;
@@ -679,6 +729,8 @@ export function ElementRenderer({
     overflow:
       isEditing
       || isShapeCropMode
+      || isImageCropMode
+      || (isImage && isSelected && !previewMode)
       || elementRotation !== 0
       || isTableElementType(element.type)
         ? 'visible'
@@ -743,8 +795,11 @@ export function ElementRenderer({
             element={element}
             props={props}
             isSelected={isSelected}
+            cropMode={imageCropElementId === element.id}
+            zoom={zoom}
             onSelect={onSelect}
             onUpdateProps={onUpdateProps}
+            onFrameResize={onFrameResize}
           />
         );
       case ComponentType.DIVIDER:
@@ -773,6 +828,7 @@ export function ElementRenderer({
             previewMode={previewMode}
             trustTableProps={trustTableProps}
             onTableCellChange={onTableCellChange}
+            onTableProductPick={onTableProductPick}
             locked={!!element.locked}
             isSelected={isSelected}
             interactionMode={interactionMode}
@@ -860,10 +916,10 @@ export function ElementRenderer({
         }
         if (
           isTableElementType(element.type)
-          && target.closest('.builder-table-cell-editor, .builder-table-surface')
+          && target.closest('.builder-table-cell-editor, .builder-table-product-cell, .product-cell-select, .builder-table-surface')
         ) {
           event.stopPropagation();
-          if (target.closest('.builder-table-cell-editor')) {
+          if (target.closest('.builder-table-cell-editor, .builder-table-product-cell, .product-cell-select')) {
             if (interactionMode === 'move') {
               onSelect(event.shiftKey || event.ctrlKey || event.metaKey);
             }

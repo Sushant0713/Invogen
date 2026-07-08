@@ -27,6 +27,10 @@ import {
   openWhatsAppShare,
 } from './template-share';
 import { brandingScopeFromApiBase } from './company-branding';
+import {
+  MadeWithInvogenProvider,
+  madeWithInvogenSourceFromApiBase,
+} from './MadeWithInvogenProvider';
 import { toast } from 'sonner';
 
 interface TemplatePreviewModalProps {
@@ -45,6 +49,7 @@ export function TemplatePreviewModal({
   apiBase = '/admin/templates',
 }: TemplatePreviewModalProps) {
   const brandingScope = brandingScopeFromApiBase(apiBase);
+  const madeWithSource = madeWithInvogenSourceFromApiBase(apiBase);
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -56,7 +61,7 @@ export function TemplatePreviewModal({
     setGenerating(true);
     setPdfBlob(null);
     try {
-      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      await new Promise((resolve) => window.setTimeout(resolve, pages.length > 1 ? 600 : 350));
       const nodes = exportPageRefs.current.filter(
         (node): node is HTMLDivElement => node != null
       );
@@ -145,6 +150,7 @@ export function TemplatePreviewModal({
   return createPortal(
     <CompanyBrandingProvider scope={brandingScope}>
       <TaxSettingsProvider scope={brandingScope}>
+        <MadeWithInvogenProvider source={madeWithSource}>
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div
             className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
@@ -161,7 +167,8 @@ export function TemplatePreviewModal({
                   Preview — {templateName}
                 </h2>
                 <p className="text-sm text-gray-500">
-                  Sample data is shown. PDF is generated from this preview.
+                  Sample data is shown
+                  {pages.length > 1 ? ` · ${pages.length} pages` : ''}. PDF is generated from this preview.
                 </p>
               </div>
               <button
@@ -252,6 +259,7 @@ export function TemplatePreviewModal({
             <TemplatePreviewPages pages={pages} pageRefs={exportPageRefs} />
           </div>
         </div>
+        </MadeWithInvogenProvider>
       </TaxSettingsProvider>
     </CompanyBrandingProvider>,
     document.body

@@ -10,18 +10,14 @@ import { InvoiceTable2Properties } from './InvoiceTable2Properties';
 import { InvoiceTable3Properties } from './InvoiceTable3Properties';
 import {
   isTableElementType,
-  productTablePropsToRecord,
 } from './product-table';
-import { clampTableElementToPage } from './table-element-size';
 import { isInvoiceTable1Type } from './invoice-table';
 import { isInvoiceTable2Type } from './invoice-table-2';
 import { isInvoiceTable3Type } from './invoice-table-3';
-import { normalizeTablePropsForType } from './table-props-normalize';
 import { ImageProperties } from './ImageProperties';
 import { ComponentType } from '@invogen/shared';
-import { PAGE_WIDTH, PAGE_HEIGHT } from './builder-dnd';
 import { getEditableTextKey, isDataFieldType } from './text-styles';
-import { isCardComponentType } from './card-components';
+import { isCardComponentType, estimateCardBlockHeight, type CardCustomField } from './card-components';
 import { isImageComponentType } from './image-components';
 import { isShapeComponentType } from './shape-components';
 import { ShapeProperties } from './ShapeProperties';
@@ -30,11 +26,15 @@ import { AddressProperties } from './AddressProperties';
 import { RotationControlsPanel } from './RotationControlsPanel';
 import { getPrimarySelectedId } from './builder-selection';
 import { estimateStructuredBlockHeight } from './structured-content-layout';
+import {
+  extractPlaceholderKeysFromText,
+  placeholderFieldLabel,
+} from '@/features/template-gallery/placeholder-utils';
 
 export function PropertiesPanel() {
   const dispatch = useAppDispatch();
   const { pages, activePageIndex, selectedElementIds } = useAppSelector((s) => s.builder);
-  const margins = pages[activePageIndex].margins;
+  const page = pages[activePageIndex];
   const primarySelectedId = getPrimarySelectedId(selectedElementIds);
   const element = primarySelectedId
     ? pages[activePageIndex].elements.find((e) => e.id === primarySelectedId)
@@ -169,35 +169,59 @@ export function PropertiesPanel() {
   const textKey = getEditableTextKey(element.type);
 
   const updateProp = (key: string, value: unknown, recordHistory = false) => {
+    const nextProps = { ...props, [key]: value };
+    if (isCard) {
+      const nextHeight = estimateCardBlockHeight(
+        element.type,
+        nextProps,
+        element.width,
+        element.height
+      );
+      dispatch(updateElement({
+        id: element.id,
+        changes: {
+          props: nextProps,
+          ...(nextHeight !== element.height ? { height: nextHeight } : {}),
+        },
+        recordHistory,
+      }));
+      return;
+    }
     dispatch(updateElement({
       id: element.id,
-      changes: { props: { ...props, [key]: value } },
+      changes: { props: nextProps },
+      recordHistory,
+    }));
+  };
+
+  const updateCardCustomFields = (customFields: CardCustomField[], recordHistory = false) => {
+    const nextProps = { ...props, customFields };
+    const nextHeight = estimateCardBlockHeight(
+      element.type,
+      nextProps,
+      element.width,
+      element.height
+    );
+    dispatch(updateElement({
+      id: element.id,
+      changes: {
+        props: nextProps,
+        ...(nextHeight !== element.height ? { height: nextHeight } : {}),
+      },
       recordHistory,
     }));
   };
 
   const updateAllProps = (next: Record<string, unknown>) => {
     if (isTable) {
-      const table = normalizeTablePropsForType(element.type, next);
-      const clamped = clampTableElementToPage(
-        element.x,
-        element.y,
-        table,
-        PAGE_WIDTH,
-        PAGE_HEIGHT,
-        margins,
-        element.type
-      );
       dispatch(updateElement({
         id: element.id,
-        changes: {
-          x: clamped.x,
-          y: clamped.y,
-          props: productTablePropsToRecord(clamped.table),
-          width: clamped.width,
-          height: clamped.height,
-        },
+        changes: { props: next },
+        replaceProps: true,
         recordHistory: true,
+        // Changing table props in the panel should never "reflow" the page and
+        // shift other elements (e.g. styling like tableColor).
+        skipDocumentLayout: true,
       }));
       return;
     }
@@ -278,6 +302,14 @@ export function PropertiesPanel() {
           type={element.type}
           props={props}
           onChange={(key, value, recordHistory) => updateProp(key, value, recordHistory)}
+          onChangeMany={(patch, recordHistory) => {
+            dispatch(updateElement({
+              id: element.id,
+              changes: { props: { ...props, ...patch } },
+              recordHistory: !!recordHistory,
+            }));
+          }}
+          onCustomFieldsChange={updateCardCustomFields}
         />
       )}
 
@@ -353,7 +385,64 @@ export function PropertiesPanel() {
               onChange={(e) => updateProp(textKey, e.target.value)}
               onBlur={(e) => updateProp(textKey, e.target.value, true)}
             />
+            {(element.type === ComponentType.TEXT || element.type === ComponentType.HEADING) && (
+              <p className="mt-1 text-[11px] text-gray-400">
+                Tip: wrap words in {'< >'} to make them fillable on invoice preview — e.g. My name is {'<your name>'}.
+              </p>
+            )}
           </div>
+          {(element.type === ComponentType.TEXT || element.type === ComponentType.HEADING) && (() => {
+            const content = String((props[textKey] as string) || '');
+            const placeholders = extractPlaceholderKeysFromText(content);
+            const insertPlaceholder = (label: string) => {
+              const token = `<${label}>`;
+              const next = content.trim() ? `${content}${content.endsWith(' ') ? '' : ' '}${token}` : token;
+              updateProp(textKey, next, true);
+            };
+            return (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">Placeholders</p>
+                  <p className="mt-0.5 text-[11px] text-gray-500">
+                    These become fillable fields in the invoice preview form.
+                  </p>
+                </div>
+                {placeholders.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {placeholders.map((key) => (
+                      <li
+                        key={key}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5"
+                      >
+                        <span className="truncate text-xs font-medium text-gray-800">
+                          {placeholderFieldLabel(key)}
+                        </span>
+                        <code className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">
+                          {`<${key}>`}
+                        </code>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-gray-500">
+                    No placeholders yet. Add one below or type {'<your name>'} in the text.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {['your name', 'company name', 'invoice number', 'date'].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:border-primary/40 hover:text-primary"
+                      onClick={() => insertPlaceholder(label)}
+                    >
+                      {`+ <${label}>`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {isDataFieldType(element.type) && (
             <div>
               <label className="text-xs text-gray-500">Value</label>

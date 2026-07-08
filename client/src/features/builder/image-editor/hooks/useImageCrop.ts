@@ -9,6 +9,8 @@ interface UseImageCropOptions {
   frameW: number;
   frameH: number;
   onChange: (crop: ImageCropTransform, recordHistory?: boolean) => void;
+  /** When true, pan only while Alt is held so normal drag moves the element on canvas. */
+  requireAltKey?: boolean;
 }
 
 export function useImageCrop({
@@ -18,6 +20,7 @@ export function useImageCrop({
   frameW,
   frameH,
   onChange,
+  requireAltKey = false,
 }: UseImageCropOptions) {
   const dragRef = useRef<{
     startX: number;
@@ -29,6 +32,7 @@ export function useImageCrop({
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!enabled) return;
+      if (requireAltKey && !e.altKey) return;
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -39,7 +43,7 @@ export function useImageCrop({
         startOffsetY: crop.offsetY,
       };
     },
-    [enabled, crop.offsetX, crop.offsetY]
+    [enabled, requireAltKey, crop.offsetX, crop.offsetY]
   );
 
   const onPointerMove = useCallback(

@@ -22,6 +22,11 @@ export interface IPlan extends Document {
   canAddTemplate?: boolean;
   /** When true, templateIds + canAddTemplate are enforced for clients on this plan. */
   templateAccessConfigured?: boolean;
+  /**
+   * When true, invoices/templates for companies on this plan show a
+   * "Made with Invogen" advertisement badge at the bottom-right.
+   */
+  showMadeWithInvogen?: boolean;
   description?: string;
 }
 
@@ -44,6 +49,7 @@ const planSchema = new Schema<IPlan>(
     templateIds: [{ type: Schema.Types.ObjectId, ref: 'InvoiceTemplate' }],
     canAddTemplate: { type: Boolean },
     templateAccessConfigured: { type: Boolean },
+    showMadeWithInvogen: { type: Boolean, default: false },
     description: String,
   },
   { timestamps: true }

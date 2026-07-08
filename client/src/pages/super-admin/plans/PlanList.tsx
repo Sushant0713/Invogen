@@ -75,6 +75,8 @@ interface PlanRow {
   templateIds?: PlanTemplateRef[] | string[];
   canAddTemplate?: boolean;
   templateAccessConfigured?: boolean;
+  /** Show "Made with Invogen" ad badge on templates/invoices for this plan. */
+  showMadeWithInvogen?: boolean;
   planTypeId?: PlanTypeOption | string;
   isActive: boolean;
   visibleOnWebsite: boolean;
@@ -99,6 +101,7 @@ const emptyForm = () => ({
   /** False for legacy plans that never configured templates (all system templates allowed). */
   templatesConfigured: false,
   canAddTemplate: false,
+  showMadeWithInvogen: false,
   price: '',
   maintenanceCharge: '',
   isActive: true,
@@ -357,6 +360,7 @@ export default function PlanListPage() {
             templateIds: saved.templateIds || [],
             templateAccessConfigured: saved.templateAccessConfigured === true,
             canAddTemplate: saved.canAddTemplate === true,
+            showMadeWithInvogen: saved.showMadeWithInvogen === true,
           };
           const idx = rows.findIndex((p) => p._id === saved._id);
           if (idx === -1) return [...rows, nextRow];
@@ -433,6 +437,7 @@ export default function PlanListPage() {
       canAddTemplate: templatesConfigured
         ? plan.canAddTemplate === true
         : true,
+      showMadeWithInvogen: plan.showMadeWithInvogen === true,
       price: String(plan.price),
       maintenanceCharge: plan.maintenanceCharge ? String(plan.maintenanceCharge) : '',
       isActive: plan.isActive,
@@ -476,6 +481,7 @@ export default function PlanListPage() {
     ).map(String);
     payload.canAddTemplate = Boolean(form.canAddTemplate);
     payload.templateAccessConfigured = true;
+    payload.showMadeWithInvogen = Boolean(form.showMadeWithInvogen);
 
     saveMutation.mutate(payload);
   };
@@ -758,6 +764,21 @@ export default function PlanListPage() {
               <p className="text-sm text-gray-600">Active plans appear at checkout</p>
             </div>
 
+            <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+              <Switch
+                checked={form.showMadeWithInvogen}
+                onChange={(showMadeWithInvogen) => setForm({ ...form, showMadeWithInvogen })}
+                label="Made with Invogen advertising"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-800">Made with Invogen</p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  When on, every invoice/template for companies on this plan shows a small
+                  &quot;Made with Invogen&quot; badge (with Invogen logo) at the bottom-right.
+                </p>
+              </div>
+            </div>
+
             <div className="flex gap-2">
               <Button type="submit" loading={saveMutation.isPending}>
                 {editingId ? 'Update Plan' : 'Create Plan'}
@@ -986,6 +1007,18 @@ export default function PlanListPage() {
                     Add: {plan.canAddTemplate ? 'yes' : 'no'}
                   </p>
                 </div>
+              );
+            },
+          },
+          {
+            key: 'showMadeWithInvogen',
+            label: 'Made with',
+            render: (r) => {
+              const on = (r as unknown as PlanRow).showMadeWithInvogen === true;
+              return (
+                <Badge className={on ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-500'}>
+                  {on ? 'On' : 'Off'}
+                </Badge>
               );
             },
           },

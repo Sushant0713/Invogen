@@ -9,6 +9,7 @@ import {
   MAX_BORDER_WIDTH_PX,
   normalizeProductTableProps,
   productTablePropsToRecord,
+  resolveBuilderTablePropsForEdit,
   clampBorderOpacity,
   clampBorderWidth,
   addColumn,
@@ -29,6 +30,7 @@ import {
   updateColumnType,
 } from './product-table';
 import { AddColumnTypeSelect, ColumnTypeSelect } from './AddColumnTypeSelect';
+import { ProductColumnOptions, ProductColumnSkuInline } from './ProductColumnOptions';
 
 export function ProductTableProperties({
   props,
@@ -37,7 +39,7 @@ export function ProductTableProperties({
   props: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
 }) {
-  const table = normalizeProductTableProps(props);
+  const table = normalizeProductTableProps(resolveBuilderTablePropsForEdit(props));
   const commit = (next: ProductTableProps) => onChange(productTablePropsToRecord(next));
 
   const handleAddColumn = (columnType: TableColumnType) => {
@@ -86,6 +88,12 @@ export function ProductTableProperties({
         Choose a column type when adding: <strong>NA</strong> (plain text), <strong>Sr.No.</strong>{' '}
         (auto numbers), or <strong>Product</strong> (searchable list from Admin → Products).
       </p>
+
+      <ProductColumnOptions
+        columns={table.columns}
+        showProductSku={table.showProductSku}
+        onShowProductSkuChange={(value) => commit({ ...table, showProductSku: value })}
+      />
 
       {table.showHeader && (
         <Input
@@ -139,6 +147,14 @@ export function ProductTableProperties({
                   className="w-full accent-primary"
                 />
               </div>
+              {isProductColumn(col) ? (
+                <ProductColumnSkuInline
+                  tableShowProductSku={table.showProductSku}
+                  onTableShowProductSkuChange={(value) =>
+                    commit({ ...table, showProductSku: value })
+                  }
+                />
+              ) : null}
             </div>
           ))}
         </div>

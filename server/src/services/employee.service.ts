@@ -2,9 +2,19 @@ import { Invoice, InvoiceTemplate } from '../models';
 import { AppError } from '../utils/AppError';
 import { getPagination, buildMeta } from '../utils/response';
 import { adminService } from './admin.service';
-import { assertSystemTemplateAccess } from '../utils/plan-template-access';
+import {
+  assertSystemTemplateAccess,
+  getCompanyPlanAccess,
+} from '../utils/plan-template-access';
 
 export const employeeService = {
+  async getPlanAdvertising(companyId: string) {
+    const access = await getCompanyPlanAccess(companyId);
+    return {
+      showMadeWithInvogen: access?.showMadeWithInvogen === true,
+    };
+  },
+
   async getDashboard(companyId: string, userId: string) {
     const [myInvoices, totalInvoices] = await Promise.all([
       Invoice.find({ companyId, createdBy: userId }).sort({ createdAt: -1 }).limit(5),

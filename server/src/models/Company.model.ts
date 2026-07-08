@@ -26,6 +26,11 @@ export interface IInvoiceSettings {
   taxLabel: string;
 }
 
+export interface IProductSettings {
+  /** Default: show "Name (SKU)" in invoice product columns when picked from catalog. */
+  showProductSku?: boolean;
+}
+
 export interface ITaxSettings {
   isEnabled: boolean;
   cgstRate: number;
@@ -47,6 +52,7 @@ export interface ICompany extends Document {
   pan?: string;
   bankDetails?: IBankDetails;
   invoiceSettings: IInvoiceSettings;
+  productSettings?: IProductSettings;
   taxSettings: ITaxSettings;
   isActive: boolean;
 }
@@ -98,6 +104,13 @@ const taxSettingsSchema = new Schema<ITaxSettings>(
   { _id: false }
 );
 
+const productSettingsSchema = new Schema<IProductSettings>(
+  {
+    showProductSku: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const companySchema = new Schema<ICompany>(
   {
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -111,6 +124,7 @@ const companySchema = new Schema<ICompany>(
     pan: String,
     bankDetails: bankDetailsSchema,
     invoiceSettings: { type: invoiceSettingsSchema, default: () => ({}) },
+    productSettings: { type: productSettingsSchema, default: () => ({}) },
     taxSettings: { type: taxSettingsSchema, default: () => ({}) },
     isActive: { type: Boolean, default: true },
   },

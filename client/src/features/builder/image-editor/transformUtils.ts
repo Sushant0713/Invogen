@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { parseResizeDirection } from '../element-resize';
-import type { ElementBounds, ResizeSession } from '../element-resize';
+import type { PageMargins } from '../builder-dnd';
+import { clampAnchoredBounds, parseResizeDirection, type ElementBounds, type ResizeSession } from '../element-resize';
 
 /** Lock aspect ratio on corner resizes unless Shift is held. */
 export function applyAspectRatioLock(
@@ -34,6 +34,22 @@ export function applyAspectRatioLock(
   else y = session.startY;
 
   return { x, y, width, height };
+}
+
+/** Aspect-locked corner resize that stays inside page margins. */
+export function constrainAspectResize(
+  bounds: ElementBounds,
+  session: ResizeSession,
+  direction: string,
+  margins: PageMargins,
+  minSize: number,
+  shiftKey: boolean
+): ElementBounds {
+  let next = applyAspectRatioLock(bounds, session, direction, shiftKey);
+  next = clampAnchoredBounds(next, session, direction, margins, minSize);
+  if (shiftKey) return next;
+  next = applyAspectRatioLock(next, session, direction, false);
+  return clampAnchoredBounds(next, session, direction, margins, minSize);
 }
 
 export function buildImageTransformStyle(opts: {

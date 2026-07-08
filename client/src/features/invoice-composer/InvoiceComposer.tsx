@@ -19,6 +19,8 @@ import { Badge } from '@/components/ui/Badge';
 import { fetchTemplateDocument } from '@/features/template-gallery/template-loader';
 import { extractPlaceholderKeys } from '@/features/template-gallery/placeholder-utils';
 import { brandingScopeFromApiBase } from '@/features/builder/company-branding';
+import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
+import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import {
   applyInvoiceFormToPages,
   buildInitialFormContext,
@@ -28,6 +30,7 @@ import {
 } from './apply-invoice-form';
 import { InvoiceComposerForm } from './InvoiceComposerForm';
 import { InvoiceLivePreview } from './InvoiceLivePreview';
+import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
 import {
   downloadPdfBlob,
   templatePdfFilename,
@@ -38,6 +41,7 @@ import {
   nativeSharePdf,
 } from '@/features/builder/template-share';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
+import { layoutDocumentPages } from '@/features/builder/document-layout';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
 import type { TemplatePage } from '@invogen/shared';
 import { toast } from 'sonner';
@@ -48,6 +52,7 @@ import {
   deleteComposerPage,
   normalizeComposerPages,
   updateComposerTableCell,
+  updateComposerProductPick,
   updateComposerTableDiscountMode,
   addComposerTableRow,
   deleteComposerTableRow,
@@ -63,12 +68,14 @@ import {
   addComposerTermsItem,
   deleteComposerTermsItem,
   updateComposerCardProp,
-  addComposerCardCustomField,
   updateComposerCardCustomField,
   deleteComposerCardCustomField,
   deleteComposerCardStandardField,
+  toggleComposerCardCustomField,
+  toggleComposerCardStandardField,
 } from './invoice-document';
 import { parseAdminCompanyTax, EMPTY_TAX_SETTINGS } from '@/features/builder/tax-settings';
+import { parseProductSettings } from '@/features/builder/product-settings';
 import { useTaxSettingsQuery } from '@/features/builder/use-tax-settings-query';
 import {
   fetchSavedInvoice,
@@ -163,6 +170,8 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     return queriedTax ?? EMPTY_TAX_SETTINGS;
   }, [company, queriedTax]);
 
+  const productSettings = useMemo(() => parseProductSettings(company), [company]);
+
   useEffect(() => {
     if (!template || isEditing) return;
     const normalized = normalizeComposerPages(template.pages);
@@ -207,6 +216,30 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       );
     },
     [taxSettings]
+  );
+
+  const handleTableProductPick = useCallback(
+    (
+      pageId: string,
+      elementId: string,
+      rowId: string,
+      columnId: string,
+      product: { name: string; sku?: string; price?: number }
+    ) => {
+      setWorkingPages((prev) =>
+        updateComposerProductPick(
+          prev,
+          pageId,
+          elementId,
+          rowId,
+          columnId,
+          product,
+          taxSettings,
+          productSettings
+        )
+      );
+    },
+    [taxSettings, productSettings]
   );
 
   const handleTableDiscountModeChange = useCallback(
@@ -293,10 +326,6 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     []
   );
 
-  const handleAddCardCustomField = useCallback((pageId: string, elementId: string) => {
-    setWorkingPages((prev) => addComposerCardCustomField(prev, pageId, elementId));
-  }, []);
-
   const handleUpdateCardCustomField = useCallback(
     (
       pageId: string,
@@ -326,6 +355,24 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       if (formContextKey) {
         setFormContext((prev) => ({ ...prev, [formContextKey]: '' }));
       }
+    },
+    []
+  );
+
+  const handleToggleCardStandardField = useCallback(
+    (pageId: string, elementId: string, fieldKey: string, hidden: boolean) => {
+      setWorkingPages((prev) =>
+        toggleComposerCardStandardField(prev, pageId, elementId, fieldKey, hidden)
+      );
+    },
+    []
+  );
+
+  const handleToggleCardCustomField = useCallback(
+    (pageId: string, elementId: string, fieldId: string, hidden: boolean) => {
+      setWorkingPages((prev) =>
+        toggleComposerCardCustomField(prev, pageId, elementId, fieldId, hidden)
+      );
     },
     []
   );
@@ -381,6 +428,11 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   const filledPages = useMemo(
     () => (displayPages.length ? applyInvoiceFormToPages(displayPages, mergedFormContext) : []),
     [displayPages, mergedFormContext]
+  );
+
+  const pagesForPreview = useMemo(
+    () => (filledPages.length ? layoutDocumentPages(filledPages) : []),
+    [filledPages]
   );
 
   const templateName = template?.name ?? savedInvoice?.invoiceNumber ?? 'Invoice';
@@ -629,6 +681,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(320px,38%)_1fr] lg:p-6">
         <div className="min-h-0 overflow-auto pr-1">
+          <ProductSettingsProvider>
           <InvoiceComposerForm
             pages={displayPages}
             pageList={workingPages}
@@ -636,6 +689,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
             onChange={updateField}
             onDeletePage={handleDeletePage}
             onTableCellChange={handleTableCellChange}
+            onTableProductPick={handleTableProductPick}
             onTableDiscountModeChange={handleTableDiscountModeChange}
             onAddTableRow={handleAddTableRow}
             onDeleteTableRow={handleDeleteTableRow}
@@ -650,32 +704,39 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
             onDeleteTerms={handleDeleteTerms}
             onCardPropChange={handleCardPropChange}
             onDeleteCardStandardField={handleDeleteCardStandardField}
-            onAddCardCustomField={handleAddCardCustomField}
+            onToggleCardStandardField={handleToggleCardStandardField}
             onUpdateCardCustomField={handleUpdateCardCustomField}
             onDeleteCardCustomField={handleDeleteCardCustomField}
+            onToggleCardCustomField={handleToggleCardCustomField}
             customers={customers}
             selectedCustomerId={selectedCustomerId}
             onSelectCustomer={handleSelectCustomer}
           />
+          </ProductSettingsProvider>
         </div>
 
         <div className="min-h-0 overflow-hidden">
           <InvoiceLivePreview
-            pages={filledPages}
+            pages={pagesForPreview}
             templateName={templateName}
             brandingScope={brandingScope}
-            onTableCellChange={handleTableCellChange}
           />
         </div>
       </div>
 
       <div aria-hidden className="pointer-events-none fixed left-[-10000px] top-0 opacity-0">
-        <TemplatePreviewPages
-          pages={filledPages}
-          useSampleData={false}
-          pageRefs={exportPageRefs}
-          trustTableProps
-        />
+        <CompanyBrandingProvider scope={brandingScope}>
+          <TaxSettingsProvider scope={brandingScope}>
+            <ProductSettingsProvider>
+              <TemplatePreviewPages
+                pages={pagesForPreview}
+                useSampleData={false}
+                pageRefs={exportPageRefs}
+                trustTableProps
+              />
+            </ProductSettingsProvider>
+          </TaxSettingsProvider>
+        </CompanyBrandingProvider>
       </div>
 
       {savedInvoiceId ? (

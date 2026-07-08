@@ -8,6 +8,7 @@ import {
   MAX_BORDER_WIDTH_PX,
   clampBorderOpacity,
   clampBorderWidth,
+  resolveBuilderTablePropsForEdit,
 } from './product-table';
 import {
   productTablePropsToRecord,
@@ -30,6 +31,7 @@ import { useTaxSettings } from './TaxSettingsProvider';
 import { getCombinedGstRate } from './tax-settings';
 import { InvoiceTable3ColumnList } from './InvoiceTable3ColumnList';
 import { AddColumnTypeSelect } from './AddColumnTypeSelect';
+import { ProductColumnOptions } from './ProductColumnOptions';
 
 export function InvoiceTable3Properties({
   props,
@@ -40,7 +42,7 @@ export function InvoiceTable3Properties({
 }) {
   const taxSettings = useTaxSettings();
   const table = useMemo(
-    () => recalculateInvoiceTable3(normalizeInvoiceTable3Props(props, taxSettings), taxSettings),
+    () => recalculateInvoiceTable3(normalizeInvoiceTable3Props(resolveBuilderTablePropsForEdit(props), taxSettings), taxSettings),
     [props, taxSettings]
   );
   const grandTotalPreview = useMemo(
@@ -173,6 +175,11 @@ export function InvoiceTable3Properties({
         <p className="mb-2 text-[11px] text-gray-500">
           Choose type when adding: NA, Sr.No. (auto), or Product (from Admin → Products).
         </p>
+        <ProductColumnOptions
+          columns={table.columns}
+          showProductSku={table.showProductSku}
+          onShowProductSkuChange={(value) => commit({ ...table, showProductSku: value })}
+        />
         <InvoiceTable3ColumnList table={table} onChange={commit} />
       </div>
 

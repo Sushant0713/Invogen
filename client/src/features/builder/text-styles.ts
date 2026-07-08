@@ -312,6 +312,20 @@ export interface TextRunProps {
 export function getTextRuns(props: Record<string, unknown>): TextRunProps[] | null {
   const raw = props.textRuns;
   if (!Array.isArray(raw) || raw.length === 0) return null;
+  const plain = typeof props.content === 'string'
+    ? props.content
+    : typeof props.text === 'string'
+      ? props.text
+      : '';
+  // If plain content exists and no longer matches the joined rich runs, ignore
+  // stale textRuns so display/edit don't concatenate old + new text.
+  if (plain) {
+    const runPlain = raw
+      .filter((r) => r && typeof r === 'object' && typeof (r as TextRunProps).text === 'string')
+      .map((r) => (r as TextRunProps).text)
+      .join('');
+    if (runPlain && runPlain !== plain) return null;
+  }
   return raw.filter((r) => r && typeof r === 'object' && typeof (r as TextRunProps).text === 'string') as TextRunProps[];
 }
 

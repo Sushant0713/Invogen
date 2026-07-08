@@ -6,6 +6,9 @@ import {
   MIN_ROW_HEIGHT_PX,
   MIN_BORDER_WIDTH_PX,
   MAX_BORDER_WIDTH_PX,
+  resolveBuilderTablePropsForEdit,
+} from './product-table';
+import {
   invoiceTablePropsToRecord,
   clampBorderOpacity,
   clampBorderWidth,
@@ -27,6 +30,7 @@ import {
 import { useTaxSettings } from './TaxSettingsProvider';
 import { InvoiceTableColumnList } from './InvoiceTableColumnList';
 import { AddColumnTypeSelect } from './AddColumnTypeSelect';
+import { ProductColumnOptions } from './ProductColumnOptions';
 
 export function InvoiceTableProperties({
   props,
@@ -37,7 +41,7 @@ export function InvoiceTableProperties({
 }) {
   const taxSettings = useTaxSettings();
   const table = useMemo(
-    () => recalculateInvoiceTable(normalizeInvoiceTableProps(props), taxSettings),
+    () => recalculateInvoiceTable(normalizeInvoiceTableProps(resolveBuilderTablePropsForEdit(props)), taxSettings),
     [props, taxSettings]
   );
   const commit = (next: ReturnType<typeof normalizeInvoiceTableProps>) =>
@@ -140,6 +144,11 @@ export function InvoiceTableProperties({
         <p className="mb-2 text-[11px] text-gray-500">
           Choose type when adding: NA, Sr.No. (auto), or Product (from Admin → Products).
         </p>
+        <ProductColumnOptions
+          columns={table.columns}
+          showProductSku={table.showProductSku}
+          onShowProductSkuChange={(value) => commit({ ...table, showProductSku: value })}
+        />
         <InvoiceTableColumnList
           table={table}
           taxSettings={taxSettings}

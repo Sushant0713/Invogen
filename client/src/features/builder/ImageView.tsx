@@ -1,8 +1,8 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ComponentType } from '@invogen/shared';
 import { ImageIcon, Upload, Barcode } from 'lucide-react';
 import type { CanvasElement } from '@invogen/shared';
-import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
+import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { setImageCropMode } from '@/store/slices/builderSlice';
 import {
   getImageFrameStyle,
@@ -24,33 +24,44 @@ import {
   isDefaultImageCrop,
   normalizeImageCropTransform,
   getImageUploadPatch,
+  scaleCropForFrameResize,
+  shouldAutoCenterImageCrop,
 } from './image-editor/cropUtils';
 import { CropModeEditor } from './image-editor/CropModeEditor';
 import { CroppedImageDisplay } from './image-editor/CroppedImageDisplay';
 import type { ImageCropTransform } from './image-editor/types';
+import type { ElementBounds } from './element-resize';
 import { useImageUpload } from './use-image-upload';
 
 interface Props {
   element: CanvasElement;
   props: Record<string, unknown>;
   isSelected?: boolean;
+  cropMode?: boolean;
+  zoom?: number;
   onSelect?: () => void;
   onUpdateProps?: (patch: Record<string, unknown>, recordHistory?: boolean) => void;
+  onFrameResize?: (
+    bounds: ElementBounds,
+    cropPatch: Record<string, unknown>,
+    recordHistory?: boolean
+  ) => void;
 }
 
 function ImageViewInner({
   element,
   props,
   isSelected,
+  cropMode = false,
+  zoom = 1,
   onSelect,
   onUpdateProps,
+  onFrameResize,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const imageCropElementId = useAppSelector((s) => s.builder.imageCropElementId);
-  const isCropMode = imageCropElementId === element.id;
-
   const branding = useCompanyBranding();
   const image = normalizeImageProps(props);
+  const effectiveFit =
+    element.type === ComponentType.SIGNATURE ? 'fill' : (image.objectFit ?? 'contain');
   const fromSettings = usesCompanyBrandingSource(element.type, image.src);
   const src = resolveBrandingImageSrc(element.type, image.src, branding);
   const label = getImagePlaceholderLabel(element.type);
@@ -58,6 +69,8 @@ function ImageViewInner({
   const barcodeValue = typeof props.value === 'string' ? props.value : '';
   const isBarcode = element.type === ComponentType.BARCODE;
   const isReferenceBg = props.isReferenceBackground === true;
+  const dispatch = useAppDispatch();
+  const isInteractive = !!isSelected && !element.locked && !!src;
 
   const [naturalSize, setNaturalSize] = useState({
     w: image.imageNaturalW ?? 0,
@@ -90,7 +103,7 @@ function ImageViewInner({
       loadedSrcRef.current = src;
       setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
 
-      const fit = image.objectFit ?? 'contain';
+      const fit = effectiveFit;
       const storedCrop = props.imageCrop
         ? normalizeImageCropTransform(props.imageCrop)
         : null;
@@ -129,26 +142,192 @@ function ImageViewInner({
         element.height,
         naturalSize.w,
         naturalSize.h,
-        image.objectFit ?? 'contain'
+        effectiveFit
       ),
-    [element.width, element.height, naturalSize.w, naturalSize.h, image.objectFit]
+    [element.width, element.height, naturalSize.w, naturalSize.h, effectiveFit]
   );
 
   const crop = useMemo(() => {
     if (naturalSize.w > 0 && naturalSize.h > 0) {
-      return getImageCropFromProps(props, element.width, element.height);
+      const raw = getImageCropFromProps(props, element.width, element.height);
+      const fit = effectiveFit;
+      if (shouldAutoCenterImageCrop(raw)) {
+        return defaultCropForFrame(
+          element.width,
+          element.height,
+          naturalSize.w,
+          naturalSize.h,
+          fit
+        );
+      }
+      return raw;
     }
     return image.imageCrop ?? defaultCropForFrame(element.width, element.height, 1, 1);
-  }, [props, element.width, element.height, naturalSize, image.imageCrop]);
+  }, [props, element.width, element.height, naturalSize, image.imageCrop, effectiveFit]);
+
+  useLayoutEffect(() => {
+    if (!isInteractive || naturalSize.w <= 0 || naturalSize.h <= 0) return;
+    const raw = getImageCropFromProps(props, element.width, element.height);
+    if (!shouldAutoCenterImageCrop(raw)) return;
+    const fit = effectiveFit;
+    const aligned = defaultCropForFrame(
+      element.width,
+      element.height,
+      naturalSize.w,
+      naturalSize.h,
+      fit
+    );
+    if (
+      Math.abs(aligned.offsetX - raw.offsetX) <= 1
+      && Math.abs(aligned.offsetY - raw.offsetY) <= 1
+    ) {
+      return;
+    }
+    onUpdateProps?.(cropTransformToProps(aligned), false);
+  }, [
+    element.width,
+    element.height,
+    naturalSize.w,
+    naturalSize.h,
+    effectiveFit,
+    isInteractive,
+    props,
+    onUpdateProps,
+  ]);
+
+  useEffect(() => {
+    if (!isInteractive || naturalSize.w <= 0 || naturalSize.h <= 0 || props.imageCrop) return;
+    onUpdateProps?.(
+      cropTransformToProps(
+        defaultCropForFrame(
+          element.width,
+          element.height,
+          naturalSize.w,
+          naturalSize.h,
+          effectiveFit
+        )
+      ),
+      false
+    );
+  }, [
+    isInteractive,
+    naturalSize.w,
+    naturalSize.h,
+    props.imageCrop,
+    element.width,
+    element.height,
+    effectiveFit,
+    onUpdateProps,
+  ]);
+
+  // Auto-shrink the element box so it hugs the visible image (no dead space
+  // around a letter-boxed logo). Top-left anchor — shrink trims bottom/right only.
+  const autoFitSrcRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!onFrameResize || element.locked) return;
+    if (naturalSize.w <= 0 || naturalSize.h <= 0) return;
+    if (effectiveFit !== 'contain') return;
+
+    const rawCrop = getImageCropFromProps(props, element.width, element.height);
+    if (!shouldAutoCenterImageCrop(rawCrop)) return;
+
+    const fitKey = `${element.id}:${src ?? ''}`;
+    if (autoFitSrcRef.current === fitKey) return;
+
+    const fitted = getFitBaseSize(
+      element.width,
+      element.height,
+      naturalSize.w,
+      naturalSize.h,
+      'contain'
+    );
+    const nextW = Math.round(fitted.width);
+    const nextH = Math.round(fitted.height);
+    // Only collapse when there is meaningful dead space to remove.
+    if (element.width - nextW <= 2 && element.height - nextH <= 2) {
+      autoFitSrcRef.current = fitKey;
+      return;
+    }
+
+    autoFitSrcRef.current = fitKey;
+    const alignedCrop = defaultCropForFrame(
+      nextW,
+      nextH,
+      naturalSize.w,
+      naturalSize.h,
+      'contain'
+    );
+    onFrameResize(
+      { x: element.x, y: element.y, width: nextW, height: nextH },
+      cropTransformToProps(alignedCrop),
+      false
+    );
+  }, [
+    onFrameResize,
+    element.locked,
+    element.id,
+    element.x,
+    element.y,
+    element.width,
+    element.height,
+    naturalSize.w,
+    naturalSize.h,
+    image.objectFit,
+    props,
+    src,
+  ]);
 
   const { input, pickFile, uploading } = useImageUpload((url) => {
     loadedSrcRef.current = undefined;
+    autoFitSrcRef.current = undefined;
     onUpdateProps?.(getImageUploadPatch(url), true);
-    dispatch(setImageCropMode(element.id));
   });
 
   const handleCropChange = (next: ImageCropTransform, recordHistory?: boolean) => {
     onUpdateProps?.(cropTransformToProps(next), recordHistory);
+  };
+
+  const handleFrameResize = (bounds: ElementBounds, recordHistory?: boolean) => {
+    const fit = effectiveFit;
+    let finalBounds = bounds;
+    if (fit === 'contain' && naturalSize.w > 0 && naturalSize.h > 0) {
+      // Canva-style: side handles trim empty frame space but never below the image footprint.
+      const minW = Math.round(
+        getFitBaseSize(10_000, bounds.height, naturalSize.w, naturalSize.h, fit).width
+      );
+      const minH = Math.round(
+        getFitBaseSize(bounds.width, 10_000, naturalSize.w, naturalSize.h, fit).height
+      );
+      finalBounds = {
+        ...bounds,
+        width: Math.max(bounds.width, minW),
+        height: Math.max(bounds.height, minH),
+      };
+    }
+
+    const scaledCrop = scaleCropForFrameResize(
+      crop,
+      element.width,
+      element.height,
+      finalBounds.width,
+      finalBounds.height
+    );
+    const cropPatch =
+      fit === 'contain'
+      && naturalSize.w > 0
+      && naturalSize.h > 0
+      && shouldAutoCenterImageCrop(scaledCrop)
+        ? cropTransformToProps(
+            defaultCropForFrame(
+              finalBounds.width,
+              finalBounds.height,
+              naturalSize.w,
+              naturalSize.h,
+              fit
+            )
+          )
+        : cropTransformToProps(scaledCrop);
+    onFrameResize?.(finalBounds, cropPatch, recordHistory);
   };
 
   const openUpload = (e: React.SyntheticEvent) => {
@@ -157,30 +336,8 @@ function ImageViewInner({
     pickFile();
   };
 
-  const enterCrop = (e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    onSelect?.();
-    if (naturalSize.w > 0 && !props.imageCrop) {
-      onUpdateProps?.(
-        {
-          ...cropTransformToProps(
-            defaultCropForFrame(
-              element.width,
-              element.height,
-              naturalSize.w,
-              naturalSize.h,
-              image.objectFit ?? 'contain'
-            )
-          ),
-        },
-        false
-      );
-    }
-    dispatch(setImageCropMode(element.id));
-  };
-
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!isSelected && !isCropMode) {
+    if (!isSelected) {
       e.stopPropagation();
     }
   };
@@ -248,26 +405,27 @@ function ImageViewInner({
         e.stopPropagation();
         onSelect?.();
       }}
-      onDoubleClick={enterCrop}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (!element.locked && src) {
+          dispatch(setImageCropMode(element.id));
+        }
+      }}
     >
       {input}
-      {fromSettings && !isCropMode && (
-        <div className="pointer-events-none absolute left-2 top-2 z-30 rounded-md bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white">
-          From settings
-        </div>
-      )}
-      {isReferenceBg && !isCropMode && (
+      {isReferenceBg && !isInteractive && (
         <div className="pointer-events-none absolute left-2 top-2 z-30 rounded-md bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white">
           Reference — delete when finished
         </div>
       )}
-      {isBarcode && barcodeValue && !isCropMode && (
+      {isBarcode && barcodeValue && !isInteractive && (
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 bg-white/90 py-0.5 text-center font-mono text-[10px] text-gray-600">
           {barcodeValue}
         </div>
       )}
-      {isCropMode && naturalSize.w > 0 ? (
+      {isInteractive && naturalSize.w > 0 ? (
         <CropModeEditor
+          panEnabled={cropMode}
           src={src}
           alt={image.alt || label}
           frameW={element.width}
@@ -275,7 +433,15 @@ function ImageViewInner({
           base={base}
           crop={crop}
           image={image}
+          zoom={zoom}
+          frameBounds={{
+            x: element.x,
+            y: element.y,
+            width: element.width,
+            height: element.height,
+          }}
           onCropChange={handleCropChange}
+          onFrameResize={handleFrameResize}
         />
       ) : naturalSize.w > 0 ? (
         <CroppedImageDisplay

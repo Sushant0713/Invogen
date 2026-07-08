@@ -33,6 +33,8 @@ export interface SubscriptionStatusPayload {
   templateAccessConfigured?: boolean;
   /** Pre-built template ids allowed by the plan. `null` = all system templates. */
   allowedTemplateIds?: string[] | null;
+  /** Show "Made with Invogen" badge on templates/invoices for this plan. */
+  showMadeWithInvogen?: boolean;
 }
 
 export interface BillingSummary {

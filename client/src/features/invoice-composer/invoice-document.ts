@@ -24,10 +24,19 @@ import { updateInvoice2Cell, isInvoice2ComputedColumn, isInvoice2SummaryRowId, i
 import { updateInvoice3Cell, isInvoice3ComputedColumn, recalculateInvoiceTable3, getInvoice3GrandTotal, calculateInvoice3LineAmounts, isInvoiceTable3Type, addRow as addInvoice3Row, INVOICE3_COL_DISCOUNT, setInvoice3DiscountMode, type InvoiceTable3Props } from '@/features/builder/invoice-table-3';
 import { isInvoiceComputedColumn } from '@/features/builder/invoice-table';
 import { EMPTY_TAX_SETTINGS, type TaxSettings, getCombinedGstRate } from '@/features/builder/tax-settings';
+import {
+  EMPTY_PRODUCT_SETTINGS,
+  type ProductSettings,
+  resolveShowProductSku,
+} from '@/features/builder/product-settings';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
 import { extractPlaceholderKeys, placeholderFieldLabel } from '@/features/template-gallery/placeholder-utils';
 import { getLayerLabel } from '@/features/builder/element-layers';
 import { getPageDimensions, getDefaultElementSize } from '@/features/builder/builder-dnd';
+import {
+  applyProductPickToTable,
+  type ProductPick,
+} from '@/features/builder/product-cell';
 import { parseTermsFromProps, buildTermsProps, getDefaultTermsProps } from '@/features/builder/terms-content';
 import { parseAddressFromProps, buildAddressProps } from '@/features/builder/address-content';
 import {
@@ -39,6 +48,7 @@ import {
   isCardComponentType,
   parseCardCustomFields,
   parseHiddenCardFields,
+  setCustomCardFieldHidden,
   type CardCustomField,
 } from '@/features/builder/card-components';
 
@@ -108,12 +118,16 @@ export function isPageBlank(page: TemplatePage): boolean {
   return !visible.some((el) => elementHasContent(el));
 }
 
-/** Drop trailing blank pages when a template ships with an empty extra page. */
+/** Drop only trailing blank pages; keep intentional multi-page layouts intact. */
 export function normalizeComposerPages(pages: TemplatePage[]): TemplatePage[] {
   const cloned = cloneTemplatePages(pages);
   if (cloned.length <= 1) return cloned;
-  const nonBlank = cloned.filter((page) => !isPageBlank(page));
-  return nonBlank.length > 0 ? nonBlank : cloned.slice(0, 1);
+
+  let end = cloned.length;
+  while (end > 1 && isPageBlank(cloned[end - 1])) {
+    end -= 1;
+  }
+  return cloned.slice(0, end);
 }
 
 export function deleteComposerPage(pages: TemplatePage[], pageId: string): TemplatePage[] {
@@ -563,6 +577,39 @@ export function updateComposerTableCell(
   });
 }
 
+export function updateComposerProductPick(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  rowId: string,
+  productColumnId: string,
+  product: ProductPick,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS,
+  productSettings: ProductSettings = EMPTY_PRODUCT_SETTINGS
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    if (!isTableElementType(element.type)) return element;
+    const raw = (element.props ?? {}) as Record<string, unknown>;
+    const resolvedType = resolveTableElementType(element.type, raw);
+    const table = normalizeTablePropsForType(element.type, raw);
+    const withEdit = applyProductPickToTable(
+      resolvedType,
+      table,
+      rowId,
+      productColumnId,
+      product,
+      resolveShowProductSku(table.showProductSku, productSettings),
+      tax
+    );
+    const nextProps = finalizeComposerTableProps(
+      element.type,
+      productTablePropsToRecord(withEdit),
+      tax
+    );
+    return { ...element, props: nextProps };
+  });
+}
+
 export function updateComposerElementProps(
   pages: TemplatePage[],
   pageId: string,
@@ -624,6 +671,7 @@ export interface ScannedTable {
   rows: Array<{ id: string; name: string; cells: Record<string, string> }>;
   discountMode?: InvoiceDiscountMode;
   supportsDiscountMode: boolean;
+  showProductSku?: boolean;
 }
 
 export interface ScannedTextField {
@@ -844,7 +892,9 @@ export function scanComposerCards(
       counts[element.type] = (counts[element.type] ?? 0) + 1;
       const index = counts[element.type];
       const props = (element.props ?? {}) as Record<string, unknown>;
-      const defs = getCardVisibleFieldDefs(element.type, props);
+      // Composer form should still show hidden fields so the user can toggle them back on.
+      // Actual rendering is controlled by `hiddenFields` in card-components.
+      const defs = getCardFieldDefs(element.type);
       const propToContext =
         element.type === ComponentType.CUSTOMER_CARD
           ? CUSTOMER_PROP_TO_CONTEXT
@@ -900,10 +950,10 @@ function updateCardElementProps(
   elementId: string,
   updater: (props: Record<string, unknown>) => Record<string, unknown>
 ): TemplatePage[] {
-  return updateElementOnPage(pages, pageId, elementId, (element) => ({
-    ...element,
-    props: updater((element.props ?? {}) as Record<string, unknown>),
-  }));
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    const nextProps = updater((element.props ?? {}) as Record<string, unknown>);
+    return { ...element, props: nextProps };
+  });
 }
 
 export function updateComposerCardProp(
@@ -913,7 +963,10 @@ export function updateComposerCardProp(
   key: string,
   value: string
 ): TemplatePage[] {
-  return updateComposerElementProps(pages, pageId, elementId, { [key]: value });
+  return updateCardElementProps(pages, pageId, elementId, (props) => ({
+    ...props,
+    [key]: value,
+  }));
 }
 
 export function addComposerCardCustomField(
@@ -965,6 +1018,38 @@ export function deleteComposerCardStandardField(
     hidden.add(fieldKey);
     return { ...props, hiddenFields: [...hidden] };
   });
+}
+
+export function toggleComposerCardStandardField(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  fieldKey: string,
+  hidden: boolean
+): TemplatePage[] {
+  return updateCardElementProps(pages, pageId, elementId, (props) => {
+    const set = new Set(parseHiddenCardFields(props.hiddenFields));
+    if (hidden) set.add(fieldKey);
+    else set.delete(fieldKey);
+    return { ...props, hiddenFields: [...set] };
+  });
+}
+
+export function toggleComposerCardCustomField(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  fieldId: string,
+  hidden: boolean
+): TemplatePage[] {
+  return updateCardElementProps(pages, pageId, elementId, (props) => ({
+    ...props,
+    hiddenFields: setCustomCardFieldHidden(
+      parseHiddenCardFields(props.hiddenFields),
+      fieldId,
+      hidden
+    ),
+  }));
 }
 
 export function getComposerCardPropValue(
@@ -1223,6 +1308,7 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
           })),
         discountMode: supportsDiscountMode ? readTableDiscountMode(raw) : undefined,
         supportsDiscountMode,
+        showProductSku: table.showProductSku === true,
       });
     });
   });

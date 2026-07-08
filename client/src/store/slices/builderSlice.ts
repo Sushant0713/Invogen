@@ -5,12 +5,17 @@ import {
   isTableElementType,
   productTablePropsToRecord,
   isSameTableCell,
+  resolveBuilderTablePropsForEdit,
 } from '@/features/builder/product-table';
-import { clampTableElementToPage } from '@/features/builder/table-element-size';
+import {
+  clampTableElementToPage,
+  fitTableHeightsPreservingWidths,
+} from '@/features/builder/table-element-size';
 import { normalizeTablePropsForType } from '@/features/builder/table-props-normalize';
-import { PAGE_WIDTH, PAGE_HEIGHT } from '@/features/builder/builder-dnd';
+import { getPageDimensions, PAGE_WIDTH, PAGE_HEIGHT } from '@/features/builder/builder-dnd';
 import { getNextZIndex, normalizeElementLayers, reorderElementLayer, reorderPageElements } from '@/features/builder/element-layers';
 import { applyClipToElementBounds, shouldBakeShapeClipOnApply } from '@/features/builder/shape-clip';
+import { layoutBuilderPages, builderPagesNeedLayout, touchLogicalFlowY } from '@/features/builder/document-layout';
 
 export interface SelectedTableCell {
   elementId: string;
@@ -117,6 +122,56 @@ const withNormalizedLayers = (pages: TemplatePage[]): TemplatePage[] =>
     elements: normalizeElementLayers(page.elements),
   }));
 
+function clonePages(pages: TemplatePage[]): TemplatePage[] {
+  return JSON.parse(JSON.stringify(pages)) as TemplatePage[];
+}
+
+function commitDocumentLayout(state: BuilderState, plain: TemplatePage[]) {
+  let next = layoutBuilderPages(plain);
+  // Re-run once so consolidated table segments + spilled blocks settle across pages.
+  next = layoutBuilderPages(next);
+  state.pages = next;
+  if (state.activePageIndex >= state.pages.length) {
+    state.activePageIndex = Math.max(0, state.pages.length - 1);
+  }
+}
+
+function isGeometryOnlyChange(changes: Partial<CanvasElement>): boolean {
+  const keys = Object.keys(changes);
+  return (
+    keys.length > 0
+    && keys.every((key) => key === 'x' || key === 'y' || key === 'width' || key === 'height')
+  );
+}
+
+/** True when a mutation should re-run document flow layout (not manual drag/resize/crop). */
+function shouldTriggerDocumentLayout(
+  changes: Partial<CanvasElement>,
+  skipDocumentLayout?: boolean
+): boolean {
+  if (skipDocumentLayout) return false;
+  if (isGeometryOnlyChange(changes)) return false;
+  if (changes.props !== undefined) return true;
+  if (
+    changes.height !== undefined
+    && changes.width === undefined
+    && changes.x === undefined
+    && changes.y === undefined
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function applyManualElementUpdate(elements: CanvasElement[], idx: number, merged: CanvasElement) {
+  elements[idx] = touchLogicalFlowY(merged);
+}
+
+function applyDocumentLayout(pages: TemplatePage[]): TemplatePage[] {
+  let next = layoutBuilderPages(pages);
+  return layoutBuilderPages(next);
+}
+
 const builderSlice = createSlice({
   name: 'builder',
   initialState,
@@ -127,10 +182,18 @@ const builderSlice = createSlice({
     ) => {
       state.templateId = action.payload.id;
       state.templateName = action.payload.name;
-      state.pages = action.payload.pages.map((page) => {
+      const normalizedPages = action.payload.pages.map((page) => {
         const normalized = page.elements.map((el) => normalizeElement(el, page.margins));
         return { ...page, elements: normalizeElementLayers(normalized) };
       });
+      // Multi-page templates are saved intentionally — do not consolidate / drop
+      // pages on open (layoutBuilderPages gathers everything onto page 1).
+      state.pages =
+        normalizedPages.length > 1
+          ? normalizedPages
+          : builderPagesNeedLayout(normalizedPages)
+            ? applyDocumentLayout(normalizedPages)
+            : normalizedPages;
       state.activePageIndex = 0;
       state.selectedElementIds = [];
       state.imageCropElementId = null;
@@ -173,14 +236,17 @@ const builderSlice = createSlice({
       const newId = action.payload.id;
       page.elements = normalizeElementLayers([
         ...page.elements,
-        {
+        touchLogicalFlowY({
           ...action.payload,
           zIndex: getNextZIndex(page.elements),
-        },
+        }),
       ]);
       state.selectedElementIds = [newId];
       state.isDirty = true;
       pushHistory(state);
+    },
+    relayoutTables: (state) => {
+      commitDocumentLayout(state, clonePages(state.pages));
     },
     updateElement: (
       state,
@@ -189,6 +255,9 @@ const builderSlice = createSlice({
         changes: Partial<CanvasElement>;
         recordHistory?: boolean;
         replaceProps?: boolean;
+        /** Row-height sync / resize / crop — skip automatic document reflow. */
+        skipTableReflow?: boolean;
+        skipDocumentLayout?: boolean;
       }>
     ) => {
       const elements = state.pages[state.activePageIndex].elements;
@@ -196,34 +265,102 @@ const builderSlice = createSlice({
       if (idx !== -1) {
         const page = state.pages[state.activePageIndex];
         const current = elements[idx];
+        const skipLayout =
+          action.payload.skipDocumentLayout === true
+          || action.payload.skipTableReflow === true;
         const { props: propsPatch, ...restChanges } = action.payload.changes;
         const merged: CanvasElement = { ...current, ...restChanges };
         if (propsPatch !== undefined) {
-          merged.props = action.payload.replaceProps
-            ? propsPatch
-            : { ...(current.props ?? {}), ...propsPatch };
+          if (action.payload.replaceProps) {
+            merged.props = propsPatch;
+          } else {
+            const nextProps = { ...(current.props ?? {}), ...propsPatch };
+            // Explicit undefined clears a prop (e.g. stale textRuns after plain edit).
+            for (const [key, value] of Object.entries(propsPatch)) {
+              if (value === undefined) delete nextProps[key];
+            }
+            merged.props = nextProps;
+          }
         }
         if (isTableElementType(merged.type)) {
-          const table = normalizeTablePropsForType(merged.type, (merged.props ?? {}) as Record<string, unknown>);
-          const clamped = clampTableElementToPage(
-            merged.x,
-            merged.y,
-            table,
-            PAGE_WIDTH,
-            PAGE_HEIGHT,
-            page.margins,
-            merged.type
+          const table = normalizeTablePropsForType(
+            merged.type,
+            resolveBuilderTablePropsForEdit((merged.props ?? {}) as Record<string, unknown>)
           );
-          elements[idx] = {
-            ...merged,
-            x: clamped.x,
-            y: clamped.y,
-            width: clamped.width,
-            height: clamped.height,
-            props: productTablePropsToRecord(clamped.table),
-          };
+
+          if (propsPatch !== undefined) {
+            const shouldReflow =
+              !skipLayout
+              && restChanges.width === undefined;
+
+            if (!shouldReflow) {
+              const fitted = fitTableHeightsPreservingWidths(
+                merged.type,
+                productTablePropsToRecord(table)
+              );
+              applyManualElementUpdate(elements, idx, {
+                ...merged,
+                width: merged.width > 0 ? merged.width : current.width,
+                height: merged.height > 0 ? merged.height : fitted.height,
+                props: fitted.tableProps,
+              });
+            } else {
+              const plain = JSON.parse(JSON.stringify(state.pages)) as TemplatePage[];
+              for (let pageIndex = 0; pageIndex < plain.length; pageIndex += 1) {
+                plain[pageIndex].elements = plain[pageIndex].elements.map((el) => {
+                  if (!isTableElementType(el.type)) return el;
+                  const table = normalizeTablePropsForType(
+                    el.type,
+                    resolveBuilderTablePropsForEdit((el.props ?? {}) as Record<string, unknown>)
+                  );
+                  const fitted = fitTableHeightsPreservingWidths(
+                    el.type,
+                    productTablePropsToRecord(table)
+                  );
+                  return { ...el, props: fitted.tableProps };
+                });
+              }
+              const pageIdx = state.activePageIndex;
+              const elIdx = plain[pageIdx]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
+              if (elIdx >= 0) {
+                const fitted = fitTableHeightsPreservingWidths(
+                  merged.type,
+                  productTablePropsToRecord(table)
+                );
+                const currentEl = plain[pageIdx].elements[elIdx];
+                plain[pageIdx].elements[elIdx] = {
+                  ...currentEl,
+                  props: fitted.tableProps,
+                  width: merged.width > 0 ? merged.width : currentEl.width,
+                };
+              }
+              state.pages = applyDocumentLayout(plain);
+              if (state.activePageIndex >= state.pages.length) {
+                state.activePageIndex = Math.max(0, state.pages.length - 1);
+              }
+            }
+          } else {
+            // Position/size-only update — keep manual placement.
+            applyManualElementUpdate(elements, idx, {
+              ...merged,
+              width: merged.width > 0 ? merged.width : current.width,
+              height: merged.height > 0 ? merged.height : current.height,
+              props: productTablePropsToRecord(table),
+            });
+          }
         } else {
-          elements[idx] = merged;
+          const shouldLayout = shouldTriggerDocumentLayout(restChanges, skipLayout);
+          if (shouldLayout) {
+            const plain = clonePages(state.pages);
+            const pageIdx = state.activePageIndex;
+            const elIdx = plain[pageIdx]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
+            if (elIdx >= 0) {
+              plain[pageIdx].elements[elIdx] = merged;
+            }
+            commitDocumentLayout(state, plain);
+          } else {
+            applyManualElementUpdate(elements, idx, merged);
+          }
         }
         state.isDirty = true;
         if (action.payload.recordHistory) {
@@ -305,7 +442,7 @@ const builderSlice = createSlice({
         dup = { ...dup, x, y };
       }
 
-      elements.push(dup);
+      elements.push(touchLogicalFlowY(dup));
       page.elements = normalizeElementLayers(elements);
       state.selectedElementIds = [dup.id];
       state.isDirty = true;
@@ -573,6 +710,7 @@ export const {
   addPage,
   deletePage,
   addElement,
+  relayoutTables,
   updateElement,
   deleteElement,
   deleteSelectedElements,

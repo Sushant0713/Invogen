@@ -20,13 +20,44 @@ export type PlaceholderKey =
 
 export type PlaceholderContext = Partial<Record<PlaceholderKey | string, string>>;
 
-const PLACEHOLDER_RE = /\{\{(\w+)\}\}/g;
+/** Mustache tokens: {{ClientName}} */
+const MUSTACHE_RE = /\{\{(\w+)\}\}/g;
+/** Angle-bracket tokens in text: <your name> */
+const ANGLE_RE = /<\s*([^<>]+?)\s*>/g;
+
+/** Normalize `<your name >` → `your name` (stable formContext key + label). */
+export function normalizeAnglePlaceholderLabel(inner: string): string {
+  return inner.trim().replace(/\s+/g, ' ');
+}
+
+/** Visible marker when a field has no value yet — keeps the label on the canvas. */
+export function unresolvedPlaceholderDisplay(key: string): string {
+  return `<${key}>`;
+}
+
+function resolvedPlaceholderValue(
+  key: string,
+  context: PlaceholderContext,
+  unresolvedFallback: string
+): string {
+  const raw = context[key];
+  if (typeof raw === 'string' && raw.trim()) return raw;
+  return unresolvedFallback;
+}
 
 export function replacePlaceholdersInString(
   value: string,
   context: PlaceholderContext
 ): string {
-  return value.replace(PLACEHOLDER_RE, (_, key: string) => context[key] ?? `{{${key}}}`);
+  let next = value.replace(MUSTACHE_RE, (_, key: string) =>
+    resolvedPlaceholderValue(key, context, `{{${key}}}`)
+  );
+  next = next.replace(ANGLE_RE, (_, inner: string) => {
+    const key = normalizeAnglePlaceholderLabel(inner);
+    if (!key) return `<${inner}>`;
+    return resolvedPlaceholderValue(key, context, unresolvedPlaceholderDisplay(key));
+  });
+  return next;
 }
 
 function transformValue(value: unknown, context: PlaceholderContext): unknown {
@@ -42,7 +73,7 @@ function transformValue(value: unknown, context: PlaceholderContext): unknown {
   return value;
 }
 
-/** Deep-clone pages and replace {{Placeholder}} tokens in all string props. */
+/** Deep-clone pages and replace {{Placeholder}} / <field> tokens in all string props. */
 export function applyPlaceholdersToPages(
   pages: TemplatePage[],
   context: PlaceholderContext
@@ -50,20 +81,37 @@ export function applyPlaceholdersToPages(
   return transformValue(pages, context) as TemplatePage[];
 }
 
-const PLACEHOLDER_SCAN_RE = /\{\{(\w+)\}\}/g;
+function collectKeysFromString(value: string, keys: Set<string>) {
+  MUSTACHE_RE.lastIndex = 0;
+  let match = MUSTACHE_RE.exec(value);
+  while (match) {
+    keys.add(match[1]);
+    match = MUSTACHE_RE.exec(value);
+  }
 
-/** Collect unique {{Placeholder}} keys used anywhere in template pages. */
+  ANGLE_RE.lastIndex = 0;
+  match = ANGLE_RE.exec(value);
+  while (match) {
+    const label = normalizeAnglePlaceholderLabel(match[1]);
+    if (label) keys.add(label);
+    match = ANGLE_RE.exec(value);
+  }
+}
+
+/** Collect placeholders from a single text string (content / heading body). */
+export function extractPlaceholderKeysFromText(value: string): string[] {
+  const keys = new Set<string>();
+  collectKeysFromString(value, keys);
+  return Array.from(keys).sort((a, b) => a.localeCompare(b));
+}
+
+/** Collect unique {{Placeholder}} and <field> keys used anywhere in template pages. */
 export function extractPlaceholderKeys(pages: TemplatePage[]): string[] {
   const keys = new Set<string>();
 
   const scan = (value: unknown) => {
     if (typeof value === 'string') {
-      PLACEHOLDER_SCAN_RE.lastIndex = 0;
-      let match = PLACEHOLDER_SCAN_RE.exec(value);
-      while (match) {
-        keys.add(match[1]);
-        match = PLACEHOLDER_SCAN_RE.exec(value);
-      }
+      collectKeysFromString(value, keys);
       return;
     }
     if (Array.isArray(value)) {
@@ -104,7 +152,10 @@ export const PLACEHOLDER_FIELD_LABELS: Record<string, string> = {
 };
 
 export function placeholderFieldLabel(key: string): string {
-  return PLACEHOLDER_FIELD_LABELS[key] ?? key.replace(/([a-z])([A-Z])/g, '$1 $2');
+  if (PLACEHOLDER_FIELD_LABELS[key]) return PLACEHOLDER_FIELD_LABELS[key];
+  // Angle-bracket keys are already human labels ("your name").
+  if (key.includes(' ')) return key;
+  return key.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
 export function isMultilinePlaceholder(key: string): boolean {

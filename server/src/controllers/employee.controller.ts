@@ -1,6 +1,9 @@
 import { employeeService } from '../services/employee.service';
 import { wrap, param } from '../utils/controller';
 
+export const getPlanAdvertising = wrap((req) =>
+  employeeService.getPlanAdvertising(req.companyId!)
+);
 export const getDashboard = wrap((req) =>
   employeeService.getDashboard(req.companyId!, req.user!.userId)
 );

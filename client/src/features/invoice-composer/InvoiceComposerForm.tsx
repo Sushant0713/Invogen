@@ -26,6 +26,13 @@ interface InvoiceComposerFormProps {
     columnId: string,
     value: string
   ) => void;
+  onTableProductPick?: (
+    pageId: string,
+    elementId: string,
+    rowId: string,
+    columnId: string,
+    product: { name: string; sku?: string; price?: number }
+  ) => void;
   onAddTableRow?: (pageId: string, elementId: string) => void;
   onDeleteTableRow?: (pageId: string, elementId: string, rowId: string) => void;
   onTableDiscountModeChange?: (
@@ -54,7 +61,12 @@ interface InvoiceComposerFormProps {
     fieldKey: string,
     formContextKey?: string
   ) => void;
-  onAddCardCustomField: (pageId: string, elementId: string) => void;
+  onToggleCardStandardField: (
+    pageId: string,
+    elementId: string,
+    fieldKey: string,
+    hidden: boolean
+  ) => void;
   onUpdateCardCustomField: (
     pageId: string,
     elementId: string,
@@ -62,6 +74,12 @@ interface InvoiceComposerFormProps {
     patch: { label?: string; value?: string }
   ) => void;
   onDeleteCardCustomField: (pageId: string, elementId: string, fieldId: string) => void;
+  onToggleCardCustomField: (
+    pageId: string,
+    elementId: string,
+    fieldId: string,
+    hidden: boolean
+  ) => void;
   customers: CustomerRecord[];
   selectedCustomerId: string;
   onSelectCustomer: (customerId: string) => void;
@@ -100,6 +118,7 @@ function FieldInput({
   multiline?: boolean;
   fieldKind?: FieldKind;
 }) {
+  const placeholder = `Enter ${label.toLowerCase()}`;
   if (multiline) {
     return (
       <div className="space-y-1.5">
@@ -107,6 +126,7 @@ function FieldInput({
         <textarea
           className="min-h-[88px] w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
           value={value}
+          placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
         />
       </div>
@@ -118,6 +138,7 @@ function FieldInput({
       label={label}
       fieldKind={fieldKind}
       value={value}
+      placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
     />
   );
@@ -130,6 +151,7 @@ export function InvoiceComposerForm({
   onChange,
   onDeletePage,
   onTableCellChange,
+  onTableProductPick,
   onAddTableRow,
   onDeleteTableRow,
   onTableDiscountModeChange,
@@ -144,9 +166,10 @@ export function InvoiceComposerForm({
   onDeleteTerms,
   onCardPropChange,
   onDeleteCardStandardField,
-  onAddCardCustomField,
+  onToggleCardStandardField,
   onUpdateCardCustomField,
   onDeleteCardCustomField,
+  onToggleCardCustomField,
   customers,
   selectedCustomerId,
   onSelectCustomer,
@@ -187,14 +210,33 @@ export function InvoiceComposerForm({
           onFormContextChange={onChange}
           onCardPropChange={onCardPropChange}
           onDeleteStandardField={onDeleteCardStandardField}
-          onAddCustomField={onAddCardCustomField}
+          onToggleStandardField={onToggleCardStandardField}
           onUpdateCustomField={onUpdateCardCustomField}
           onDeleteCustomField={onDeleteCardCustomField}
+          onToggleCustomField={onToggleCardCustomField}
           customers={customers}
           selectedCustomerId={selectedCustomerId}
           onSelectCustomer={card.showCustomerPicker ? onSelectCustomer : undefined}
         />
       ))}
+
+      {formModel.otherPlaceholders.length > 0 ? (
+        <FormSection
+          title="Placeholders"
+          subtitle="From text like <your name> — type the real values here."
+        >
+          {formModel.otherPlaceholders.map((key) => (
+            <FieldInput
+              key={key}
+              label={placeholderFieldLabel(key)}
+              value={formContext[key] ?? ''}
+              onChange={(value) => onChange(key, value)}
+              multiline={isMultilinePlaceholder(key)}
+              fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
+            />
+          ))}
+        </FormSection>
+      ) : null}
 
       {formModel.cards.length === 0 && formModel.customerFields.length > 0 ? (
         <FormSection title="Customer" subtitle="Who is this invoice for?">
@@ -262,24 +304,10 @@ export function InvoiceComposerForm({
         </FormSection>
       ) : null}
 
-      {formModel.otherPlaceholders.length > 0 ? (
-        <FormSection title="Other fields">
-          {formModel.otherPlaceholders.map((key) => (
-            <FieldInput
-              key={key}
-              label={placeholderFieldLabel(key)}
-              value={formContext[key] ?? ''}
-              onChange={(value) => onChange(key, value)}
-              multiline={isMultilinePlaceholder(key)}
-              fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
-            />
-          ))}
-        </FormSection>
-      ) : null}
-
       <InvoiceTableFormSection
         tables={formModel.tables}
         onCellChange={onTableCellChange}
+        onProductPick={onTableProductPick}
         onAddRow={onAddTableRow}
         onDeleteRow={onDeleteTableRow}
         onDiscountModeChange={onTableDiscountModeChange}

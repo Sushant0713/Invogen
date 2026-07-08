@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Download, Printer } from 'lucide-react';
 import type { TemplatePage } from '@invogen/shared';
-import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
+import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
 import { type CompanyBrandingScope } from '@/features/builder/company-branding';
 import { Button } from '@/components/ui/Button';
 import {
@@ -17,28 +17,14 @@ import { toast } from 'sonner';
 
 interface InvoiceLivePreviewProps {
   pages: TemplatePage[];
-  /** Omit when `pages` are already fully rendered (placeholders + element edits applied). */
-  formContext?: PlaceholderContext;
   templateName: string;
   brandingScope?: CompanyBrandingScope;
-  /** Tables on pages are already recalculated in the composer. */
-  trustTableProps?: boolean;
-  onTableCellChange?: (
-    pageId: string,
-    elementId: string,
-    rowId: string,
-    columnId: string,
-    value: string
-  ) => void;
 }
 
 export function InvoiceLivePreview({
   pages,
-  formContext,
   templateName,
   brandingScope = 'admin',
-  trustTableProps = true,
-  onTableCellChange,
 }: InvoiceLivePreviewProps) {
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [exporting, setExporting] = useState(false);
@@ -106,6 +92,7 @@ export function InvoiceLivePreview({
   return (
     <CompanyBrandingProvider scope={brandingScope}>
       <TaxSettingsProvider scope={brandingScope}>
+        <ProductSettingsProvider>
         <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-gray-100/80">
           <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
             <div>
@@ -138,11 +125,8 @@ export function InvoiceLivePreview({
             <TemplatePreviewPages
               pages={pages}
               useSampleData={false}
-              placeholderContext={formContext}
               previewMaxWidth={previewWidth}
-              trustTableProps={trustTableProps}
-              editableTables={!!onTableCellChange}
-              onTableCellChange={onTableCellChange}
+              trustTableProps
             />
           </div>
         </div>
@@ -154,11 +138,11 @@ export function InvoiceLivePreview({
           <TemplatePreviewPages
             pages={pages}
             useSampleData={false}
-            placeholderContext={formContext}
             pageRefs={exportPageRefs}
-            trustTableProps={trustTableProps}
+            trustTableProps
           />
         </div>
+        </ProductSettingsProvider>
       </TaxSettingsProvider>
     </CompanyBrandingProvider>
   );

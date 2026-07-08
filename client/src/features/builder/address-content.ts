@@ -24,6 +24,19 @@ export type AddressData = {
   country: string;
 };
 
+export type AddressHiddenKey =
+  | 'title'
+  | 'city'
+  | 'state'
+  | 'postalCode'
+  | 'country'
+  | `line:${number}`;
+
+export function parseHiddenAddressFields(raw: unknown): AddressHiddenKey[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is AddressHiddenKey => typeof item === 'string' && item.length > 0);
+}
+
 const PROP_KEYS: Record<AddressFieldKey, string> = {
   city: 'addressCity',
   state: 'addressState',
@@ -40,16 +53,22 @@ export const DEFAULT_ADDRESS: AddressData = {
   country: 'India',
 };
 
-export function formatAddressValue(data: AddressData): string {
+export function formatAddressValue(
+  data: AddressData,
+  options?: { hidden?: Set<string> }
+): string {
+  const hidden = options?.hidden;
   const parts: string[] = [];
 
-  for (const line of data.lines) {
+  for (let i = 0; i < data.lines.length; i++) {
+    if (hidden?.has(`line:${i}`)) continue;
+    const line = data.lines[i] ?? '';
     if (line.trim()) parts.push(line.trim());
   }
 
-  const city = data.city.trim();
-  const state = data.state.trim();
-  const postal = data.postalCode.trim();
+  const city = hidden?.has('city') ? '' : data.city.trim();
+  const state = hidden?.has('state') ? '' : data.state.trim();
+  const postal = hidden?.has('postalCode') ? '' : data.postalCode.trim();
 
   if (city || state || postal) {
     const cityState = [city, state].filter(Boolean).join(', ');
@@ -62,7 +81,7 @@ export function formatAddressValue(data: AddressData): string {
     }
   }
 
-  if (data.country.trim()) {
+  if (!hidden?.has('country') && data.country.trim()) {
     parts.push(data.country.trim());
   }
 

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Loader2, Package, Search, X } from 'lucide-react';
-import { useCompanyProducts } from './use-company-products';
+import { formatProductCellValue } from './product-cell';
+import { useCompanyProducts, type CompanyProductOption } from './use-company-products';
 
 const PANEL_WIDTH = 320;
 const PANEL_MAX_HEIGHT = 320;
@@ -13,7 +14,9 @@ export function ProductCellSelect({
   disabled,
   previewMode,
   fullWidth,
+  showSku = false,
   onChange,
+  onProductSelect,
 }: {
   value: string;
   width: number;
@@ -21,11 +24,16 @@ export function ProductCellSelect({
   disabled?: boolean;
   previewMode?: boolean;
   fullWidth?: boolean;
+  /** When true, catalog picks store "Name (SKU)" in the cell. */
+  showSku?: boolean;
   onChange: (productName: string) => void;
+  /** Fired when a product is chosen from the catalog (parent fills product + rate). */
+  onProductSelect?: (product: CompanyProductOption) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
   const [listFilter, setListFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [debouncedFilter, setDebouncedFilter] = useState('');
   const [panelPos, setPanelPos] = useState({ top: 0, left: 0, width: PANEL_WIDTH });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -33,6 +41,12 @@ export function ProductCellSelect({
   const inputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const startValueRef = useRef(value);
+  // Always mirrors the latest draft so delayed commits (blur timer) never use a stale value.
+  const draftRef = useRef(draft);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   useEffect(() => {
     if (!open && document.activeElement !== inputRef.current) {
@@ -56,16 +70,33 @@ export function ProductCellSelect({
     search: debouncedFilter,
   });
 
+  const categories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          products
+            .map((p) => p.category?.trim())
+            .filter((c): c is string => !!c)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [products]
+  );
+
+  // Category chips only help once the catalog is large enough to warrant them.
+  const showCategoryFilter = products.length > 20 && categories.length > 0;
+
   const filtered = useMemo(() => {
     const q = listFilter.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(
-      (p) =>
+    return products.filter((p) => {
+      if (categoryFilter && (p.category?.trim() || '') !== categoryFilter) return false;
+      if (!q) return true;
+      return (
         p.name.toLowerCase().includes(q)
         || (p.sku || '').toLowerCase().includes(q)
         || (p.category || '').toLowerCase().includes(q)
-    );
-  }, [products, listFilter]);
+      );
+    });
+  }, [products, listFilter, categoryFilter]);
 
   const updatePanelPosition = () => {
     const el = rootRef.current;
@@ -101,16 +132,33 @@ export function ProductCellSelect({
       onChange(trimmed);
       startValueRef.current = trimmed;
     }
+    draftRef.current = trimmed;
     setDraft(trimmed);
   };
 
   const closePanel = (saveDraft: boolean) => {
-    if (saveDraft) commitDraft(draft);
+    if (saveDraft) commitDraft(draftRef.current);
     setOpen(false);
     setListFilter('');
+    setCategoryFilter(null);
   };
 
-  const pickProduct = (name: string) => {
+  const pickProduct = (product: CompanyProductOption) => {
+    const display = formatProductCellValue(product, showSku);
+    draftRef.current = display;
+    setDraft(display);
+    startValueRef.current = display;
+    setListFilter('');
+    setOpen(false);
+    inputRef.current?.blur();
+    if (onProductSelect) {
+      onProductSelect(product);
+    } else {
+      onChange(display);
+    }
+  };
+
+  const pickCustomName = (name: string) => {
     setDraft(name);
     commitDraft(name);
     setListFilter('');
@@ -118,7 +166,9 @@ export function ProductCellSelect({
     inputRef.current?.blur();
   };
 
-  const openList = () => {
+  const typedQuery = () => listFilter.trim() || draft.trim();
+
+  const openPanel = (options?: { focusSearch?: boolean }) => {
     startValueRef.current = value;
     setDraft(value);
     setListFilter('');
@@ -127,7 +177,11 @@ export function ProductCellSelect({
     void refetch();
     requestAnimationFrame(() => {
       updatePanelPosition();
-      searchRef.current?.focus();
+      if (options?.focusSearch) {
+        searchRef.current?.focus();
+      } else {
+        inputRef.current?.focus();
+      }
     });
   };
 
@@ -194,7 +248,7 @@ export function ProductCellSelect({
           <div className="border-b border-gray-100 bg-gray-50 px-3 py-2">
             <p className="text-xs font-semibold text-gray-800">Select product</p>
             <p className="text-[11px] text-gray-500">
-              From Admin → Products · or type a custom name
+              From Admin → Products · rate fills automatically
             </p>
           </div>
 
@@ -203,14 +257,18 @@ export function ProductCellSelect({
             <input
               ref={searchRef}
               value={listFilter}
-              onChange={(e) => setListFilter(e.target.value)}
-              placeholder="Search products…"
+              onChange={(e) => {
+                const next = e.target.value;
+                setListFilter(next);
+                setDraft(next);
+              }}
+              placeholder="Search or type a custom name…"
               className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
               onKeyDown={(e) => {
                 e.stopPropagation();
-                if (e.key === 'Enter' && draft.trim()) {
+                if (e.key === 'Enter' && typedQuery()) {
                   e.preventDefault();
-                  pickProduct(draft.trim());
+                  pickCustomName(typedQuery());
                 }
               }}
             />
@@ -227,6 +285,41 @@ export function ProductCellSelect({
             ) : null}
           </div>
 
+          {showCategoryFilter && (
+            <div className="flex items-center gap-1.5 overflow-x-auto border-b border-gray-100 px-3 py-2">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setCategoryFilter(null)}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  categoryFilter === null
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                All
+              </button>
+              {categories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() =>
+                    setCategoryFilter((prev) => (prev === category ? null : category))
+                  }
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                    categoryFilter === category
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title={category}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="min-h-0 flex-1 overflow-y-auto">
             {isError ? (
               <p className="px-3 py-4 text-sm text-red-600">{errorMessage}</p>
@@ -238,25 +331,28 @@ export function ProductCellSelect({
             ) : filtered.length === 0 ? (
               <div className="space-y-2 px-3 py-4">
                 <p className="text-sm text-gray-500">
-                  {products.length === 0 && !listFilter.trim()
+                  {products.length === 0 && !typedQuery()
                     ? 'No products yet. Add them in Admin → Products.'
                     : 'No matching products.'}
                 </p>
-                {draft.trim() ? (
+                {typedQuery() ? (
                   <button
                     type="button"
                     className="w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-primary/10"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => pickProduct(draft.trim())}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickCustomName(typedQuery());
+                    }}
                   >
-                    Use “{draft.trim()}”
+                    Use “{typedQuery()}”
                   </button>
                 ) : null}
               </div>
             ) : (
               <ul className="py-1">
                 {filtered.map((product) => {
-                  const selected = product.name === value;
+                  const display = formatProductCellValue(product, showSku);
+                  const selected = product.name === value || display === value;
                   return (
                     <li key={product._id}>
                       <button
@@ -264,8 +360,10 @@ export function ProductCellSelect({
                         className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-orange-50 ${
                           selected ? 'bg-orange-50' : ''
                         }`}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => pickProduct(product.name)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          pickProduct(product);
+                        }}
                       >
                         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
                           <Package className="h-4 w-4" />
@@ -303,19 +401,23 @@ export function ProductCellSelect({
                 <button
                   type="button"
                   className="rounded-md px-2 py-1 text-xs text-gray-600 hover:bg-white"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pickProduct('')}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickCustomName('');
+                  }}
                 >
                   Clear
                 </button>
               ) : null}
-              {draft.trim()
-                && !filtered.some((p) => p.name.toLowerCase() === draft.trim().toLowerCase()) && (
+              {typedQuery()
+                && !filtered.some((p) => p.name.toLowerCase() === typedQuery().toLowerCase()) && (
                 <button
                   type="button"
                   className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-white hover:bg-primary/90"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pickProduct(draft.trim())}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickCustomName(typedQuery());
+                  }}
                 >
                   Use typed name
                 </button>
@@ -330,25 +432,36 @@ export function ProductCellSelect({
   return (
     <div
       ref={rootRef}
-      className={`relative shrink-0 ${fullWidth ? 'w-full' : ''}`}
+      className={`product-cell-select relative shrink-0 ${fullWidth ? 'w-full' : ''}`}
       style={fullWidth ? { minHeight: height } : { width, height }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      <div
-        className="flex h-full w-full items-center gap-0.5 overflow-hidden px-1.5"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
+      <div className="flex h-full w-full items-center gap-0.5 overflow-hidden px-1.5">
         <input
           ref={inputRef}
           value={draft}
-          placeholder="Click to choose product"
+          placeholder="Type or select product"
           className="min-w-0 flex-1 bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400"
-          onFocus={() => openList()}
+          onFocus={() => {
+            startValueRef.current = value;
+            setDraft(value);
+            if (!open) {
+              setListFilter('');
+              setDebouncedFilter('');
+              setOpen(true);
+              void refetch();
+              requestAnimationFrame(updatePanelPosition);
+            }
+          }}
           onChange={(e) => {
             const next = e.target.value;
             setDraft(next);
-            setListFilter(next);
             if (!open) {
+              setListFilter('');
+              setDebouncedFilter('');
               setOpen(true);
+              void refetch();
               requestAnimationFrame(updatePanelPosition);
             }
           }}
@@ -380,7 +493,7 @@ export function ProductCellSelect({
             }
             if (e.key === 'ArrowDown') {
               e.preventDefault();
-              openList();
+              openPanel({ focusSearch: true });
             }
           }}
         />
@@ -393,7 +506,7 @@ export function ProductCellSelect({
             e.preventDefault();
             e.stopPropagation();
             if (open) closePanel(true);
-            else openList();
+            else openPanel({ focusSearch: true });
           }}
         >
           {isFetching ? (

@@ -1,5 +1,5 @@
 import type { CSSProperties, HTMLAttributes } from 'react';
-import { parseAddressFromProps, formatAddressValue } from './address-content';
+import { parseAddressFromProps, formatAddressValue, parseHiddenAddressFields } from './address-content';
 
 interface Props extends HTMLAttributes<HTMLDivElement> {
   props: Record<string, unknown>;
@@ -8,7 +8,8 @@ interface Props extends HTMLAttributes<HTMLDivElement> {
 
 export function AddressDisplay({ props: elementProps, textStyle, ...rest }: Props) {
   const data = parseAddressFromProps(elementProps);
-  const body = formatAddressValue(data);
+  const hidden = new Set(parseHiddenAddressFields(elementProps.hiddenFields));
+  const body = formatAddressValue(data, { hidden });
   const titleStyle: CSSProperties = {
     fontWeight: Math.max((textStyle.fontWeight as number) || 400, 600),
     marginBottom: body.trim() ? '0.35em' : 0,
@@ -23,7 +24,7 @@ export function AddressDisplay({ props: elementProps, textStyle, ...rest }: Prop
         wordBreak: 'break-word',
       }}
     >
-      {data.title.trim() && <div style={titleStyle}>{data.title}</div>}
+      {!hidden.has('title') && data.title.trim() && <div style={titleStyle}>{data.title}</div>}
       {body.trim() && <div>{body}</div>}
     </div>
   );

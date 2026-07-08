@@ -21,6 +21,7 @@ function serializePlanRecord(plan: Record<string, unknown>) {
     templateAccessConfigured: configured,
     // Omit for legacy plans so the edit form does not treat them as configured.
     canAddTemplate: configured ? plan.canAddTemplate === true : undefined,
+    showMadeWithInvogen: plan.showMadeWithInvogen === true,
   };
 }
 
@@ -398,6 +399,7 @@ export const planManagementService = {
     templateIds?: string[];
     canAddTemplate?: boolean;
     templateAccessConfigured?: boolean;
+    showMadeWithInvogen?: boolean;
     price: number;
     maintenanceCharge?: number;
     isActive?: boolean;
@@ -432,6 +434,7 @@ export const planManagementService = {
       templateIds,
       canAddTemplate: data.canAddTemplate ?? false,
       templateAccessConfigured: data.templateAccessConfigured ?? true,
+      showMadeWithInvogen: data.showMadeWithInvogen === true,
       planTypeId: planType._id,
       maintenanceCharge:
         data.billingCycle === BillingCycle.LIFETIME
@@ -485,6 +488,9 @@ export const planManagementService = {
     }
     if (data.templateAccessConfigured !== undefined) {
       $set.templateAccessConfigured = Boolean(data.templateAccessConfigured);
+    }
+    if (data.showMadeWithInvogen !== undefined) {
+      $set.showMadeWithInvogen = Boolean(data.showMadeWithInvogen);
     }
 
     if (data.name) $set.name = data.name as string;

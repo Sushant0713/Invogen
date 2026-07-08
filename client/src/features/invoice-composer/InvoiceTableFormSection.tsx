@@ -1,8 +1,11 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { isTableWrapFriendlyColumn, isProductColumn } from '@/features/builder/product-table';
+import { isTableWrapFriendlyColumn, isProductLikeColumn } from '@/features/builder/product-table';
 import { ProductCellSelect } from '@/features/builder/ProductCellSelect';
+import type { CompanyProductOption } from '@/features/builder/use-company-products';
+import { useProductSettings } from '@/features/builder/ProductSettingsProvider';
+import { resolveShowProductSku } from '@/features/builder/product-settings';
 import type { ScannedTable } from './invoice-document';
 import { isTableCellEditableForRow } from './invoice-document';
 import { TableDiscountModeSelect } from './TableDiscountModeSelect';
@@ -16,6 +19,13 @@ interface InvoiceTableFormSectionProps {
     rowId: string,
     columnId: string,
     value: string
+  ) => void;
+  onProductPick?: (
+    pageId: string,
+    elementId: string,
+    rowId: string,
+    columnId: string,
+    product: CompanyProductOption
   ) => void;
   onAddRow?: (pageId: string, elementId: string) => void;
   onDeleteRow?: (pageId: string, elementId: string, rowId: string) => void;
@@ -49,10 +59,13 @@ function FormSection({
 export function InvoiceTableFormSection({
   tables,
   onCellChange,
+  onProductPick,
   onAddRow,
   onDeleteRow,
   onDiscountModeChange,
 }: InvoiceTableFormSectionProps) {
+  const productSettings = useProductSettings();
+
   if (tables.length === 0) return null;
 
   return (
@@ -106,7 +119,7 @@ export function InvoiceTableFormSection({
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {editableColumns.map((col) => {
-                  const isProduct = isProductColumn(col);
+                  const isProduct = isProductLikeColumn(col);
                   const isMultiline = isTableWrapFriendlyColumn(col);
                   const cellValue = row.cells[col.id] ?? '';
 
@@ -120,6 +133,7 @@ export function InvoiceTableFormSection({
                             width={320}
                             height={40}
                             fullWidth
+                            showSku={resolveShowProductSku(table.showProductSku, productSettings)}
                             onChange={(value) =>
                               onCellChange(
                                 table.pageId,
@@ -128,6 +142,18 @@ export function InvoiceTableFormSection({
                                 col.id,
                                 value
                               )
+                            }
+                            onProductSelect={
+                              onProductPick
+                                ? (product) =>
+                                    onProductPick(
+                                      table.pageId,
+                                      table.elementId,
+                                      row.id,
+                                      col.id,
+                                      product
+                                    )
+                                : undefined
                             }
                           />
                         </div>

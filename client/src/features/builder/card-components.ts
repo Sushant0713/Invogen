@@ -18,7 +18,9 @@ const PLACEHOLDER_TOKEN_RE = /^\{\{\w+\}\}$/;
 
 export function isUnresolvedCardPlaceholder(value: string): boolean {
   const trimmed = value.trim();
-  return !trimmed || PLACEHOLDER_TOKEN_RE.test(trimmed);
+  // Empty string is a valid user value (meaning "hide this line by clearing it").
+  // Only treat {{Token}} values as unresolved placeholders.
+  return PLACEHOLDER_TOKEN_RE.test(trimmed);
 }
 
 export function parseCardCustomFields(raw: unknown): CardCustomField[] {
@@ -39,6 +41,22 @@ export function parseCardCustomFields(raw: unknown): CardCustomField[] {
 export function parseHiddenCardFields(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+export function isCustomCardFieldHidden(hidden: Set<string>, id: string): boolean {
+  return hidden.has(`custom:${id}`);
+}
+
+export function setCustomCardFieldHidden(
+  hiddenFields: string[],
+  id: string,
+  hidden: boolean
+): string[] {
+  const key = `custom:${id}`;
+  const set = new Set(parseHiddenCardFields(hiddenFields));
+  if (hidden) set.add(key);
+  else set.delete(key);
+  return [...set];
 }
 
 export function createCardCustomField(label = 'New field'): CardCustomField {
@@ -138,6 +156,7 @@ export function getCardDisplayLines(
   options?: { customValuePlaceholder?: (label: string) => string }
 ): CardDisplayLine[] {
   const defs = getCardVisibleFieldDefs(type, props);
+  const hidden = new Set(parseHiddenCardFields(props.hiddenFields));
   if (!defs.length && !parseCardCustomFields(props.customFields).length) return [];
 
   const lines: CardDisplayLine[] = [];
@@ -175,6 +194,7 @@ export function getCardDisplayLines(
 
   const customFields = parseCardCustomFields(props.customFields);
   for (const field of customFields) {
+    if (isCustomCardFieldHidden(hidden, field.id)) continue;
     const label = field.label.trim() || 'New field';
     const value = field.value.trim();
     const sample = options?.customValuePlaceholder?.(label) ?? 'Enter value';
@@ -186,4 +206,23 @@ export function getCardDisplayLines(
   }
 
   return lines;
+}
+
+const CARD_PREVIEW_LINE_HEIGHT = 1.45;
+const CARD_PREVIEW_VERTICAL_PADDING_PX = 8;
+
+/** Estimate rendered card height from visible lines (preview + auto-resize). */
+export function estimateCardBlockHeight(
+  type: string,
+  props: Record<string, unknown>,
+  width: number,
+  minHeight: number
+): number {
+  void width;
+  const lines = getCardDisplayLines(type, props);
+  if (lines.length === 0) return minHeight;
+  const fontSize =
+    typeof props.fontSize === 'number' && props.fontSize > 0 ? props.fontSize : 12;
+  const contentHeight = lines.length * fontSize * CARD_PREVIEW_LINE_HEIGHT;
+  return Math.max(minHeight, Math.ceil(contentHeight + CARD_PREVIEW_VERTICAL_PADDING_PX));
 }
