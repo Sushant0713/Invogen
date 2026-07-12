@@ -10,6 +10,22 @@ export interface BuilderDraft {
 
 const draftKey = (templateId: string) => `invogen:builder-draft:${templateId}`;
 
+export function countBuilderElements(pages: TemplatePage[]): number {
+  return pages.reduce((total, page) => total + (page.elements?.length ?? 0), 0);
+}
+
+/** Avoid restoring a stale empty draft over saved template content from the API. */
+export function shouldRestoreBuilderDraft(
+  draft: BuilderDraft | null,
+  apiPages: TemplatePage[] | undefined
+): draft is BuilderDraft {
+  if (!draft?.isDirty || !draft.pages?.length) return false;
+  const draftElements = countBuilderElements(draft.pages);
+  const apiElements = countBuilderElements(apiPages ?? []);
+  if (draftElements === 0 && apiElements > 0) return false;
+  return true;
+}
+
 export function saveBuilderDraft(draft: Omit<BuilderDraft, 'savedAt'>): void {
   if (!draft.templateId) return;
   try {

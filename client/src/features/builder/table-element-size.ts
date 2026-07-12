@@ -8,6 +8,7 @@ import {
   getDisplayTableTotalWidth,
   isTableElementType,
   productTablePropsToRecord,
+  mergeTablePaginationProps,
   scaleTableLayout,
   MIN_COL_WIDTH_PX,
   MIN_ROW_HEIGHT_PX,
@@ -57,7 +58,7 @@ export function fitTableHeightsPreservingWidths(
   const size = resolveTableElementSize(elementType, fitted);
   return {
     height: size.height,
-    tableProps: productTablePropsToRecord(fitted),
+    tableProps: mergeTablePaginationProps(rawProps, productTablePropsToRecord(fitted)),
   };
 }
 

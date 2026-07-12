@@ -29,6 +29,7 @@ import {
   getDisplayTableTotalWidth,
   getScaledColumnWidths,
   productTablePropsToRecord,
+  mergeTablePaginationProps,
   fitTableHeaderHeightToText,
   fitTableRowHeightsToText,
   isTableWrapFriendlyColumn,
@@ -49,6 +50,7 @@ import { ProductCellSelect } from './ProductCellSelect';
 import { applyProductPickToTable } from './product-cell';
 import type { CompanyProductOption } from './use-company-products';
 import { normalizeTablePropsForType, resolveTableElementType } from './table-props-normalize';
+import { getPageDimensions } from './builder-dnd';
 import { refreshTablePropsForLivePreview, isSummaryOnlyTable } from './composer-table-preview';
 import {
   updateInvoiceCell,
@@ -553,6 +555,13 @@ export function ProductTableView({
   const isTableSelected = useAppSelector((s) =>
     s.builder.selectedElementIds.includes(elementId)
   );
+  const { activePage, canvasElement } = useAppSelector((s) => {
+    const page = s.builder.pages[s.builder.activePageIndex];
+    return {
+      activePage: page,
+      canvasElement: page?.elements.find((el) => el.id === elementId),
+    };
+  });
   const resolvedElementType = resolveTableElementType(elementType ?? '', props);
   const isInvoiceTable1 = isInvoiceTable1Type(resolvedElementType);
   const isInvoiceTable2 = isInvoiceTable2Type(resolvedElementType);
@@ -697,13 +706,18 @@ export function ProductTableView({
       displayColumns === safeColumns
         ? { ...tableForEdit, columns: safeColumns, rows: rowsForDisplay }
         : { ...tableForEdit, columns: displayColumns, rows: rowsForDisplay };
+    const withRepeatedHeader =
+      isPaginatedSegment && tableForEdit.showHeader !== false
+        ? { ...base, showHeader: true }
+        : base;
     const columnWidths = displayColumns.map((col) => col.widthPx);
-    let fitted = fitTableHeaderHeightToText(base, columnWidths);
+    let fitted = fitTableHeaderHeightToText(withRepeatedHeader, columnWidths);
     fitted = fitTableRowHeightsToText(fitted, columnWidths, { includeAllTextColumns: true });
     return fitted;
-  }, [displayColumns, safeColumns, rowsForDisplay, tableForEdit]);
+  }, [displayColumns, safeColumns, rowsForDisplay, tableForEdit, isPaginatedSegment]);
 
   const displayRows = Array.isArray(displayTable.rows) ? displayTable.rows : [];
+  const serialNumberOffset = paginationStart ?? 0;
 
   const tableCellFocusOrder = useMemo(
     () =>
@@ -736,20 +750,30 @@ export function ProductTableView({
     const heightDiff = Math.abs(containerHeight - fittedElementSize.height);
     if (heightDiff <= 1) return;
 
+    const pageHeight = activePage ? getPageDimensions(activePage).height : 1123;
+    const contentBottom = pageHeight - (activePage?.margins.bottom ?? 40);
+    const elementY = canvasElement?.y ?? 0;
+    const extendsPastPage =
+      elementY + fittedElementSize.height > contentBottom + 1;
+
     dispatch(
       updateElement({
         id: elementId,
         changes: {
-          props: productTablePropsToRecord(
-            isPaginatedSegment && paginationAllRows
-              ? { ...tableForEdit, rows: mergeFittedRowHeights(tableForEdit, displayTable) }
-              : displayTable
+          props: mergeTablePaginationProps(
+            props as Record<string, unknown>,
+            productTablePropsToRecord(
+              isPaginatedSegment && paginationAllRows
+                ? { ...tableForEdit, rows: mergeFittedRowHeights(tableForEdit, displayTable) }
+                : displayTable
+            )
           ),
           height: fittedElementSize.height,
         },
-        replaceProps: true,
+        replaceProps: false,
         recordHistory: false,
         skipTableReflow: true,
+        skipDocumentLayout: true,
       })
     );
   }, [
@@ -764,6 +788,8 @@ export function ProductTableView({
     tableForEdit,
     isPaginatedSegment,
     paginationAllRows,
+    activePage,
+    canvasElement?.y,
   ]);
 
   const layoutTable = previewMode ? displayTable : table;
@@ -1373,9 +1399,9 @@ export function ProductTableView({
                   || (isInvoiceTable2 && isInvoice2ComputedColumn(col.id, row.id, displayColumns))
                   || (isInvoiceTable3 && isInvoice3ComputedColumn(col.id));
                 const isInvoiceEditableTable = isInvoiceTable1 || isInvoiceTable2 || isInvoiceTable3;
-                // Always derive Sr.No. from row order so new rows show numbers immediately.
+                // Continue Sr.No. across paginated table segments (Page 2 starts at 4, etc.).
                 const cellText = isSerial
-                  ? String(rowIndex + 1)
+                  ? String(serialNumberOffset + rowIndex + 1)
                   : isProduct || computed
                     ? row.cells[col.id] || ''
                     : resolveCellDisplayText(row.id, col.id, row.cells, pendingCellEdits);
@@ -1450,7 +1476,11 @@ export function ProductTableView({
                     previewMode={previewMode}
                     readOnly={computed}
                     staticText={computed}
-                    wrapText={previewMode ? !computed && !isSerial : isProduct || isTableWrapFriendlyColumn(col)}
+                    wrapText={
+                      previewMode
+                        ? !computed && !isSerial && isTableWrapFriendlyColumn(col)
+                        : isProduct || isTableWrapFriendlyColumn(col)
+                    }
                     forceTextAlign={isSerial ? 'center' : undefined}
                     onLiveChange={(value) => {
                       if (!isInvoiceEditableTable || computed) return;

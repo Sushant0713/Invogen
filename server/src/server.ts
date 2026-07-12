@@ -2,9 +2,15 @@ import app from './app';
 import { connectDB } from './config/db';
 import { env } from './config/env';
 import { cashfreeService } from './services/cashfree.service';
+import { backfillMissingCompanyInvoiceCodes } from './utils/company-invoice-code';
 
 const start = async () => {
   await connectDB();
+  void backfillMissingCompanyInvoiceCodes().then((count) => {
+    if (count > 0) {
+      console.log(`[invoice-codes] Assigned codes to ${count} companies`);
+    }
+  });
   const server = app.listen(env.PORT, () => {
     console.log(`Server running on port ${env.PORT}`);
     if (env.NODE_ENV === 'development' && cashfreeService.isConfigured()) {

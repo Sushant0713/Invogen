@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { NavItem } from '@/config/navigation';
 import { isSubscriptionNavChildActive } from '@/lib/subscription-routes';
-import { isInvoiceNavChildActive } from '@/lib/invoice-routes';
+import { isInvoiceNavChildActive, isTemplateNavChildActive } from '@/lib/invoice-routes';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import { logout } from '@/store/slices/authSlice';
 import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
@@ -15,14 +15,21 @@ import { Button } from '@/components/ui/Button';
 interface AppLayoutProps {
   navItems: NavItem[];
   title: string;
-  variant?: 'default' | 'builder';
+  variant?: 'default' | 'builder' | 'compact';
+  headerActions?: React.ReactNode;
 }
 
 function isNavChildActive(childPath: string, pathname: string) {
   if (childPath.includes('/invoices')) {
     return isInvoiceNavChildActive(childPath, pathname);
   }
-  return isSubscriptionNavChildActive(childPath, pathname);
+  if (childPath.includes('/templates')) {
+    return isTemplateNavChildActive(childPath, pathname);
+  }
+  if (childPath.includes('/subscription')) {
+    return isSubscriptionNavChildActive(childPath, pathname);
+  }
+  return pathname === childPath || pathname.startsWith(`${childPath}/`);
 }
 
 function NavItemLink({
@@ -121,8 +128,9 @@ function NavItemLink({
   );
 }
 
-export function AppLayout({ navItems, title, variant = 'default' }: AppLayoutProps) {
+export function AppLayout({ navItems, title, variant = 'default', headerActions }: AppLayoutProps) {
   const isBuilder = variant === 'builder';
+  const isCompactSidebar = variant === 'compact' || isBuilder;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -145,41 +153,41 @@ export function AppLayout({ navItems, title, variant = 'default' }: AppLayoutPro
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 transform bg-white border-r border-gray-200 flex flex-col transition-all lg:translate-x-0 lg:static shrink-0',
-          isBuilder ? 'w-[72px]' : 'w-64 bg-white/80 backdrop-blur-xl border-gray-100 shadow-xl',
+          isCompactSidebar ? 'w-[72px]' : 'w-64 bg-white/80 backdrop-blur-xl border-gray-100 shadow-xl',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         <div
           className={cn(
             'flex h-14 items-center border-b border-gray-100 shrink-0',
-            isBuilder ? 'justify-center px-2' : 'justify-between px-6 h-16'
+            isCompactSidebar ? 'justify-center px-2' : 'justify-between px-6 h-16'
           )}
         >
-          {isBuilder ? (
+          {isCompactSidebar ? (
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">
               I
             </span>
           ) : (
             <span className="text-xl font-bold text-primary">Invogen</span>
           )}
-          {!isBuilder && (
+          {!isCompactSidebar && (
             <button className="lg:hidden" onClick={closeSidebar}>
               <X className="h-5 w-5" />
             </button>
           )}
         </div>
-        <nav className={cn('flex-1 overflow-y-auto', isBuilder ? 'p-2 space-y-1' : 'p-4 space-y-1')}>
+        <nav className={cn('flex-1 overflow-y-auto', isCompactSidebar ? 'p-2 space-y-1' : 'p-4 space-y-1')}>
           {navItems.map((item) => (
             <NavItemLink
               key={item.path}
               item={item}
               onNavigate={closeSidebar}
-              compact={isBuilder}
+              compact={isCompactSidebar}
             />
           ))}
         </nav>
-        <div className={cn('border-t border-gray-100 shrink-0', isBuilder ? 'p-2' : 'p-4')}>
-          {isBuilder ? (
+        <div className={cn('border-t border-gray-100 shrink-0', isCompactSidebar ? 'p-2' : 'p-4')}>
+          {isCompactSidebar ? (
             <div className="flex flex-col items-center gap-2">
               <div
                 className="h-9 w-9 rounded-full bg-primary-100 flex items-center justify-center text-primary font-semibold text-sm"
@@ -216,19 +224,25 @@ export function AppLayout({ navItems, title, variant = 'default' }: AppLayoutPro
         </div>
       </aside>
 
-      {sidebarOpen && !isBuilder && (
+      {sidebarOpen && !isCompactSidebar && (
         <div className="fixed inset-0 z-40 bg-black/20 lg:hidden" onClick={closeSidebar} />
       )}
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {!isBuilder && (
-          <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-gray-100 bg-white/70 backdrop-blur-xl px-6 shrink-0">
+        {!isBuilder ? (
+          <header
+            className={cn(
+              'sticky top-0 z-30 flex shrink-0 items-center gap-4 border-b border-gray-100 bg-white/70 backdrop-blur-xl px-6',
+              title ? 'h-16' : 'h-12 lg:hidden'
+            )}
+          >
             <button className="lg:hidden" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </button>
-            <h1 className="text-lg font-semibold text-gray-900">{title}</h1>
+            {title ? <h1 className="text-lg font-semibold text-gray-900">{title}</h1> : null}
+            {headerActions}
           </header>
-        )}
+        ) : null}
         <main
           className={cn(
             'flex-1 min-h-0',

@@ -3,6 +3,8 @@ import { UserRole } from '@invogen/shared';
 import { verifyAccessToken } from '../utils/tokens';
 import { AppError } from '../utils/AppError';
 import { User } from '../models';
+import { resolveUserPermissions } from '../utils/resolve-user-permissions';
+import { assertEmailVerifiedForSession } from '../utils/auth-emails';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -24,18 +26,23 @@ export const authenticate = async (req: AuthRequest, _res: Response, next: NextF
     const token = authHeader.split(' ')[1];
     const payload = verifyAccessToken(token);
 
-    const user = await User.findById(payload.userId).select('status role companyId permissions');
+    const user = await User.findById(payload.userId).select(
+      'status role companyId permissions isEmailVerified authProvider'
+    );
     if (!user || user.status !== 'active') {
       throw new AppError('User not found or suspended', 401);
     }
 
+    await assertEmailVerifiedForSession(user);
+
     // Prefer live user document over JWT claims (companyId can be stale in old tokens).
     const companyId = user.companyId?.toString() || payload.companyId || null;
+    const permissions = await resolveUserPermissions(user);
     req.user = {
       userId: user._id.toString(),
       role: user.role,
       companyId,
-      permissions: Array.isArray(user.permissions) ? user.permissions : payload.permissions || [],
+      permissions,
     };
     req.companyId = companyId;
     next();

@@ -9,6 +9,7 @@ import {
 } from './invoice-table-2';
 import { isInvoiceTable3Type, normalizeInvoiceTable3Props } from './invoice-table-3';
 import type { ProductTableProps } from './product-table';
+import { resolveBuilderTablePropsForEdit } from './product-table';
 
 /** Some templates store invoice-table-2 data under product_table type. */
 export function hasInvoice2TableLayout(raw: Record<string, unknown> = {}): boolean {
@@ -46,3 +47,37 @@ export function normalizeTablePropsForType(
 }
 
 export { productTablePropsToRecord };
+
+/** Row/column structure changes need Word-style pagination; cosmetic props do not. */
+export function tablePropsNeedDocumentLayout(
+  elementType: string,
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>
+): boolean {
+  const prevTable = normalizeTablePropsForType(
+    elementType,
+    resolveBuilderTablePropsForEdit(prev)
+  );
+  const nextTable = normalizeTablePropsForType(
+    elementType,
+    resolveBuilderTablePropsForEdit(next)
+  );
+
+  if (prevTable.rows.length !== nextTable.rows.length) return true;
+  if (prevTable.columns.length !== nextTable.columns.length) return true;
+
+  for (let index = 0; index < nextTable.rows.length; index += 1) {
+    const prevRow = prevTable.rows[index];
+    const nextRow = nextTable.rows[index];
+    if (!prevRow || prevRow.id !== nextRow.id) return true;
+    if (prevRow.heightPx !== nextRow.heightPx) return true;
+  }
+
+  for (let index = 0; index < nextTable.columns.length; index += 1) {
+    const prevCol = prevTable.columns[index];
+    const nextCol = nextTable.columns[index];
+    if (!prevCol || prevCol.id !== nextCol.id) return true;
+  }
+
+  return false;
+}

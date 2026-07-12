@@ -8,7 +8,9 @@ import {
   setRefreshToken,
 } from '@/lib/auth-session';
 import { store } from '@/store';
-import { setAccessToken } from '@/store/slices/authSlice';
+import { setAccessToken, logout as logoutAction } from '@/store/slices/authSlice';
+import { setMaintenanceStatusCache } from '@/lib/maintenance-status-cache';
+import { loginPath } from '@/lib/workspace-portal';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -22,7 +24,15 @@ const isAuthEndpoint = (url?: string) =>
   !!url &&
   (url.includes('/auth/refresh') ||
     url.includes('/auth/login') ||
-    url.includes('/auth/maintenance'));
+    url.includes('/auth/maintenance') ||
+    url.includes('/auth/register') ||
+    url.includes('/auth/verify-email') ||
+    url.includes('/auth/resend-verification') ||
+    url.includes('/auth/forgot-password') ||
+    url.includes('/auth/reset-password') ||
+    url.includes('/auth/google/config') ||
+    url.includes('/auth/agreements') ||
+    url.includes('/auth/branding'));
 
 const isAppAuthFailure = (error: AxiosError) => {
   const message = String(
@@ -124,13 +134,38 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    if (
-      error.response?.status === 503 &&
-      typeof window !== 'undefined' &&
-      !window.location.pathname.startsWith('/super-admin') &&
-      !window.location.pathname.startsWith('/maintenance')
-    ) {
-      window.location.assign('/maintenance');
+    if (error.response?.status === 503 && typeof window !== 'undefined') {
+      const pathname = window.location.pathname;
+      const isExempt =
+        pathname.startsWith('/super-admin') || pathname.startsWith('/maintenance');
+      if (!isExempt) {
+        const message = (error.response?.data as { message?: string } | undefined)?.message;
+        void setMaintenanceStatusCache(true, message);
+      }
+      return Promise.reject(error);
+    }
+
+    if (error.response?.status === 403 && typeof window !== 'undefined') {
+      const message = String(
+        (error.response?.data as { message?: string } | undefined)?.message || ''
+      );
+      if (/verify your email/i.test(message)) {
+        clearSession();
+        store.dispatch(logoutAction());
+        const params = new URLSearchParams({ registered: '1' });
+        const email = store.getState().auth.user?.email;
+        if (email) params.set('email', email);
+        const onPublicAuthPage =
+          window.location.pathname.startsWith('/verify-email')
+          || window.location.pathname.startsWith('/register')
+          || window.location.pathname.startsWith('/login')
+          || window.location.pathname.startsWith('/forgot-password')
+          || window.location.pathname.startsWith('/reset-password');
+        if (!onPublicAuthPage) {
+          const portal = window.location.pathname.startsWith('/employee') ? 'employee' : 'admin';
+          window.location.assign(loginPath(portal, Object.fromEntries(params.entries())));
+        }
+      }
       return Promise.reject(error);
     }
 

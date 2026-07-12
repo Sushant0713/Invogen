@@ -8,10 +8,13 @@ import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvi
 import { type CompanyBrandingScope } from '@/features/builder/company-branding';
 import { Button } from '@/components/ui/Button';
 import {
+  buildExportPageInputs,
+  createPdfExportRunner,
   downloadPdfBlob,
   exportTemplatePagesToPdf,
-  readRenderedPageSize,
+  pagesExportSignature,
   templatePdfFilename,
+  waitForExportNodes,
 } from '@/features/builder/template-pdf-export';
 import { toast } from 'sonner';
 
@@ -19,33 +22,42 @@ interface InvoiceLivePreviewProps {
   pages: TemplatePage[];
   templateName: string;
   brandingScope?: CompanyBrandingScope;
+  /** Override auto width — use in nested settings layouts. */
+  previewMaxWidth?: number;
+  /** When true, parent already wraps branding/tax/product providers. */
+  embedded?: boolean;
+  className?: string;
 }
 
 export function InvoiceLivePreview({
   pages,
   templateName,
   brandingScope = 'admin',
+  previewMaxWidth: previewMaxWidthProp,
+  embedded = false,
+  className = '',
 }: InvoiceLivePreviewProps) {
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [exporting, setExporting] = useState(false);
+  const exportKeyRef = useRef('');
+  const exportRunnerRef = useRef(
+    createPdfExportRunner(() => exportKeyRef.current)
+  );
   const previewWidth = useMemo(
-    () => Math.min(520, Math.max(280, window.innerWidth * 0.38)),
-    []
+    () =>
+      previewMaxWidthProp ??
+      Math.min(520, Math.max(280, window.innerWidth * 0.38)),
+    [previewMaxWidthProp]
   );
 
   const generatePdf = async () => {
     setExporting(true);
     try {
-      await new Promise((resolve) => window.setTimeout(resolve, 300));
-      const nodes = exportPageRefs.current.filter(
-        (node): node is HTMLDivElement => node != null
-      );
-      if (nodes.length === 0) throw new Error('Preview not ready');
-      const pageInputs = nodes.map((element) => ({
-        element,
-        size: readRenderedPageSize(element),
-      }));
-      return await exportTemplatePagesToPdf(pageInputs);
+      exportKeyRef.current = pagesExportSignature(pages);
+      return await exportRunnerRef.current(async () => {
+        const nodes = await waitForExportNodes(exportPageRefs, pages.length);
+        return exportTemplatePagesToPdf(buildExportPageInputs(nodes));
+      });
     } finally {
       setExporting(false);
     }
@@ -89,11 +101,9 @@ export function InvoiceLivePreview({
     }
   };
 
-  return (
-    <CompanyBrandingProvider scope={brandingScope}>
-      <TaxSettingsProvider scope={brandingScope}>
-        <ProductSettingsProvider>
-        <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-gray-100/80">
+  const previewBody = (
+    <>
+        <div className={`flex h-full min-h-[400px] flex-col rounded-xl border border-gray-200 bg-gray-100/80 ${className}`}>
           <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Live Preview</p>
@@ -121,7 +131,7 @@ export function InvoiceLivePreview({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-4">
+          <div className="flex min-h-0 flex-1 justify-center overflow-auto p-4 lg:p-6">
             <TemplatePreviewPages
               pages={pages}
               useSampleData={false}
@@ -142,6 +152,18 @@ export function InvoiceLivePreview({
             trustTableProps
           />
         </div>
+    </>
+  );
+
+  if (embedded) {
+    return previewBody;
+  }
+
+  return (
+    <CompanyBrandingProvider scope={brandingScope}>
+      <TaxSettingsProvider scope={brandingScope}>
+        <ProductSettingsProvider>
+        {previewBody}
         </ProductSettingsProvider>
       </TaxSettingsProvider>
     </CompanyBrandingProvider>
@@ -152,14 +174,6 @@ export async function exportInvoicePreviewPdf(
   pages: TemplatePage[],
   exportPageRefs: MutableRefObject<(HTMLDivElement | null)[]>
 ): Promise<Blob> {
-  await new Promise((resolve) => window.setTimeout(resolve, 300));
-  const nodes = exportPageRefs.current.filter(
-    (node): node is HTMLDivElement => node != null
-  );
-  if (nodes.length === 0) throw new Error('Preview not ready');
-  const pageInputs = nodes.map((element) => ({
-    element,
-    size: readRenderedPageSize(element),
-  }));
-  return exportTemplatePagesToPdf(pageInputs);
+  const nodes = await waitForExportNodes(exportPageRefs, pages.length);
+  return exportTemplatePagesToPdf(buildExportPageInputs(nodes));
 }

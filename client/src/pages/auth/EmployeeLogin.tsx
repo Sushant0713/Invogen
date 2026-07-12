@@ -1,11 +1,8 @@
-import { LoginForm } from '@/components/auth/LoginForm';
+import { Navigate, useSearchParams } from 'react-router-dom';
 
 export default function EmployeeLogin() {
-  return (
-    <LoginForm
-      portal="employee"
-      title="Employee Login"
-      subtitle="Sign in to your employee account"
-    />
-  );
+  const [searchParams] = useSearchParams();
+  const next = new URLSearchParams(searchParams);
+  next.set('portal', 'employee');
+  return <Navigate to={`/login?${next.toString()}`} replace />;
 }

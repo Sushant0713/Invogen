@@ -1,29 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import api from '@/api/client';
 import { Loader } from '@/components/ui/Loader';
 import { isSubscriptionCheckoutPath } from '@/lib/subscription-routes';
-
-interface SubscriptionStatusResponse {
-  active: boolean;
-}
+import { useSubscriptionStatus } from '@/hooks/useAdminSubscription';
 
 export function AdminSubscriptionGate() {
   const location = useLocation();
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['admin-subscription-status'],
-    queryFn: async () => {
-      const { data } = await api.get<{ data: SubscriptionStatusResponse }>('/admin/subscription/status');
-      return data.data;
-    },
-    staleTime: 0,
-    retry: false,
-  });
+  const { data, isLoading, isError } = useSubscriptionStatus();
 
   if (isLoading) return <Loader fullScreen />;
 
   if (isError) {
-    return <Navigate to="/admin/login" replace />;
+    return <Navigate to="/login?portal=admin" replace />;
   }
 
   const onCheckoutFlow = isSubscriptionCheckoutPath(location.pathname);

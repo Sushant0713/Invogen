@@ -1,12 +1,7 @@
-import { GoogleOAuthProvider } from '@react-oauth/google';
-import { useGoogleAuthConfig } from '@/hooks/useGoogleAuthConfig';
+import { useGsiScriptLoaded } from '@/hooks/useGsiScriptLoaded';
 
+/** Preload the Google Identity script for sign-in buttons. */
 export function GoogleAuthProvider({ children }: { children: React.ReactNode }) {
-  const { data } = useGoogleAuthConfig();
-
-  if (!data?.enabled || !data.clientId) {
-    return <>{children}</>;
-  }
-
-  return <GoogleOAuthProvider clientId={data.clientId}>{children}</GoogleOAuthProvider>;
+  useGsiScriptLoaded(true);
+  return <>{children}</>;
 }

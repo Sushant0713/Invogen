@@ -9,6 +9,7 @@ export interface SubscriptionInvoicePdfInput {
   invoiceNumber: string;
   invoiceTitle: string;
   issueDate: Date;
+  dueDate?: Date;
   seller: {
     name: string;
     addressLine1?: string;
@@ -22,6 +23,13 @@ export interface SubscriptionInvoicePdfInput {
     email?: string;
     phone?: string;
     website?: string;
+  };
+  bank?: {
+    bankName?: string;
+    accountName?: string;
+    accountNumber?: string;
+    ifscCode?: string;
+    upiId?: string;
   };
   buyer: {
     name: string;
@@ -48,9 +56,16 @@ export interface SubscriptionInvoicePdfInput {
   sgst: number;
   tax: number;
   total: number;
+  paymentDueText?: string;
+  latePaymentNote?: string;
   terms?: string;
   thankYouNote?: string;
   subscriptionNote?: string;
+  billingSupportEmail?: string;
+  signatoryName?: string;
+  signatoryTitle?: string;
+  signatoryFor?: string;
+  digitalSignatureNote?: string;
 }
 
 const formatInr = (amount: number, currency = 'INR') =>
@@ -123,7 +138,13 @@ export function buildSubscriptionInvoicePdf(input: SubscriptionInvoicePdfInput):
       width: 180,
       align: 'right',
     });
-    doc.font('Helvetica-Bold').fontSize(10).fillColor('#15803d').text('PAID', metaX, 82, {
+    if (input.dueDate) {
+      doc.font('Helvetica').fontSize(10).fillColor(MUTED).text(`Due: ${formatDate(input.dueDate)}`, metaX, 78, {
+        width: 180,
+        align: 'right',
+      });
+    }
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#15803d').text('PAID', metaX, input.dueDate ? 96 : 82, {
       width: 180,
       align: 'right',
     });
@@ -215,6 +236,24 @@ export function buildSubscriptionInvoicePdf(input: SubscriptionInvoicePdfInput):
     doc.moveTo(totalsX, totalsY).lineTo(totalsX + totalsWidth, totalsY).strokeColor(BORDER).stroke();
     totalsY += 16;
 
+    if (input.bank && (input.bank.bankName || input.bank.accountNumber)) {
+      const bankLines = [
+        input.bank.bankName ? `Bank: ${input.bank.bankName}` : '',
+        input.bank.accountName ? `Account: ${input.bank.accountName}` : '',
+        input.bank.accountNumber ? `A/C No: ${input.bank.accountNumber}` : '',
+        input.bank.ifscCode ? `IFSC: ${input.bank.ifscCode}` : '',
+        input.bank.upiId ? `UPI: ${input.bank.upiId}` : '',
+      ].filter(Boolean);
+      totalsY = writeBlock(doc, 'Payment details', bankLines, left, totalsY, pageWidth) + 12;
+    }
+
+    if (input.paymentDueText) {
+      doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(`Payment due: ${input.paymentDueText}`, left, totalsY, {
+        width: pageWidth,
+      });
+      totalsY = doc.y + 8;
+    }
+
     if (input.subscriptionNote) {
       doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(input.subscriptionNote, left, totalsY, {
         width: pageWidth,
@@ -236,6 +275,39 @@ export function buildSubscriptionInvoicePdf(input: SubscriptionInvoicePdfInput):
         width: pageWidth,
         lineGap: 2,
       });
+      totalsY = doc.y + 8;
+    }
+
+    if (input.latePaymentNote) {
+      doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(input.latePaymentNote, left, totalsY, {
+        width: pageWidth,
+      });
+      totalsY = doc.y + 10;
+    }
+
+    const supportEmail = input.billingSupportEmail || input.seller.email;
+    if (supportEmail) {
+      doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(`Billing support: ${supportEmail}`, left, totalsY, {
+        width: pageWidth,
+      });
+      totalsY = doc.y + 12;
+    }
+
+    if (input.signatoryName || input.signatoryTitle) {
+      totalsY += 8;
+      if (input.signatoryFor) {
+        doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(input.signatoryFor, left, totalsY, { width: pageWidth });
+        totalsY = doc.y + 4;
+      }
+      doc.font('Helvetica-Bold').fontSize(10).fillColor(TEXT).text(input.signatoryName || '', left, totalsY);
+      totalsY = doc.y + 2;
+      if (input.signatoryTitle) {
+        doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(input.signatoryTitle, left, totalsY);
+        totalsY = doc.y + 2;
+      }
+      if (input.digitalSignatureNote) {
+        doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(input.digitalSignatureNote, left, totalsY);
+      }
     }
 
     doc.end();

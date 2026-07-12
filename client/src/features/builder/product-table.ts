@@ -107,7 +107,7 @@ export function isTableWrapFriendlyColumn(
 
   const token = `${col.id} ${col.label}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
   if (
-    /\b(qty|quantity|rate|amount|discount|gst|cgst|sgst|tax|total|unit|units|price|mrp|hsn|sac|srno|serial|percent)\b/.test(
+    /\b(qty|quantity|rate|amount|discount|gst|cgst|sgst|igst|tax|total|unit|units|price|mrp|hsn|sac|srno|serial|percent)\b/.test(
       token
     )
   ) {
@@ -260,7 +260,67 @@ export function applySerialNumbers<T extends ProductTableProps>(props: T): T {
   };
 }
 
-const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
+export const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
+export const PREVIEW_PAGINATION_RANGE_START_KEY = '__previewPaginationStart';
+export const PREVIEW_PAGINATION_RANGE_END_KEY = '__previewPaginationEnd';
+export const PREVIEW_PAGINATION_TABLE_ID_KEY = '__previewPaginationTableId';
+
+/** True when this table element is a Page 2+ continuation segment (not the Page 1 head). */
+export function isTableContinuationSegment(props: Record<string, unknown>): boolean {
+  const start = props[PREVIEW_PAGINATION_RANGE_START_KEY];
+  return typeof start === 'number' && start > 0;
+}
+
+/** Stable identity for split table segments — survives row add/remove. */
+export function resolvePaginationTableId(
+  props: Record<string, unknown>,
+  elementId: string
+): string {
+  const stored = props[PREVIEW_PAGINATION_TABLE_ID_KEY];
+  if (typeof stored === 'string' && stored.length > 0) return stored;
+  return elementId;
+}
+
+/** Keep paginated table metadata when props are rewritten (add row, fit heights, etc.). */
+export function mergeTablePaginationProps(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  options: { clearSegmentRange?: boolean; anchorElementId?: string } = {}
+): Record<string, unknown> {
+  const merged = { ...target };
+  const hadPagination =
+    Array.isArray(source[PREVIEW_PAGINATION_ROWS_KEY])
+    || Array.isArray(merged[PREVIEW_PAGINATION_ROWS_KEY]);
+
+  if (options.clearSegmentRange && Array.isArray(merged.rows)) {
+    merged[PREVIEW_PAGINATION_ROWS_KEY] = merged.rows;
+  } else if (hadPagination && Array.isArray(merged.rows)) {
+    merged[PREVIEW_PAGINATION_ROWS_KEY] = merged.rows;
+  }
+
+  if (typeof source[PREVIEW_PAGINATION_TABLE_ID_KEY] === 'string') {
+    merged[PREVIEW_PAGINATION_TABLE_ID_KEY] = source[PREVIEW_PAGINATION_TABLE_ID_KEY];
+  } else if (options.anchorElementId) {
+    merged[PREVIEW_PAGINATION_TABLE_ID_KEY] = resolvePaginationTableId(
+      source,
+      options.anchorElementId
+    );
+  }
+
+  if (options.clearSegmentRange) {
+    delete merged[PREVIEW_PAGINATION_RANGE_START_KEY];
+    delete merged[PREVIEW_PAGINATION_RANGE_END_KEY];
+  } else {
+    if (typeof source[PREVIEW_PAGINATION_RANGE_START_KEY] === 'number') {
+      merged[PREVIEW_PAGINATION_RANGE_START_KEY] = source[PREVIEW_PAGINATION_RANGE_START_KEY];
+    }
+    if (typeof source[PREVIEW_PAGINATION_RANGE_END_KEY] === 'number') {
+      merged[PREVIEW_PAGINATION_RANGE_END_KEY] = source[PREVIEW_PAGINATION_RANGE_END_KEY];
+    }
+  }
+
+  return merged;
+}
 
 /** When a table is split across pages, edits must apply to the full row list. */
 export function resolveBuilderTablePropsForEdit(
@@ -271,6 +331,61 @@ export function resolveBuilderTablePropsForEdit(
     return { ...raw, rows: allRows };
   }
   return raw;
+}
+
+/** Keep every split segment on the same full row list before document re-layout. */
+export function syncPaginatedTableRowsAcrossSegments(
+  pages: Array<{ elements: Array<{ id: string; type: string; props?: Record<string, unknown> }> }>,
+  tableId: string,
+  fullRows: ProductTableRow[]
+): typeof pages {
+  return pages.map((page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      if (!isTableElementType(element.type)) return element;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (resolvePaginationTableId(props, element.id) !== tableId) return element;
+      const nextProps = {
+        ...props,
+        [PREVIEW_PAGINATION_ROWS_KEY]: fullRows,
+        rows: fullRows,
+      };
+      delete nextProps[PREVIEW_PAGINATION_RANGE_START_KEY];
+      delete nextProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+      return {
+        ...element,
+        props: nextProps,
+      };
+    }),
+  }));
+}
+
+/** All canvas elements that belong to the same paginated table (Page 1 anchor + continuations). */
+export function collectConnectedTableElementIds(
+  pages: Array<{ elements: Array<{ id: string; type: string; props?: Record<string, unknown> }> }>,
+  elementId: string
+): string[] {
+  let tableId = elementId;
+  for (const page of pages) {
+    const hit = page.elements.find((element) => element.id === elementId);
+    if (hit && isTableElementType(hit.type)) {
+      tableId = resolvePaginationTableId((hit.props ?? {}) as Record<string, unknown>, hit.id);
+      break;
+    }
+  }
+
+  const ids: string[] = [];
+  for (const page of pages) {
+    for (const element of page.elements) {
+      if (!isTableElementType(element.type)) continue;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (resolvePaginationTableId(props, element.id) === tableId) {
+        ids.push(element.id);
+      }
+    }
+  }
+
+  return ids.length > 0 ? ids : [elementId];
 }
 
 export function normalizeProductTableProps(raw: Record<string, unknown> = {}): ProductTableProps {
@@ -1176,10 +1291,10 @@ function formatProductAmount(value: number): string {
 
 function isEmbeddedSummaryRow(row: ProductTableRow): boolean {
   const nameToken = normalizeProductColumnLabel(row.name ?? '');
-  if (/^(subtotal|cgst|sgst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
+  if (/^(subtotal|cgst|sgst|igst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
   for (const value of Object.values(row.cells ?? {})) {
     const token = normalizeProductColumnLabel(String(value));
-    if (/^(subtotal|cgst|sgst|gst|total|final)$/.test(token)) return true;
+    if (/^(subtotal|cgst|sgst|igst|gst|total|final)$/.test(token)) return true;
   }
   return false;
 }

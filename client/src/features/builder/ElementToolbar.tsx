@@ -49,7 +49,7 @@ import {
   type TableFormatScope,
 } from './product-table';
 import { normalizeTablePropsForType } from './table-props-normalize';
-import { getPrimarySelectedId } from './builder-selection';
+import { resolveSelectedElementLocation } from './builder-selection';
 
 const TOOLBAR_SLOT_CLASS =
   'w-full shrink-0 border-b border-gray-200 bg-[#ececf0] min-h-[52px]';
@@ -61,18 +61,18 @@ export function ElementToolbar() {
   );
   const [styleCopied, setStyleCopied] = useState(false);
   const page = pages[activePageIndex];
-  const primarySelectedId = getPrimarySelectedId(selectedElementIds);
-  const element = primarySelectedId
-    ? page.elements.find((el) => el.id === primarySelectedId)
-    : undefined;
+  const selectedLocation = resolveSelectedElementLocation(pages, selectedElementIds);
+  const element = selectedLocation?.element;
+  const elementPageIndex = selectedLocation?.pageIndex ?? activePageIndex;
+  const elementPage = pages[elementPageIndex] ?? page;
 
   if (!element || selectedElementIds.length !== 1) {
     return <div className={TOOLBAR_SLOT_CLASS} aria-hidden />;
   }
 
   const props = (element.props ?? {}) as Record<string, unknown>;
-  const layerIndex = getLayerIndex(page.elements, element.id);
-  const maxLayer = Math.max(0, page.elements.length - 1);
+  const layerIndex = getLayerIndex(elementPage.elements, element.id);
+  const maxLayer = Math.max(0, elementPage.elements.length - 1);
 
   const updateProp = (key: string, value: unknown, recordHistory = true) => {
     dispatch(updateElement({

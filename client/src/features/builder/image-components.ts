@@ -41,7 +41,7 @@ export type ImageProps = {
   shadowColor?: string;
   // ── Rotation ──
   rotation?: number;    // degrees, 0–359
-  opacity?: number;   // 0–1
+  opacity?: number;   // 0–100 (layer slider); legacy 0–1 also accepted when reading
   imageNaturalW?: number;
   imageNaturalH?: number;
   imageCrop?: ImageCropTransform;
@@ -94,7 +94,11 @@ export function normalizeImageProps(props: Record<string, unknown>): ImageProps 
     shadowBlur: typeof props.shadowBlur === 'number' ? props.shadowBlur : 8,
     shadowColor: typeof props.shadowColor === 'string' ? props.shadowColor : '#00000040',
     rotation: typeof props.rotation === 'number' ? props.rotation : 0,
-    opacity: typeof props.opacity === 'number' ? props.opacity : 1,
+    opacity: typeof props.opacity === 'number'
+      ? props.opacity > 1
+        ? props.opacity
+        : Math.round(props.opacity * 100)
+      : 100,
     imageNaturalW: typeof props.imageNaturalW === 'number' ? props.imageNaturalW : undefined,
     imageNaturalH: typeof props.imageNaturalH === 'number' ? props.imageNaturalH : undefined,
     imageCrop,

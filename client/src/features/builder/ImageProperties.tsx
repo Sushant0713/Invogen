@@ -277,7 +277,7 @@ export function ImageProperties({
         <p className="text-[11px] text-gray-400">
           {isCropMode
             ? 'Drag to reposition · scroll to zoom · Esc to finish'
-            : 'Drag side edges to crop · corners to scale · drag box to move'}
+            : 'Side edges crop · corners resize · drag box to move · double-click to pan/zoom'}
         </p>
       )}
 

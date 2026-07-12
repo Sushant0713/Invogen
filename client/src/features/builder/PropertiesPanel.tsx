@@ -14,6 +14,8 @@ import {
 import { isInvoiceTable1Type } from './invoice-table';
 import { isInvoiceTable2Type } from './invoice-table-2';
 import { isInvoiceTable3Type } from './invoice-table-3';
+import { tablePropsNeedDocumentLayout } from './table-props-normalize';
+import { mergeTablePaginationProps, resolvePaginationTableId, isTableContinuationSegment } from './product-table';
 import { ImageProperties } from './ImageProperties';
 import { ComponentType } from '@invogen/shared';
 import { getEditableTextKey, isDataFieldType } from './text-styles';
@@ -24,7 +26,7 @@ import { ShapeProperties } from './ShapeProperties';
 import { TermsProperties } from './TermsProperties';
 import { AddressProperties } from './AddressProperties';
 import { RotationControlsPanel } from './RotationControlsPanel';
-import { getPrimarySelectedId } from './builder-selection';
+import { resolveSelectedElementLocation } from './builder-selection';
 import { estimateStructuredBlockHeight } from './structured-content-layout';
 import {
   extractPlaceholderKeysFromText,
@@ -35,10 +37,8 @@ export function PropertiesPanel() {
   const dispatch = useAppDispatch();
   const { pages, activePageIndex, selectedElementIds } = useAppSelector((s) => s.builder);
   const page = pages[activePageIndex];
-  const primarySelectedId = getPrimarySelectedId(selectedElementIds);
-  const element = primarySelectedId
-    ? pages[activePageIndex].elements.find((e) => e.id === primarySelectedId)
-    : undefined;
+  const selectedLocation = resolveSelectedElementLocation(pages, selectedElementIds);
+  const element = selectedLocation?.element;
 
   if (selectedElementIds.length > 1) {
     const selectedElements = pages[activePageIndex].elements.filter((el) =>
@@ -214,14 +214,17 @@ export function PropertiesPanel() {
 
   const updateAllProps = (next: Record<string, unknown>) => {
     if (isTable) {
+      const needsLayout = tablePropsNeedDocumentLayout(element.type, props, next);
+      const nextProps = mergeTablePaginationProps(props, next, {
+        clearSegmentRange: needsLayout && !isTableContinuationSegment(props),
+        anchorElementId: resolvePaginationTableId(props, element.id),
+      });
       dispatch(updateElement({
         id: element.id,
-        changes: { props: next },
+        changes: { props: nextProps },
         replaceProps: true,
         recordHistory: true,
-        // Changing table props in the panel should never "reflow" the page and
-        // shift other elements (e.g. styling like tableColor).
-        skipDocumentLayout: true,
+        skipDocumentLayout: !needsLayout,
       }));
       return;
     }

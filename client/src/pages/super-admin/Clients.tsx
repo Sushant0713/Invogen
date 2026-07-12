@@ -80,6 +80,7 @@ const emptyCreateForm = () => ({
   lastName: '',
   companyName: '',
   planId: '',
+  paymentPaid: false,
 });
 
 export default function SuperAdminClients() {
@@ -142,6 +143,7 @@ export default function SuperAdminClients() {
       api.post('/super-admin/clients', {
         ...payload,
         planId: payload.planId || undefined,
+        paymentPaid: payload.planId ? payload.paymentPaid : false,
       }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['super-admin-clients'] });
@@ -469,7 +471,13 @@ export default function SuperAdminClients() {
                 <select
                   className={`${selectClass} w-full`}
                   value={createForm.planId}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, planId: e.target.value }))}
+                  onChange={(e) =>
+                    setCreateForm((f) => ({
+                      ...f,
+                      planId: e.target.value,
+                      paymentPaid: e.target.value ? f.paymentPaid : false,
+                    }))
+                  }
                 >
                   <option value="">No plan — assign later</option>
                   {activePlans.map((p) => (
@@ -479,6 +487,36 @@ export default function SuperAdminClients() {
                   ))}
                 </select>
               </div>
+              {createForm.planId && (
+                <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  <p className="text-sm font-medium text-gray-900">Has the client paid for this plan?</p>
+                  <p className="text-xs text-gray-500">
+                    If yes, the plan amount is recorded as captured revenue for this client.
+                  </p>
+                  <div className="flex flex-wrap gap-4 pt-1">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="paymentPaid"
+                        className="text-primary"
+                        checked={createForm.paymentPaid === true}
+                        onChange={() => setCreateForm((f) => ({ ...f, paymentPaid: true }))}
+                      />
+                      Yes, payment received
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="paymentPaid"
+                        className="text-primary"
+                        checked={createForm.paymentPaid === false}
+                        onChange={() => setCreateForm((f) => ({ ...f, paymentPaid: false }))}
+                      />
+                      No, not paid yet
+                    </label>
+                  </div>
+                </div>
+              )}
               <div className="flex gap-3 pt-2">
                 <Button type="submit" disabled={createMutation.isPending}>
                   {createMutation.isPending ? 'Creating...' : 'Create Client'}

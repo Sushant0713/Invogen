@@ -6,9 +6,13 @@ import { Badge } from '@/components/ui/Badge';
 import { fetchSavedInvoice } from '@/features/invoice-composer/saved-invoice';
 import { InvoiceViewer } from '@/features/invoice-composer/InvoiceViewer';
 import type { TemplatePage } from '@invogen/shared';
+import { useAppSelector } from '@/hooks/useAppDispatch';
+import { PERMISSIONS } from '@invogen/shared';
 
 export default function EmployeeInvoiceViewPage() {
   const { invoiceId = '' } = useParams();
+  const permissions = useAppSelector((s) => s.auth.user?.permissions ?? []);
+  const canEdit = permissions.includes(PERMISSIONS.INVOICE_EDIT);
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['employee-invoice-view', invoiceId],
@@ -34,12 +38,14 @@ export default function EmployeeInvoiceViewPage() {
           <p className="text-sm text-gray-500">View only</p>
         </div>
         <Badge>{String(invoice.status).toUpperCase()}</Badge>
-        <Link
-          to={`/employee/invoices/${invoiceId}/edit`}
-          className="ml-auto text-sm font-medium text-primary hover:underline"
-        >
-          Open editor
-        </Link>
+        {canEdit && (
+          <Link
+            to={`/employee/invoices/${invoiceId}/edit`}
+            className="ml-auto text-sm font-medium text-primary hover:underline"
+          >
+            Open editor
+          </Link>
+        )}
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">

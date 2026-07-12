@@ -18,7 +18,23 @@ createRoot(document.getElementById('root')!).render(
         <GoogleAuthProvider>
           <RouterProvider router={router} />
         </GoogleAuthProvider>
-        <Toaster position="top-right" richColors />
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          duration={1000}
+          offset={20}
+          gap={12}
+          visibleToasts={4}
+          toastOptions={{
+            classNames: {
+              toast: 'invogen-toast',
+              title: 'invogen-toast-title',
+              description: 'invogen-toast-description',
+              closeButton: 'invogen-toast-close',
+            },
+          }}
+        />
       </QueryClientProvider>
     </Provider>
   </StrictMode>

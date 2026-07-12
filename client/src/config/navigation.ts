@@ -4,7 +4,6 @@ import {
   Users,
   CreditCard,
   Palette,
-  Puzzle,
   DollarSign,
   FileText,
   Settings,
@@ -40,10 +39,18 @@ export const superAdminNav: NavItem[] = [
       { label: 'Plan List', path: '/super-admin/plans/list' },
     ],
   },
-  { label: 'Template Settings', path: '/super-admin/templates', icon: Palette },
-  { label: 'Components', path: '/super-admin/components', icon: Puzzle },
+  {
+    label: 'Template Settings',
+    path: '/super-admin/templates',
+    icon: Palette,
+    children: [
+      { label: 'Add Template', path: '/super-admin/templates' },
+      { label: 'Super Admin Templates', path: '/super-admin/templates/super-admin' },
+    ],
+  },
+  { label: 'Reports', path: '/super-admin/reports', icon: BarChart3 },
   { label: 'Revenue', path: '/super-admin/revenue', icon: DollarSign },
-  { label: 'Invoices', path: '/super-admin/invoices', icon: FileText },
+  { label: 'Platform Invoices', path: '/super-admin/invoices', icon: FileText },
   { label: 'System Settings', path: '/super-admin/settings', icon: Settings },
   { label: 'Activity Logs', path: '/super-admin/activity-logs', icon: Activity },
   { label: 'Support Tickets', path: '/super-admin/support', icon: Headphones },
@@ -52,7 +59,15 @@ export const superAdminNav: NavItem[] = [
 
 export const adminNav: NavItem[] = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
-  { label: 'Employees', path: '/admin/employees', icon: Users },
+  {
+    label: 'Employees',
+    path: '/admin/employees',
+    icon: Users,
+    children: [
+      { label: 'All employees', path: '/admin/employees' },
+      { label: 'Pending approvals', path: '/admin/employees/pending' },
+    ],
+  },
   { label: 'Customers', path: '/admin/customers', icon: Building2 },
   { label: 'Products', path: '/admin/products', icon: Package },
   {
@@ -92,9 +107,19 @@ export const adminNav: NavItem[] = [
 
 export const employeeNav: NavItem[] = [
   { label: 'Dashboard', path: '/employee/dashboard', icon: LayoutDashboard },
-  { label: 'Invoices', path: '/employee/invoices', icon: Receipt },
-  { label: 'Create Invoice', path: '/employee/invoices/create', icon: FileText },
+  {
+    label: 'Invoices',
+    path: '/employee/invoices',
+    icon: Receipt,
+    children: [
+      { label: 'All Invoices', path: '/employee/invoices' },
+      { label: 'Shared Invoices', path: '/employee/invoices/shared' },
+      { label: 'New Invoice', path: '/employee/invoices/new' },
+    ],
+  },
   { label: 'Template List', path: '/employee/templates', icon: Layers },
+  { label: 'Products', path: '/employee/products', icon: Package },
+  { label: 'Customers', path: '/employee/customers', icon: Building2 },
   { label: 'Profile', path: '/employee/profile', icon: UserCircle },
 ];
 
@@ -103,9 +128,9 @@ export const getLoginPath = (role: UserRole): string => {
     case 'super_admin':
       return '/super-admin/login';
     case 'admin':
-      return '/admin/login';
+      return '/login?portal=admin';
     case 'employee':
-      return '/employee/login';
+      return '/login?portal=employee';
     default:
       return '/';
   }
@@ -113,9 +138,9 @@ export const getLoginPath = (role: UserRole): string => {
 
 export const getLoginPathForPathname = (pathname: string): string => {
   if (pathname.startsWith('/super-admin')) return '/super-admin/login';
-  if (pathname.startsWith('/employee')) return '/employee/login';
-  if (pathname.startsWith('/admin')) return '/admin/login';
-  return '/admin/login';
+  if (pathname.startsWith('/employee')) return '/login?portal=employee';
+  if (pathname.startsWith('/admin')) return '/login?portal=admin';
+  return '/login?portal=admin';
 };
 
 export const getDashboardPath = (role: UserRole): string => {

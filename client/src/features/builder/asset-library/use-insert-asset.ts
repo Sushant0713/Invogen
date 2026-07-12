@@ -7,6 +7,7 @@ import {
   getDefaultElementSize,
   getPageDimensions,
 } from '../builder-dnd';
+import { createDefaultFooterPlacement } from '../document-footer';
 import { normalizePaletteDragProps, type PaletteItem } from '../palette-catalog';
 import { recordAssetUse } from './sidebar-store';
 
@@ -26,11 +27,16 @@ export function useInsertAsset() {
 
       const innerW = pageSize.width - margins.left - margins.right;
       const innerH = pageSize.height - margins.top - margins.bottom;
-      const x = margins.left + Math.max(0, (innerW - width) / 2);
-      const y =
-        item.type === ComponentType.WATERMARK
-          ? margins.top + Math.max(0, (innerH - height) / 2)
-          : margins.top + 48;
+      let x = margins.left + Math.max(0, (innerW - width) / 2);
+      let y = margins.top + 48;
+
+      if (item.type === ComponentType.WATERMARK) {
+        y = margins.top + Math.max(0, (innerH - height) / 2);
+      } else if (item.type === ComponentType.FOOTER) {
+        const placement = createDefaultFooterPlacement(page);
+        x = placement.x;
+        y = placement.y;
+      }
 
       const element = createCanvasElement(item.type, x, y, props, margins);
       dispatch(addElement(element));

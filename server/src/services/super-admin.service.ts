@@ -1,4 +1,6 @@
-import { UserRole, UserStatus, ADMIN_PERMISSIONS, SubscriptionStatus } from '@invogen/shared';
+import { UserRole, UserStatus, ADMIN_PERMISSIONS, SubscriptionStatus, InvoiceStatus } from '@invogen/shared';
+import { notificationService } from './notification.service';
+import { notifySupportTicketUpdated } from '../utils/notification-events';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import {
@@ -23,15 +25,69 @@ import {
 import { AppError } from '../utils/AppError';
 import { getPagination, buildMeta } from '../utils/response';
 import { buildTemplateListFilter, templateListProjection } from '../utils/template-query';
-import { ACTIVITY_USER_POPULATE } from './activity.service';
+import { ACTIVITY_USER_POPULATE, buildActivityLogSearchFilter } from './activity.service';
 import { subscriptionService } from './subscription.service';
 import { createBlankTemplate } from '../seeds/data/templates';
+import { ensureCompanyInvoiceCode } from '../utils/company-invoice-code';
+import {
+  buildDailyRevenueSeriesForCurrentWeek,
+  getCurrentWeekStart,
+} from '../utils/weekly-revenue';
+import {
+  buildRevenueDateMatch,
+  getRevenueGroupFormat,
+  mapRevenueAggregation,
+  resolveRevenueGroupBy,
+} from '../utils/revenue-aggregation';
+import { enrichInvoiceWithTotals } from '../utils/invoice-gst';
+import { superAdminSalesReportService } from './super-admin-sales-report.service';
+import { superAdminGstReportService } from './super-admin-gst-report.service';
+import { superAdminClientsReportService } from './super-admin-clients-report.service';
+import { superAdminPlansReportService } from './super-admin-plans-report.service';
+import { superAdminOutstandingReportService } from './super-admin-outstanding-report.service';
+
+export const SUPER_ADMIN_TEMPLATE_CATEGORY = 'Super Admin';
+const LEGACY_SUPER_ADMIN_TEMPLATE_CATEGORY = '__super_admin__';
+
+function normalizeTemplateCategory(category: string): string {
+  const trimmed = category.trim();
+  if (trimmed === LEGACY_SUPER_ADMIN_TEMPLATE_CATEGORY) return SUPER_ADMIN_TEMPLATE_CATEGORY;
+  return trimmed;
+}
+
+function isSuperAdminTemplateCategory(category: string) {
+  const trimmed = category.trim();
+  return (
+    trimmed === SUPER_ADMIN_TEMPLATE_CATEGORY || trimmed === LEGACY_SUPER_ADMIN_TEMPLATE_CATEGORY
+  );
+}
+
+function superAdminCategoryScope(included: boolean) {
+  const categories = [SUPER_ADMIN_TEMPLATE_CATEGORY, LEGACY_SUPER_ADMIN_TEMPLATE_CATEGORY];
+  return included ? { category: { $in: categories } } : { category: { $nin: categories } };
+}
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
   SubscriptionStatus.ACTIVE,
   SubscriptionStatus.TRIAL,
   SubscriptionStatus.PAST_DUE,
 ]);
+
+/** Invogen subscription billing invoices only — excludes tenant customer invoices. */
+const PLATFORM_INVOICE_FILTER = { 'customerSnapshot.platformInvoice': true } as const;
+
+type InvoiceSnapshot = { platformInvoice?: boolean } | null | undefined;
+
+function isPlatformInvoice(invoice: { customerSnapshot?: InvoiceSnapshot }) {
+  const snap = invoice.customerSnapshot as InvoiceSnapshot;
+  return snap?.platformInvoice === true;
+}
+
+function assertPlatformInvoice(invoice: { customerSnapshot?: InvoiceSnapshot } | null) {
+  if (!invoice || !isPlatformInvoice(invoice)) {
+    throw new AppError('Invoice not found', 404);
+  }
+}
 
 function resolveCompanyId(
   companyRef: { _id?: { toString(): string }; toString?: () => string } | null | undefined
@@ -56,23 +112,34 @@ function pickSubscriptionForCompany<T extends { status: string; createdAt?: Date
 
 export const superAdminService = {
   async getDashboard() {
-    const [clients, subscriptions, revenue, invoices, plans] = await Promise.all([
+    const [clients, subscriptions, platformInvoices, plans, capturedRevenue] =
+      await Promise.all([
       User.countDocuments({ role: UserRole.ADMIN }),
       Subscription.countDocuments({ status: 'active' }),
-      Payment.aggregate([{ $match: { status: 'captured' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-      Invoice.countDocuments(),
+      Invoice.countDocuments(PLATFORM_INVOICE_FILTER),
       Plan.find({ isActive: true }).limit(5),
+      Payment.aggregate([
+        { $match: { status: 'captured' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
     ]);
 
-    const recentPayments = await Payment.find({ status: 'captured' })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .populate('companyId', 'name');
+    const currentWeekStart = getCurrentWeekStart();
 
-    const recentInvoices = await Invoice.find()
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .populate('companyId', 'name');
+    const [recentPayments, paymentsThisWeek] = await Promise.all([
+      Payment.find({ status: 'captured' })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate('companyId', 'name'),
+      Payment.find({
+        status: 'captured',
+        createdAt: { $gte: currentWeekStart },
+      })
+        .select('amount createdAt')
+        .lean(),
+    ]);
+
+    const weeklyRevenue = buildDailyRevenueSeriesForCurrentWeek(paymentsThisWeek);
 
     const activities = await ActivityLog.find()
       .sort({ createdAt: -1 })
@@ -83,11 +150,11 @@ export const superAdminService = {
       stats: {
         clients,
         activeSubscriptions: subscriptions,
-        totalRevenue: revenue[0]?.total || 0,
-        totalInvoices: invoices,
+        actualRevenue: capturedRevenue[0]?.total || 0,
+        totalInvoices: platformInvoices,
       },
       recentPayments,
-      recentInvoices,
+      weeklyRevenue,
       topPlans: plans,
       recentActivities: activities,
     };
@@ -359,9 +426,14 @@ export const superAdminService = {
     lastName: string;
     companyName: string;
     planId?: string;
+    paymentPaid?: boolean;
   }) {
     const existing = await User.findOne({ email: data.email });
     if (existing) throw new AppError('Email already registered', 409);
+
+    if (data.paymentPaid && !data.planId) {
+      throw new AppError('Select a subscription plan when marking payment as paid', 400);
+    }
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await User.create({
@@ -379,12 +451,32 @@ export const superAdminService = {
       name: data.companyName,
       email: data.email,
     });
+    await ensureCompanyInvoiceCode(company);
 
     user.companyId = company._id;
     await user.save();
 
     if (data.planId) {
-      await subscriptionService.assignPlanByAdmin(company._id.toString(), data.planId);
+      const subscription = await subscriptionService.assignPlanByAdmin(company._id.toString(), data.planId);
+
+      if (data.paymentPaid) {
+        const plan = await Plan.findById(data.planId);
+        if (!plan) throw new AppError('Plan not found', 404);
+
+        await Payment.create({
+          companyId: company._id,
+          subscriptionId: subscription._id,
+          amount: plan.price,
+          currency: plan.currency || 'INR',
+          status: 'captured',
+          metadata: {
+            source: 'super_admin_manual',
+            planId: plan._id.toString(),
+            planName: plan.name,
+            billingCycle: plan.billingCycle,
+          },
+        });
+      }
     }
 
     return this.getClient(user._id.toString());
@@ -514,28 +606,43 @@ export const superAdminService = {
 
   async getTemplates(query: Record<string, unknown>) {
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
-    const filter = buildTemplateListFilter([{ isSystem: true }], query);
-    const [data, total] = await Promise.all([
+    const baseConditions: Record<string, unknown>[] = [{ isSystem: true }];
+
+    if (query.scope === 'super_admin') {
+      baseConditions.push(superAdminCategoryScope(true));
+    } else if (query.scope === 'standard') {
+      baseConditions.push(superAdminCategoryScope(false));
+    }
+
+    const filter = buildTemplateListFilter(baseConditions, query);
+    const [rows, total] = await Promise.all([
       InvoiceTemplate.find(filter).select(templateListProjection).skip(skip).limit(limit).sort({ updatedAt: -1 }),
       InvoiceTemplate.countDocuments(filter),
     ]);
+    const data = rows.map((template) => {
+      const plain = template.toObject();
+      return { ...plain, category: normalizeTemplateCategory(plain.category) };
+    });
     return { data, meta: buildMeta(page, limit, total) };
   },
 
   async getTemplate(id: string) {
     const template = await InvoiceTemplate.findOne({ _id: id, isSystem: true });
     if (!template) throw new AppError('Template not found', 404);
-    return template;
+    const plain = template.toObject();
+    return { ...plain, category: normalizeTemplateCategory(plain.category) };
   },
 
   async createTemplate(userId: string, data: Record<string, unknown>) {
     const name = typeof data.name === 'string' ? data.name.trim() : '';
-    const category = typeof data.category === 'string' ? data.category.trim() : '';
+    const category = normalizeTemplateCategory(typeof data.category === 'string' ? data.category : '');
     if (!name) throw new AppError('Template name is required', 400);
     if (!category) throw new AppError('Category is required', 400);
 
-    const existing = await InvoiceTemplate.findOne({ category, isSystem: true });
-    if (existing) throw new AppError('A template with this category already exists', 409);
+    if (!isSuperAdminTemplateCategory(category)) {
+      const existing = await InvoiceTemplate.findOne({ category, isSystem: true });
+      if (existing) throw new AppError('A template with this category already exists', 409);
+    }
 
     const pages = Array.isArray(data.pages) && data.pages.length > 0
       ? data.pages
@@ -557,9 +664,20 @@ export const superAdminService = {
     const update: Record<string, unknown> = {};
     if (data.pages !== undefined) update.pages = data.pages;
     if (data.name !== undefined) update.name = data.name;
-    if (data.category !== undefined) update.category = data.category;
+    if (data.category !== undefined) {
+      update.category = normalizeTemplateCategory(String(data.category));
+    }
     if (data.description !== undefined) update.description = data.description;
     if (data.thumbnail !== undefined) update.thumbnail = data.thumbnail;
+
+    if (typeof update.category === 'string' && !isSuperAdminTemplateCategory(update.category)) {
+      const duplicate = await InvoiceTemplate.findOne({
+        category: update.category,
+        isSystem: true,
+        _id: { $ne: id },
+      });
+      if (duplicate) throw new AppError('A template with this category already exists', 409);
+    }
 
     const template = await InvoiceTemplate.findOneAndUpdate(
       { _id: id, isSystem: true },
@@ -576,46 +694,186 @@ export const superAdminService = {
   },
 
   async getRevenue(query: Record<string, unknown>) {
-    const match: Record<string, unknown> = { status: 'captured' };
-    if (query.from) match.createdAt = { $gte: new Date(query.from as string) };
-    const revenue = await Payment.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
-          total: { $sum: '$amount' },
-          count: { $sum: 1 },
+    const match = buildRevenueDateMatch(query);
+    const groupBy = resolveRevenueGroupBy(query.groupBy, query.from as string, query.to as string);
+    const groupFormat = getRevenueGroupFormat(groupBy);
+
+    const [seriesRows, stats] = await Promise.all([
+      Payment.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: { $dateToString: { format: groupFormat, date: '$createdAt' } },
+            total: { $sum: '$amount' },
+            count: { $sum: 1 },
+          },
         },
-      },
-      { $sort: { _id: 1 } },
+        { $sort: { _id: 1 } },
+      ]),
+      Payment.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$amount' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
-    const total = await Payment.aggregate([
-      { $match: { status: 'captured' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
-    return { monthly: revenue, total: total[0]?.total || 0 };
+
+    return {
+      series: mapRevenueAggregation(seriesRows),
+      groupBy,
+      total: stats[0]?.total || 0,
+      paymentCount: stats[0]?.count || 0,
+      from: (query.from as string) || null,
+      to: (query.to as string) || null,
+    };
+  },
+
+  async getInvoice(id: string) {
+    const invoice = await Invoice.findOne({ _id: id, ...PLATFORM_INVOICE_FILTER })
+      .populate('companyId', 'name invoiceCode')
+      .populate('customerId', 'name email');
+    if (!invoice) throw new AppError('Invoice not found', 404);
+    return enrichInvoiceWithTotals(invoice.toObject());
   },
 
   async getInvoices(query: Record<string, unknown>) {
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
+    const filter: Record<string, unknown> = { ...PLATFORM_INVOICE_FILTER };
+    const createdAt: Record<string, Date> = {};
+
+    if (query.from) {
+      const from = new Date(query.from as string);
+      from.setHours(0, 0, 0, 0);
+      createdAt.$gte = from;
+    }
+
+    if (query.to) {
+      const to = new Date(query.to as string);
+      to.setHours(23, 59, 59, 999);
+      createdAt.$lte = to;
+    }
+
+    if (Object.keys(createdAt).length > 0) {
+      filter.createdAt = createdAt;
+    }
+
+    const sortOrder = query.sort === 'oldest' ? 1 : -1;
+
     const [data, total] = await Promise.all([
-      Invoice.find().skip(skip).limit(limit).populate('companyId', 'name').sort({ createdAt: -1 }),
-      Invoice.countDocuments(),
+      Invoice.find(filter)
+        .skip(skip)
+        .limit(limit)
+        .populate('companyId', 'name invoiceCode')
+        .sort({ createdAt: sortOrder }),
+      Invoice.countDocuments(filter),
     ]);
-    return { data, meta: buildMeta(page, limit, total) };
+
+    return {
+      data: data.map((invoice) => enrichInvoiceWithTotals(invoice.toObject())),
+      meta: buildMeta(page, limit, total),
+    };
+  },
+
+  async updateInvoiceStatus(id: string, status: InvoiceStatus) {
+    const allowed = [InvoiceStatus.DRAFT, InvoiceStatus.SENT, InvoiceStatus.PAID];
+    if (!allowed.includes(status)) {
+      throw new AppError('Status must be draft, sent, or paid', 400);
+    }
+
+    const invoice = await Invoice.findById(id);
+    if (!invoice) throw new AppError('Invoice not found', 404);
+    assertPlatformInvoice(invoice);
+
+    const statusRank: Partial<Record<InvoiceStatus, number>> = {
+      [InvoiceStatus.DRAFT]: 0,
+      [InvoiceStatus.SENT]: 1,
+      [InvoiceStatus.PAID]: 2,
+    };
+
+    const currentRank = statusRank[invoice.status as InvoiceStatus];
+    const nextRank = statusRank[status];
+
+    if (invoice.status === InvoiceStatus.PAID && status !== InvoiceStatus.PAID) {
+      throw new AppError('Paid invoices cannot be changed', 400);
+    }
+
+    if (
+      currentRank !== undefined &&
+      nextRank !== undefined &&
+      nextRank < currentRank
+    ) {
+      throw new AppError('Invoice status cannot be moved backward', 400);
+    }
+
+    if (invoice.status === status) {
+      return Invoice.findById(id)
+        .populate('companyId', 'name')
+        .select('invoiceNumber companyId status totals createdAt');
+    }
+
+    invoice.status = status;
+    if (status === InvoiceStatus.SENT && !invoice.sentAt) {
+      invoice.sentAt = new Date();
+    }
+    if (status === InvoiceStatus.PAID) {
+      invoice.paidAt = new Date();
+    }
+
+    await invoice.save();
+    return Invoice.findById(id).populate('companyId', 'name').select('invoiceNumber companyId status totals createdAt');
+  },
+
+  async deleteInvoice(id: string) {
+    const invoice = await Invoice.findById(id);
+    if (!invoice) throw new AppError('Invoice not found', 404);
+    assertPlatformInvoice(invoice);
+    if (invoice.status !== InvoiceStatus.DRAFT) {
+      throw new AppError('Only draft invoices can be deleted', 400);
+    }
+
+    await invoice.deleteOne();
+    return { deleted: true };
   },
 
   async getActivityLogs(query: Record<string, unknown>) {
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
+    const filter = await buildActivityLogSearchFilter(query.search);
     const [data, total] = await Promise.all([
-      ActivityLog.find()
+      ActivityLog.find(filter)
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 })
         .populate('userId', ACTIVITY_USER_POPULATE),
-      ActivityLog.countDocuments(),
+      ActivityLog.countDocuments(filter),
     ]);
     return { data, meta: buildMeta(page, limit, total) };
+  },
+
+  async deleteActivityLogs(body: { ids?: string[]; all?: boolean; search?: string }) {
+    if (body.all) {
+      const filter = await buildActivityLogSearchFilter(body.search);
+      const result = await ActivityLog.deleteMany(filter);
+      return { deleted: result.deletedCount ?? 0 };
+    }
+
+    const ids = Array.isArray(body.ids) ? body.ids.filter(Boolean) : [];
+    if (!ids.length) {
+      throw new AppError('No activity logs selected', 400);
+    }
+
+    const objectIds = ids
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+    if (!objectIds.length) {
+      throw new AppError('No valid activity logs selected', 400);
+    }
+
+    const result = await ActivityLog.deleteMany({ _id: { $in: objectIds } });
+    return { deleted: result.deletedCount ?? 0 };
   },
 
   async getSupportTickets(query: Record<string, unknown>) {
@@ -628,8 +886,25 @@ export const superAdminService = {
   },
 
   async updateTicket(id: string, data: Record<string, unknown>) {
+    const existing = await SupportTicket.findById(id);
+    if (!existing) throw new AppError('Ticket not found', 404);
+
     const ticket = await SupportTicket.findByIdAndUpdate(id, data, { new: true });
     if (!ticket) throw new AppError('Ticket not found', 404);
+
+    const nextStatus = String(data.status ?? ticket.status);
+    if (data.status && nextStatus !== existing.status) {
+      notificationService.fire(
+        notifySupportTicketUpdated({
+          userId: String(ticket.userId),
+          companyId: ticket.companyId ? String(ticket.companyId) : null,
+          ticketId: ticket._id.toString(),
+          subject: ticket.subject,
+          status: nextStatus,
+        })
+      );
+    }
+
     return ticket;
   },
 
@@ -667,14 +942,44 @@ export const superAdminService = {
   },
 
   async broadcastNotification(data: { title: string; message: string; type?: string }) {
-    const admins = await User.find({ role: UserRole.ADMIN });
-    const notifications = admins.map((admin) => ({
-      userId: admin._id,
-      companyId: admin.companyId,
+    const payload = {
       title: data.title,
       message: data.message,
-      type: data.type || 'info',
-    }));
-    return Notification.insertMany(notifications);
+      type: (data.type as 'info' | 'success' | 'warning' | 'error') || 'info',
+    };
+    return notificationService.broadcastToCompanyAdmins(payload);
+  },
+
+  async getNotifications(userId: string) {
+    return notificationService.getForUser(userId);
+  },
+
+  async getUnreadNotificationCount(userId: string) {
+    return notificationService.getUnreadCount(userId);
+  },
+
+  async markNotificationRead(userId: string, id: string) {
+    return notificationService.markRead(userId, id);
+  },
+
+  async markAllNotificationsRead(userId: string) {
+    await notificationService.markAllRead(userId);
+  },
+
+  async getReports(type: string, query: Record<string, unknown>) {
+    switch (type) {
+      case 'sales':
+        return superAdminSalesReportService.getSalesReport(query);
+      case 'gst':
+        return superAdminGstReportService.getGstReport(query);
+      case 'clients':
+        return superAdminClientsReportService.getClientsReport(query);
+      case 'plans':
+        return superAdminPlansReportService.getPlansReport(query);
+      case 'outstanding':
+        return superAdminOutstandingReportService.getOutstandingReport(query);
+      default:
+        throw new AppError('Report type not found', 404);
+    }
   },
 };

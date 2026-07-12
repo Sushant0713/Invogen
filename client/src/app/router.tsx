@@ -7,13 +7,16 @@ import { MaintenanceGate } from '@/pages/MaintenancePage';
 import { UserRole } from '@invogen/shared';
 
 const LandingPage = lazy(() => import('@/pages/LandingPage'));
+const PortalLoginPage = lazy(() => import('@/pages/auth/PortalLoginPage'));
+const PortalRegisterPage = lazy(() => import('@/pages/auth/PortalRegisterPage'));
 const SuperAdminLogin = lazy(() => import('@/pages/auth/SuperAdminLogin'));
 const AdminLogin = lazy(() => import('@/pages/auth/AdminLogin'));
 const EmployeeLogin = lazy(() => import('@/pages/auth/EmployeeLogin'));
-const RegisterPage = lazy(() => import('@/pages/auth/RegisterPage'));
+const EmployeeRegisterRedirect = lazy(() => import('@/pages/auth/EmployeeRegisterRedirect'));
 const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'));
 const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'));
 const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'));
+const LegalDocumentPage = lazy(() => import('@/pages/auth/LegalDocumentPage'));
 
 const SuperAdminLayout = lazy(() => import('@/layouts/SuperAdminLayout'));
 const AdminLayout = lazy(() => import('@/layouts/AdminLayout'));
@@ -26,11 +29,13 @@ const SuperAdminPlanTypes = lazy(() => import('@/pages/super-admin/plans/PlanTyp
 const SuperAdminPlanFeatures = lazy(() => import('@/pages/super-admin/plans/PlanFeatures'));
 const SuperAdminPlanDiscounts = lazy(() => import('@/pages/super-admin/plans/PlanDiscounts'));
 const SuperAdminPlanList = lazy(() => import('@/pages/super-admin/plans/PlanList'));
-const SuperAdminComponents = lazy(() => import('@/pages/super-admin/Components'));
 const SuperAdminTemplates = lazy(() => import('@/pages/super-admin/Templates'));
+const SuperAdminCategoryTemplates = lazy(() => import('@/pages/super-admin/SuperAdminCategoryTemplates'));
 const SuperAdminTemplateEdit = lazy(() => import('@/pages/super-admin/TemplateEdit'));
 const SuperAdminRevenue = lazy(() => import('@/pages/super-admin/Revenue'));
+const SuperAdminReports = lazy(() => import('@/pages/super-admin/Reports'));
 const SuperAdminInvoices = lazy(() => import('@/pages/super-admin/Invoices'));
+const SuperAdminInvoiceViewPage = lazy(() => import('@/pages/super-admin/InvoiceViewPage'));
 const SuperAdminSettings = lazy(() => import('@/pages/super-admin/Settings'));
 const SuperAdminActivityLogs = lazy(() => import('@/pages/super-admin/ActivityLogs'));
 const SuperAdminSupport = lazy(() => import('@/pages/super-admin/Support'));
@@ -66,13 +71,19 @@ const EmployeeInvoiceNew = lazy(() => import('@/pages/employee/InvoiceNew'));
 const EmployeeInvoiceComposerPage = lazy(() => import('@/pages/employee/InvoiceComposerPage'));
 const EmployeeInvoiceEditPage = lazy(() => import('@/pages/employee/InvoiceEditPage'));
 const EmployeeInvoiceViewPage = lazy(() => import('@/pages/employee/InvoiceViewPage'));
+const EmployeeSharedInvoices = lazy(() => import('@/pages/employee/SharedInvoices'));
 const EmployeeTemplates = lazy(() => import('@/pages/employee/Templates'));
+const EmployeeTemplateEdit = lazy(() => import('@/pages/employee/TemplateEdit'));
+const EmployeeTemplateLivePreview = lazy(() => import('@/pages/employee/TemplateLivePreview'));
+const EmployeeProducts = lazy(() => import('@/pages/employee/Products'));
+const EmployeeCustomers = lazy(() => import('@/pages/employee/Customers'));
 const EmployeeProfile = lazy(() => import('@/pages/Profile'));
 
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const Forbidden = lazy(() => import('@/pages/Forbidden'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const PublicInvoiceViewPage = lazy(() => import('@/pages/PublicInvoiceViewPage'));
+const PlatformInvoicePrintPage = lazy(() => import('@/pages/PlatformInvoicePrintPage'));
 
 const withSuspense = (element: React.ReactNode) => (
   <Suspense fallback={<Loader fullScreen />}>{element}</Suspense>
@@ -91,15 +102,19 @@ export const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
   { path: '/', element: withSuspense(<LandingPage />) },
+  { path: '/login', element: withSuspense(<PortalLoginPage />) },
+  { path: '/register', element: withSuspense(<PortalRegisterPage />) },
   { path: '/super-admin/login', element: withSuspense(<SuperAdminLogin />) },
   { path: '/admin/login', element: withSuspense(<AdminLogin />) },
   { path: '/employee/login', element: withSuspense(<EmployeeLogin />) },
-  { path: '/register', element: withSuspense(<RegisterPage />) },
+  { path: '/employee/register', element: withSuspense(<EmployeeRegisterRedirect />) },
+  { path: '/legal/:type', element: withSuspense(<LegalDocumentPage />) },
   { path: '/forgot-password', element: withSuspense(<ForgotPassword />) },
   { path: '/reset-password', element: withSuspense(<ResetPassword />) },
   { path: '/verify-email', element: withSuspense(<VerifyEmail />) },
   { path: '/maintenance', element: withSuspense(<MaintenancePage />) },
   { path: '/view/invoice/:token', element: withSuspense(<PublicInvoiceViewPage />) },
+  { path: '/platform-invoice/print/:token', element: withSuspense(<PlatformInvoicePrintPage />) },
   {
     path: '/super-admin',
     element: (
@@ -117,11 +132,13 @@ export const router = createBrowserRouter([
       { path: 'plans/features', element: withSuspense(<SuperAdminPlanFeatures />) },
       { path: 'plans/discounts', element: withSuspense(<SuperAdminPlanDiscounts />) },
       { path: 'plans/list', element: withSuspense(<SuperAdminPlanList />) },
-      { path: 'components', element: withSuspense(<SuperAdminComponents />) },
       { path: 'templates', element: withSuspense(<SuperAdminTemplates />) },
+      { path: 'templates/super-admin', element: withSuspense(<SuperAdminCategoryTemplates />) },
       { path: 'templates/:id/edit', element: withSuspense(<SuperAdminTemplateEdit />) },
       { path: 'revenue', element: withSuspense(<SuperAdminRevenue />) },
+      { path: 'reports', element: withSuspense(<SuperAdminReports />) },
       { path: 'invoices', element: withSuspense(<SuperAdminInvoices />) },
+      { path: 'invoices/:invoiceId/view', element: withSuspense(<SuperAdminInvoiceViewPage />) },
       { path: 'settings', element: withSuspense(<SuperAdminSettings />) },
       { path: 'activity-logs', element: withSuspense(<SuperAdminActivityLogs />) },
       { path: 'support', element: withSuspense(<SuperAdminSupport />) },
@@ -142,6 +159,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="dashboard" replace /> },
           { path: 'dashboard', element: withSuspense(<AdminDashboard />) },
           { path: 'employees', element: withSuspense(<AdminEmployees />) },
+          { path: 'employees/pending', element: withSuspense(<AdminEmployees />) },
           { path: 'customers', element: withSuspense(<AdminCustomers />) },
           { path: 'products', element: withSuspense(<AdminProducts />) },
           { path: 'invoices', element: withSuspense(<AdminInvoices />) },
@@ -179,12 +197,17 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="dashboard" replace /> },
       { path: 'dashboard', element: withSuspense(<EmployeeDashboard />) },
       { path: 'invoices', element: withSuspense(<EmployeeInvoices />) },
+      { path: 'invoices/shared', element: withSuspense(<EmployeeSharedInvoices />) },
       { path: 'invoices/new', element: withSuspense(<EmployeeInvoiceNew />) },
       { path: 'invoices/new/:templateId', element: withSuspense(<EmployeeInvoiceComposerPage />) },
       { path: 'invoices/:invoiceId/view', element: withSuspense(<EmployeeInvoiceViewPage />) },
       { path: 'invoices/:invoiceId/edit', element: withSuspense(<EmployeeInvoiceEditPage />) },
       { path: 'invoices/create', element: <Navigate to="/employee/invoices/new" replace /> },
       { path: 'templates', element: withSuspense(<EmployeeTemplates />) },
+      { path: 'templates/:templateId/preview', element: withSuspense(<EmployeeTemplateLivePreview />) },
+      { path: 'templates/:id/edit', element: withSuspense(<EmployeeTemplateEdit />) },
+      { path: 'products', element: withSuspense(<EmployeeProducts />) },
+      { path: 'customers', element: withSuspense(<EmployeeCustomers />) },
       { path: 'profile', element: withSuspense(<EmployeeProfile />) },
     ],
   },

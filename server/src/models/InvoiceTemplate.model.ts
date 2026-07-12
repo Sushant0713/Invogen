@@ -8,6 +8,8 @@ export interface IInvoiceTemplate extends Document {
   pages: TemplatePage[];
   isSystem: boolean;
   companyId?: mongoose.Types.ObjectId;
+  /** System template this company copy was created from. */
+  sourceSystemTemplateId?: mongoose.Types.ObjectId;
   thumbnail?: string;
   version: number;
   createdBy: mongoose.Types.ObjectId;
@@ -57,6 +59,7 @@ const invoiceTemplateSchema = new Schema<IInvoiceTemplate>(
     pages: [templatePageSchema],
     isSystem: { type: Boolean, default: false },
     companyId: { type: Schema.Types.ObjectId, ref: 'Company' },
+    sourceSystemTemplateId: { type: Schema.Types.ObjectId, ref: 'InvoiceTemplate' },
     thumbnail: String,
     version: { type: Number, default: 1 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

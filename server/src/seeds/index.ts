@@ -235,19 +235,33 @@ const seedSettings = async () => {
     { upsert: true }
   );
   await Setting.findOneAndUpdate(
+    { key: 'made_with_advertising', scope: 'system' },
+    {
+      key: 'made_with_advertising',
+      scope: 'system',
+      description: 'Image shown on "Made with" plan advertising badges',
+      value: {
+        image: '',
+        imageFilename: '',
+      },
+    },
+    { upsert: true }
+  );
+  await Setting.findOneAndUpdate(
     { key: 'agreement_settings', scope: 'system' },
     {
       key: 'agreement_settings',
       scope: 'system',
-      description: 'Platform agreement document',
+      description: 'Platform agreement documents (terms and privacy)',
       value: {
-        title: 'Terms & Conditions',
-        version: '1.0',
-        inputMode: 'template',
-        content: '',
-        templateContent: `{{title}} — Version {{version}}
+        activeDocument: 'terms',
+        documents: {
+          terms: {
+            title: 'Terms & Conditions',
+            version: '1.0',
+            content: `Terms & Conditions — Version 1.0
 
-This Agreement is entered into between {{company_name}} ("Provider") and the subscribing client ("Client").
+This Agreement is entered into between Invogen Technologies Pvt. Ltd. ("Provider") and the subscribing client ("Client").
 
 1. Services
 The Provider agrees to deliver invoicing, billing, and business management software services through the Invogen platform.
@@ -259,25 +273,40 @@ The Client agrees to provide accurate information, maintain account security, an
 Subscription fees are billed as per the selected plan. Taxes may apply based on the Client's location.
 
 4. Contact
-For support or legal queries, contact {{company_email}} or call {{company_phone}}.
+For support or legal queries, contact hello@invogen.app or call +91 98765 43210.
 
 5. Registered address
-{{company_address}}
+123 Business Park, Bengaluru, Karnataka, India, 560001
 
 6. Governing law
-This Agreement is governed by the laws of {{jurisdiction}}.
+This Agreement is governed by the laws of Karnataka.`,
+          },
+          privacy: {
+            title: 'Privacy Policy',
+            version: '1.0',
+            content: `Privacy Policy — Version 1.0
 
-Effective date: {{effective_date}}`,
-        fieldValues: {
-          company_name: 'Invogen Technologies Pvt. Ltd.',
-          company_email: 'hello@invogen.app',
-          company_phone: '+91 98765 43210',
-          company_address: '123 Business Park, Bengaluru, Karnataka, India, 560001',
-          effective_date: new Date().toISOString().split('T')[0],
-          jurisdiction: 'Karnataka',
+Invogen Technologies Pvt. Ltd. ("we", "us", or "our") operates the Invogen platform. This Privacy Policy explains how we collect, use, and protect your information.
+
+1. Information we collect
+We collect account details, billing information, and usage data necessary to provide our services.
+
+2. How we use information
+We use your information to deliver the platform, process payments, provide support, and improve our services.
+
+3. Data sharing
+We do not sell your personal data. We may share data with payment processors and infrastructure providers as required to operate the service.
+
+4. Contact
+For privacy questions, contact hello@invogen.app or call +91 98765 43210.
+
+5. Registered address
+123 Business Park, Bengaluru, Karnataka, India, 560001
+
+6. Governing law
+This policy is governed by the laws of Karnataka.`,
+          },
         },
-        file: '',
-        filename: '',
       },
     },
     { upsert: true }
@@ -307,7 +336,6 @@ Effective date: {{effective_date}}`,
       scope: 'system',
       description: 'Platform invoice defaults',
       value: {
-        templateStyle: 'templ_7',
         invoiceTitle: 'INVOICE',
         prefix: 'INV',
         numberFormat: '{PREFIX}-{YYYY}-{NNNNN}',

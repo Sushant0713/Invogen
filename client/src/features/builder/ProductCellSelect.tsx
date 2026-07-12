@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Loader2, Package, Search, X } from 'lucide-react';
 import { formatProductCellValue } from './product-cell';
+import { useCompanyScope } from './CompanyBrandingProvider';
 import { useCompanyProducts, type CompanyProductOption } from './use-company-products';
 
 const PANEL_WIDTH = 320;
@@ -59,11 +60,14 @@ export function ProductCellSelect({
     return () => window.clearTimeout(timer);
   }, [listFilter]);
 
+  const scope = useCompanyScope();
+  const catalogLabel =
+    scope === 'employee' ? 'From company products' : 'From Admin → Products';
+
   const {
     data: products = [],
     isFetching,
     isError,
-    error,
     refetch,
   } = useCompanyProducts({
     enabled: !previewMode,
@@ -227,8 +231,7 @@ export function ProductCellSelect({
 
   const errorMessage =
     isError
-      ? String((error as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Could not load products')
+      ? 'Could not load products. Type a custom name below.'
       : '';
 
   const panel = open
@@ -248,7 +251,7 @@ export function ProductCellSelect({
           <div className="border-b border-gray-100 bg-gray-50 px-3 py-2">
             <p className="text-xs font-semibold text-gray-800">Select product</p>
             <p className="text-[11px] text-gray-500">
-              From Admin → Products · rate fills automatically
+              {catalogLabel} · rate fills automatically
             </p>
           </div>
 
@@ -322,7 +325,21 @@ export function ProductCellSelect({
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             {isError ? (
-              <p className="px-3 py-4 text-sm text-red-600">{errorMessage}</p>
+              <div className="space-y-2 px-3 py-4">
+                <p className="text-sm text-gray-500">{errorMessage}</p>
+                {typedQuery() ? (
+                  <button
+                    type="button"
+                    className="w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-primary/10"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickCustomName(typedQuery());
+                    }}
+                  >
+                    Use “{typedQuery()}”
+                  </button>
+                ) : null}
+              </div>
             ) : isFetching && products.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-6 text-sm text-gray-500">
                 <Loader2 className="h-4 w-4 animate-spin" />

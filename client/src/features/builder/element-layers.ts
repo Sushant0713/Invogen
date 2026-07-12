@@ -1,4 +1,9 @@
 import type { CanvasElement } from '@invogen/shared';
+import { getElementRotation } from './element-rotation';
+import { isImageComponentType } from './image-components';
+import { isTableElementType } from './product-table';
+import { isStructuredContentType } from './structured-content-layout';
+import { isDataFieldType } from './text-styles';
 
 function layerValue(zIndex: number | undefined): number {
   return typeof zIndex === 'number' && Number.isFinite(zIndex) ? zIndex : 0;
@@ -152,6 +157,14 @@ export function getBaseOpacity(element: CanvasElement): number {
   const stored = getStoredOpacityPercent(element);
   if (stored !== null) return stored / MAX_OPACITY_PERCENT;
   return 1;
+}
+
+/** Normalize any stored opacity (0–1 or 0–100) to a CSS opacity in 0–1. */
+export function normalizeCssOpacity(raw: unknown, fallback = 1): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
+  if (raw <= 0) return 0;
+  const normalized = raw > 1 ? raw / 100 : raw;
+  return Math.min(1, Math.max(0, normalized));
 }
 
 export function getOpacityPercent(element: CanvasElement): number {
@@ -346,6 +359,34 @@ export function findTopSelectableElementAtPoint(
       return true;
     }) ?? null
   );
+}
+
+/** Match BuilderCanvas slot clipping so preview does not spill into elements below. */
+export function getElementSlotOverflow(
+  element: CanvasElement,
+  options: {
+    isSelected?: boolean;
+    isEditing?: boolean;
+    isShapeCropMode?: boolean;
+  } = {}
+): 'visible' | 'hidden' {
+  const { isSelected = false, isEditing = false, isShapeCropMode = false } = options;
+  const elementProps = (element.props ?? {}) as Record<string, unknown>;
+  const elementRotation = getElementRotation(element.type, elementProps);
+  const isTable = isTableElementType(element.type);
+  const isImage = isImageComponentType(element.type);
+
+  if (
+    isShapeCropMode
+    || (isImage && isSelected)
+    || elementRotation !== 0
+    || isTable
+    || isDataFieldType(element.type)
+    || (isSelected && !isEditing && !isStructuredContentType(element.type))
+  ) {
+    return 'visible';
+  }
+  return 'hidden';
 }
 
 export { MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT };

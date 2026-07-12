@@ -87,7 +87,7 @@ export function InvoiceTableProperties({
 
       <p className="text-xs text-gray-500">
         Drag custom columns to reorder. Hidden columns are excluded from calculations. Choose
-        whether discount is a flat amount or percentage, and CGST+SGST split vs combined GST.
+        whether discount is a flat amount or percentage, and CGST+SGST, combined GST, or IGST.
       </p>
 
       <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
@@ -122,6 +122,7 @@ export function InvoiceTableProperties({
           >
             <option value="split">CGST + SGST</option>
             <option value="combined">GST (combined)</option>
+            <option value="igst">IGST</option>
           </select>
         </div>
       </div>

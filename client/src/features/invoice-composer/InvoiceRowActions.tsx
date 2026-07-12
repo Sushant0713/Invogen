@@ -7,10 +7,13 @@ import { deleteInvoiceApi } from '@/features/invoice-composer/invoice-share';
 import { toast } from 'sonner';
 import { useState } from 'react';
 import { ShareInvoiceDialog } from '@/features/invoice-composer/ShareInvoiceDialog';
+import { useAppSelector } from '@/hooks/useAppDispatch';
+import { PERMISSIONS, UserRole } from '@invogen/shared';
 
 interface InvoiceRowActionsProps {
   invoiceId: string;
   invoiceNumber: string;
+  status: string;
   invoicesApi: string;
   /** React Query key for the invoices list (must match the list page query). */
   listQueryKey: string[];
@@ -24,6 +27,7 @@ interface InvoiceRowActionsProps {
 export function InvoiceRowActions({
   invoiceId,
   invoiceNumber,
+  status,
   invoicesApi,
   listQueryKey,
   editPathPrefix,
@@ -34,6 +38,15 @@ export function InvoiceRowActions({
 }: InvoiceRowActionsProps) {
   const queryClient = useQueryClient();
   const [shareOpen, setShareOpen] = useState(false);
+  const user = useAppSelector((s) => s.auth.user);
+  const permissions = user?.permissions ?? [];
+
+  const isEmployee = user?.role === UserRole.EMPLOYEE;
+  const canView = !isEmployee || permissions.includes(PERMISSIONS.INVOICE_VIEW);
+  const canEdit = !isEmployee || permissions.includes(PERMISSIONS.INVOICE_EDIT);
+  const canDelete =
+    status === 'draft' && (!isEmployee || permissions.includes(PERMISSIONS.INVOICE_DELETE));
+  const canShare = !isEmployee || permissions.includes(PERMISSIONS.INVOICE_CREATE);
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteInvoiceApi(invoicesApi, invoiceId),
@@ -67,31 +80,39 @@ export function InvoiceRowActions({
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        <Link to={`${viewPathPrefix}/${invoiceId}/view`}>
-          <Button variant="outline" size="sm">
-            <Eye className="h-4 w-4" />
-            View
+        {canView && (
+          <Link to={`${viewPathPrefix}/${invoiceId}/view`}>
+            <Button variant="outline" size="sm">
+              <Eye className="h-4 w-4" />
+              View
+            </Button>
+          </Link>
+        )}
+        {canEdit && (
+          <Link to={`${editPathPrefix}/${invoiceId}/edit`}>
+            <Button variant="outline" size="sm">
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          </Link>
+        )}
+        {canShare && (
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+            <Share2 className="h-4 w-4" />
+            Share
           </Button>
-        </Link>
-        <Link to={`${editPathPrefix}/${invoiceId}/edit`}>
-          <Button variant="outline" size="sm">
-            <Pencil className="h-4 w-4" />
-            Edit
+        )}
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+            onClick={() => void handleDelete()}
+            loading={deleteMutation.isPending}
+          >
+            <Trash2 className="h-4 w-4" />
           </Button>
-        </Link>
-        <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-          <Share2 className="h-4 w-4" />
-          Share
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-red-600 hover:bg-red-50 hover:text-red-700"
-          onClick={() => void handleDelete()}
-          loading={deleteMutation.isPending}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        )}
       </div>
       <ShareInvoiceDialog
         open={shareOpen}

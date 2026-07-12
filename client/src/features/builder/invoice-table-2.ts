@@ -37,7 +37,7 @@ import {
   type InvoiceDiscountMode,
   type InvoiceTaxDisplayMode,
 } from './invoice-table';
-import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate } from './tax-settings';
+import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate } from './tax-settings';
 import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceTable2Props = ProductTableProps & {
@@ -176,7 +176,7 @@ function normalizeDiscountMode(value: unknown): InvoiceDiscountMode {
 }
 
 function normalizeTaxDisplayMode(value: unknown): InvoiceTaxDisplayMode {
-  return value === 'combined' ? 'combined' : 'split';
+  return value === 'combined' || value === 'igst' || value === 'split' ? value : 'split';
 }
 
 function normalizeColumns(
@@ -416,6 +416,7 @@ export type Invoice2Summary = {
   cgst: number;
   sgst: number;
   gst: number;
+  igst: number;
   total: number;
 };
 
@@ -438,18 +439,21 @@ export function computeInvoice2Summary(
   let cgst = 0;
   let sgst = 0;
   let gst = 0;
+  let igst = 0;
 
   if (tax.isEnabled) {
     if (taxDisplayMode === 'split') {
       cgst = roundAmount((subtotal * tax.cgstRate) / 100);
       sgst = roundAmount((subtotal * tax.sgstRate) / 100);
+    } else if (taxDisplayMode === 'igst') {
+      igst = roundAmount((subtotal * getIgstRate(tax)) / 100);
     } else {
       gst = roundAmount((subtotal * getCombinedGstRate(tax)) / 100);
     }
   }
 
-  const total = roundAmount(subtotal + cgst + sgst + gst);
-  return { subtotal, cgst, sgst, gst, total };
+  const total = roundAmount(subtotal + cgst + sgst + gst + igst);
+  return { subtotal, cgst, sgst, gst, igst, total };
 }
 
 export type Invoice2SummaryRow = { label: string; value: string };
@@ -481,6 +485,11 @@ function gstSummaryLabel(tax: TaxSettings): string {
   return `GST (${rate}%)`;
 }
 
+function igstSummaryLabel(tax: TaxSettings): string {
+  if (!tax.isEnabled) return 'IGST';
+  return `IGST (${getIgstRate(tax)}%)`;
+}
+
 export function getInvoice2SummaryRows(
   summary: Invoice2Summary,
   tax: TaxSettings = EMPTY_TAX_SETTINGS,
@@ -490,6 +499,13 @@ export function getInvoice2SummaryRows(
     return [
       { label: 'SUBTOTAL', value: formatAmount(summary.subtotal) },
       { label: gstSummaryLabel(tax), value: formatAmount(summary.gst) },
+      { label: 'TOTAL', value: formatAmount(summary.total) },
+    ];
+  }
+  if (taxDisplayMode === 'igst') {
+    return [
+      { label: 'SUBTOTAL', value: formatAmount(summary.subtotal) },
+      { label: igstSummaryLabel(tax), value: formatAmount(summary.igst) },
       { label: 'TOTAL', value: formatAmount(summary.total) },
     ];
   }
@@ -537,7 +553,7 @@ export function getInvoice2SummaryHeight(props: InvoiceTable2Props): number {
   const rowCount =
     props.summaryRows?.length
     ?? props.computedSummaryRows?.length
-    ?? (normalizeTaxDisplayMode(props.taxDisplayMode) === 'combined' ? 3 : 4);
+    ?? (normalizeTaxDisplayMode(props.taxDisplayMode) === 'split' ? 4 : 3);
   return rowCount * rowHeight;
 }
 

@@ -1,4 +1,4 @@
-import { UserStatus, SubscriptionStatus } from '@invogen/shared';
+import { UserStatus, SubscriptionStatus, InvoiceStatus } from '@invogen/shared';
 import { superAdminService } from '../services/super-admin.service';
 import { planManagementService } from '../services/plan-management.service';
 import { cashfreeService } from '../services/cashfree.service';
@@ -70,8 +70,19 @@ export const deleteTemplate = wrap(async (req) => {
   await superAdminService.deleteTemplate(param(req.params.id));
 });
 export const getRevenue = wrap((req) => superAdminService.getRevenue(req.query));
+export const getReports = wrap((req) =>
+  superAdminService.getReports(param(req.params.type), req.query)
+);
 export const getInvoices = wrap((req) => superAdminService.getInvoices(req.query));
+export const getInvoice = wrap((req) => superAdminService.getInvoice(param(req.params.id)));
+export const updateInvoiceStatus = wrap((req) =>
+  superAdminService.updateInvoiceStatus(param(req.params.id), req.body.status as InvoiceStatus)
+);
+export const deleteInvoice = wrap(async (req) => {
+  await superAdminService.deleteInvoice(param(req.params.id));
+});
 export const getActivityLogs = wrap((req) => superAdminService.getActivityLogs(req.query));
+export const deleteActivityLogs = wrap((req) => superAdminService.deleteActivityLogs(req.body));
 export const getSupportTickets = wrap((req) => superAdminService.getSupportTickets(req.query));
 export const updateTicket = wrap((req) => superAdminService.updateTicket(param(req.params.id), req.body));
 export const getSettings = wrap((req) => superAdminService.getSettings(req.query.scope as string));
@@ -79,3 +90,13 @@ export const updateSetting = wrap((req) =>
   superAdminService.updateSetting(param(req.params.key), req.body.value, req.body.scope)
 );
 export const broadcastNotification = wrap((req) => superAdminService.broadcastNotification(req.body));
+export const getNotifications = wrap((req) => superAdminService.getNotifications(req.user!.userId));
+export const getUnreadNotificationCount = wrap((req) =>
+  superAdminService.getUnreadNotificationCount(req.user!.userId)
+);
+export const markNotificationRead = wrap((req) =>
+  superAdminService.markNotificationRead(req.user!.userId, param(req.params.id))
+);
+export const markAllNotificationsRead = wrap(async (req) => {
+  await superAdminService.markAllNotificationsRead(req.user!.userId);
+});

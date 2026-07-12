@@ -49,7 +49,8 @@ export function useCompanyBrandingQuery(scope: CompanyBrandingScope) {
         const res = await api.get('/super-admin/settings', { params: { scope: 'system' } });
         return parseCompanyProfile(res.data.data as SettingRow[]);
       }
-      const res = await api.get('/admin/company');
+      const companyPath = scope === 'employee' ? '/employee/company' : '/admin/company';
+      const res = await api.get(companyPath);
       return parseAdminCompany(res.data.data as Record<string, unknown>);
     },
     staleTime: 30_000,

@@ -16,6 +16,7 @@ import {
   parseTaxSettings,
   type TaxDisplayMode,
 } from '@/features/builder/tax-settings';
+import { EmployeeSettingsPanel } from '@/features/employees/EmployeeSettingsPanel';
 
 type CompanyForm = {
   name: string;
@@ -179,6 +180,7 @@ export default function AdminSettings() {
           >
             <option value="split">CGST + SGST (split)</option>
             <option value="combined">GST (combined)</option>
+            <option value="igst">IGST</option>
           </select>
         </div>
 
@@ -197,6 +199,13 @@ export default function AdminSettings() {
               onChange={(e) => updateTax('sgstRate', Number(e.target.value))}
             />
           </div>
+        ) : taxForm.taxDisplayMode === 'igst' ? (
+          <Input
+            label="IGST (%)"
+            fieldKind="percentage"
+            value={taxForm.igstRate}
+            onChange={(e) => updateTax('igstRate', Number(e.target.value))}
+          />
         ) : (
           <Input
             label="GST (%)"
@@ -210,6 +219,8 @@ export default function AdminSettings() {
           {savingTax ? 'Saving...' : 'Save tax settings'}
         </Button>
       </Card>
+
+      <EmployeeSettingsPanel />
     </div>
   );
 }

@@ -19,10 +19,12 @@ import { Input } from '@/components/ui/Input';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { FileUpload } from '@/components/ui/FileUpload';
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
+import { RegistrationAgreementSection } from '@/components/auth/RegistrationAgreementSection';
 import { uploadRegisterLogo } from '@/lib/upload';
 import { resolveMediaUrl } from '@/lib/media';
 import { getStatesForCountry } from '@/lib/location-data';
 import { validateFieldValue } from '@/lib/form-fields';
+import { loginPath } from '@/lib/workspace-portal';
 import { toast } from 'sonner';
 
 const STEPS = [
@@ -74,7 +76,7 @@ const emptyForm = (): RegisterForm => ({
   agreeToTerms: false,
 });
 
-export default function RegisterPage() {
+export default function RegisterPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const [step, setStep] = useState<StepId>('account');
@@ -212,8 +214,7 @@ export default function RegisterPage() {
         confirmPassword: form.confirmPassword,
         agreeToTerms: true,
       });
-      toast.success('Registration successful! Please verify your email.');
-      navigate('/admin/login');
+      navigate(loginPath('admin', { registered: '1', email: form.email.trim() }));
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(message || 'Registration failed');
@@ -246,70 +247,14 @@ export default function RegisterPage() {
   const selectClass =
     'w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
 
-  return (
-    <div className="flex min-h-screen">
-      <div className="hidden lg:flex lg:w-5/12 xl:w-2/5 bg-gradient-to-br from-primary to-primary-700 items-center justify-center p-12">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-white max-w-md"
-        >
-          {platformLogo ? (
-            <img
-              src={platformLogo}
-              alt={branding?.name || 'Invogen'}
-              className="h-14 w-auto max-w-[200px] object-contain mb-8 brightness-0 invert"
-            />
-          ) : (
-            <h1 className="text-4xl font-bold mb-8">{branding?.name || 'Invogen'}</h1>
-          )}
-          <h2 className="text-3xl font-bold leading-tight mb-4">
-            Start your professional invoicing workspace
-          </h2>
-          <p className="text-primary-100 text-lg leading-relaxed">
-            {branding?.tagline ||
-              'Premium invoice builder for modern businesses. Create, customize, and send professional invoices.'}
-          </p>
-          <ul className="mt-10 space-y-4 text-primary-50 text-sm">
-            {[
-              'Multi-step onboarding with company profile',
-              'Upload your company logo for branded invoices',
-              'GST-ready templates and team workspaces',
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-3">
-                <Check className="h-5 w-5 shrink-0 mt-0.5" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </motion.div>
+  const formCard = (
+    <div className="glass p-8">
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900">Create your business account</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Step {stepIndex + 1} of {STEPS.length} — {STEPS[stepIndex].label}
+        </p>
       </div>
-
-      <div className="flex flex-1 items-center justify-center p-6 sm:p-10 bg-gray-50">
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="w-full max-w-xl"
-        >
-          <div className="mb-8 lg:hidden text-center">
-            {platformLogo ? (
-              <img
-                src={platformLogo}
-                alt={branding?.name || 'Invogen'}
-                className="h-10 mx-auto object-contain"
-              />
-            ) : (
-              <span className="text-2xl font-bold text-primary">{branding?.name || 'Invogen'}</span>
-            )}
-          </div>
-
-          <div className="glass p-8">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-900">Create your account</h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Step {stepIndex + 1} of {STEPS.length} — {STEPS[stepIndex].label}
-              </p>
-            </div>
 
             <div className="mb-8 flex items-center gap-2">
               {STEPS.map((s, i) => {
@@ -567,27 +512,11 @@ export default function RegisterPage() {
                       </div>
                     </div>
 
-                    <label className="flex items-start gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={form.agreeToTerms}
-                        onChange={(e) => setField('agreeToTerms', e.target.checked)}
-                        className="mt-1 rounded border-gray-300"
-                      />
-                      <span className="text-sm text-gray-600">
-                        I agree to the{' '}
-                        <Link to="/" className="text-primary hover:underline">
-                          Terms of Service
-                        </Link>{' '}
-                        and{' '}
-                        <Link to="/" className="text-primary hover:underline">
-                          Privacy Policy
-                        </Link>
-                      </span>
-                    </label>
-                    {errors.agreeToTerms && (
-                      <p className="text-xs text-red-500">{errors.agreeToTerms}</p>
-                    )}
+                    <RegistrationAgreementSection
+                      agreed={form.agreeToTerms}
+                      onAgreedChange={(value) => setField('agreeToTerms', value)}
+                      error={errors.agreeToTerms}
+                    />
                   </div>
                 )}
               </motion.div>
@@ -617,11 +546,75 @@ export default function RegisterPage() {
 
             <p className="mt-6 text-center text-sm text-gray-500">
               Already have an account?{' '}
-              <Link to="/admin/login" className="text-primary font-medium hover:underline">
+              <Link to={loginPath('admin')} className="text-primary font-medium hover:underline">
                 Sign in
               </Link>
             </p>
+    </div>
+  );
+
+  if (embedded) {
+    return formCard;
+  }
+
+  return (
+    <div className="flex min-h-screen">
+      <div className="hidden lg:flex lg:w-5/12 xl:w-2/5 bg-gradient-to-br from-primary to-primary-700 items-center justify-center p-12">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-white max-w-md"
+        >
+          {platformLogo ? (
+            <img
+              src={platformLogo}
+              alt={branding?.name || 'Invogen'}
+              className="h-14 w-auto max-w-[200px] object-contain mb-8 brightness-0 invert"
+            />
+          ) : (
+            <h1 className="text-4xl font-bold mb-8">{branding?.name || 'Invogen'}</h1>
+          )}
+          <h2 className="text-3xl font-bold leading-tight mb-4">
+            Start your professional invoicing workspace
+          </h2>
+          <p className="text-primary-100 text-lg leading-relaxed">
+            {branding?.tagline ||
+              'Premium invoice builder for modern businesses. Create, customize, and send professional invoices.'}
+          </p>
+          <ul className="mt-10 space-y-4 text-primary-50 text-sm">
+            {[
+              'Multi-step onboarding with company profile',
+              'Upload your company logo for branded invoices',
+              'GST-ready templates and team workspaces',
+            ].map((item) => (
+              <li key={item} className="flex items-start gap-3">
+                <Check className="h-5 w-5 shrink-0 mt-0.5" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center p-6 sm:p-10 bg-gray-50">
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="w-full max-w-xl"
+        >
+          <div className="mb-8 lg:hidden text-center">
+            {platformLogo ? (
+              <img
+                src={platformLogo}
+                alt={branding?.name || 'Invogen'}
+                className="h-10 mx-auto object-contain"
+              />
+            ) : (
+              <span className="text-2xl font-bold text-primary">{branding?.name || 'Invogen'}</span>
+            )}
           </div>
+
+          {formCard}
         </motion.div>
       </div>
     </div>

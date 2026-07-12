@@ -39,6 +39,8 @@ interface Props {
   isSelected?: boolean;
   cropMode?: boolean;
   zoom?: number;
+  /** Preview / PDF — never mutate crop props; only display. */
+  previewMode?: boolean;
   onSelect?: () => void;
   onUpdateProps?: (patch: Record<string, unknown>, recordHistory?: boolean) => void;
   onFrameResize?: (
@@ -54,6 +56,7 @@ function ImageViewInner({
   isSelected,
   cropMode = false,
   zoom = 1,
+  previewMode = false,
   onSelect,
   onUpdateProps,
   onFrameResize,
@@ -70,7 +73,7 @@ function ImageViewInner({
   const isBarcode = element.type === ComponentType.BARCODE;
   const isReferenceBg = props.isReferenceBackground === true;
   const dispatch = useAppDispatch();
-  const isInteractive = !!isSelected && !element.locked && !!src;
+  const isInteractive = !previewMode && !!isSelected && !element.locked && !!src;
 
   const [naturalSize, setNaturalSize] = useState({
     w: image.imageNaturalW ?? 0,
@@ -114,7 +117,7 @@ function ImageViewInner({
         {
           imageNaturalW: img.naturalWidth,
           imageNaturalH: img.naturalHeight,
-          ...(shouldResetCrop
+          ...(shouldResetCrop && !previewMode
             ? cropTransformToProps(
                 defaultCropForFrame(
                   element.width,
@@ -133,7 +136,7 @@ function ImageViewInner({
     return () => {
       cancelled = true;
     };
-  }, [src, image.imageNaturalW, image.imageNaturalH, image.objectFit, props.imageCrop, element.width, element.height, onUpdateProps]);
+  }, [src, image.imageNaturalW, image.imageNaturalH, image.objectFit, props.imageCrop, element.width, element.height, onUpdateProps, previewMode, effectiveFit]);
 
   const base = useMemo(
     () =>
@@ -343,6 +346,15 @@ function ImageViewInner({
   };
 
   if (!src) {
+    if (previewMode) {
+      return (
+        <div
+          className="builder-image-surface flex h-full min-h-[40px] w-full items-center justify-center bg-transparent"
+          style={{ borderRadius: image.borderRadius }}
+        />
+      );
+    }
+
     return (
       <div
         className="builder-image-surface flex h-full min-h-[80px] w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 bg-gray-50 p-2 text-gray-400"
@@ -443,7 +455,7 @@ function ImageViewInner({
           onCropChange={handleCropChange}
           onFrameResize={handleFrameResize}
         />
-      ) : naturalSize.w > 0 ? (
+      ) : (
         <CroppedImageDisplay
           src={src}
           alt={image.alt || label}
@@ -452,12 +464,6 @@ function ImageViewInner({
           base={base}
           crop={crop}
           image={image}
-        />
-      ) : (
-        <img
-          src={src}
-          alt={image.alt || label}
-          className="pointer-events-none h-full w-full object-contain"
         />
       )}
     </div>

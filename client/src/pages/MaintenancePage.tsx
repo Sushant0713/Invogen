@@ -1,4 +1,4 @@
-import { Link, Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import { UserRole } from '@invogen/shared';
 import { useAppSelector } from '@/hooks/useAppDispatch';
@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 const linkButtonClass =
   'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200';
 
-const EXEMPT_PREFIXES = ['/super-admin', '/maintenance'];
+const EXEMPT_PREFIXES = ['/super-admin', '/maintenance', '/verify-email', '/forgot-password', '/reset-password', '/register', '/login', '/legal'];
 
 function isMaintenanceExempt(pathname: string) {
   return EXEMPT_PREFIXES.some(
@@ -35,7 +35,7 @@ export function MaintenanceGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function MaintenancePage() {
-  const { data: maintenance, isLoading } = useMaintenanceStatus();
+  const { data: maintenance, isLoading, refetch, isFetching } = useMaintenanceStatus();
 
   if (!isLoading && maintenance && !maintenance.enabled) {
     return <Navigate to="/" replace />;
@@ -56,12 +56,17 @@ export default function MaintenancePage() {
             'We are currently performing scheduled maintenance. Please check back soon.'}
         </p>
         <div className="mt-8 flex justify-center">
-          <Link
-            to="/"
-            className={cn(linkButtonClass, 'border-2 border-primary text-primary hover:bg-primary-50')}
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className={cn(
+              linkButtonClass,
+              'border-2 border-primary text-primary hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60'
+            )}
           >
-            Back to home
-          </Link>
+            {isFetching ? 'Checking…' : 'Retry'}
+          </button>
         </div>
       </div>
     </div>

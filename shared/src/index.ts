@@ -7,3 +7,5 @@ export * from './types/common';
 export * from './types/discount';
 export * from './types/template';
 export * from './constants/permissions';
+export * from './constants/employee-permissions';
+export * from './utils/platform-invoice-table-fill';

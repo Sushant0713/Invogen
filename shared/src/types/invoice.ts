@@ -14,8 +14,6 @@ export enum InvoiceStatus {
   DRAFT = 'draft',
   SENT = 'sent',
   PAID = 'paid',
-  PARTIAL = 'partial',
-  OVERDUE = 'overdue',
   CANCELLED = 'cancelled',
 }
 
@@ -39,6 +37,8 @@ export interface TemplatePage {
   margins: { top: number; right: number; bottom: number; left: number };
   /** Imported / custom canvas size (defaults to A4 when omitted). */
   pageSize?: { width: number; height: number };
+  /** True when the user explicitly added this page tab (not auto table overflow). */
+  userAuthored?: boolean;
 }
 
 export interface LineItem {

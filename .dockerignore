@@ -1,0 +1,29 @@
+# Root build context for client/ and server/ Dockerfiles
+.git
+.github
+.gitignore
+.dockerignore
+
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.vite
+**/.turbo
+**/*.log
+**/.DS_Store
+
+# Secrets — never bake into images
+.env
+.env.*
+!.env.example
+
+# Local / docs noise
+docs
+uploads
+*.md
+!README.md
+agent-transcripts
+.cursor
+.vscode
+*.pem

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/api/client';
 import { DataTable } from '@/components/ui/DataTable';
@@ -15,12 +16,14 @@ function CrudPage({
   columns,
   fields,
   title,
+  extraRowActions,
 }: {
   endpoint: string;
   queryKey: string;
   columns: { key: string; label: string; render?: (r: Record<string, unknown>) => React.ReactNode }[];
   fields: { name: string; label: string; type?: string; fieldKind?: FieldKind; suggest?: boolean }[];
   title: string;
+  extraRowActions?: (row: Record<string, unknown>) => ReactNode;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -166,7 +169,8 @@ function CrudPage({
             key: 'actions',
             label: 'Actions',
             render: (r) => (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                {extraRowActions?.(r)}
                 <Button size="sm" variant="outline" onClick={() => startEdit(r)}>
                   Edit
                 </Button>
@@ -210,11 +214,19 @@ export default function AdminEmployees() {
   );
 }
 
-export function AdminCustomers() {
+export function CustomersCrud({
+  endpoint = '/admin/customers',
+  queryKey = 'admin-customers',
+  invoicesPathPrefix,
+}: {
+  endpoint?: string;
+  queryKey?: string;
+  invoicesPathPrefix?: string;
+}) {
   return (
     <CrudPage
-      endpoint="/admin/customers"
-      queryKey="admin-customers"
+      endpoint={endpoint}
+      queryKey={queryKey}
       title="Customer"
       fields={[
         { name: 'name', label: 'Name' },
@@ -228,15 +240,36 @@ export function AdminCustomers() {
         { key: 'phone', label: 'Phone' },
         { key: 'gst', label: 'GST' },
       ]}
+      extraRowActions={
+        invoicesPathPrefix
+          ? (row) => (
+              <Link to={`${invoicesPathPrefix}?customerId=${String(row._id)}`}>
+                <Button size="sm" variant="outline">
+                  View invoices
+                </Button>
+              </Link>
+            )
+          : undefined
+      }
     />
   );
 }
 
-export function AdminProducts() {
+export function AdminCustomers() {
+  return <CustomersCrud />;
+}
+
+export function ProductsCrud({
+  endpoint = '/admin/products',
+  queryKey = 'admin-products',
+}: {
+  endpoint?: string;
+  queryKey?: string;
+}) {
   return (
     <CrudPage
-      endpoint="/admin/products"
-      queryKey="admin-products"
+      endpoint={endpoint}
+      queryKey={queryKey}
       title="Product"
       fields={[
         { name: 'name', label: 'Name' },
@@ -253,6 +286,10 @@ export function AdminProducts() {
       ]}
     />
   );
+}
+
+export function AdminProducts() {
+  return <ProductsCrud />;
 }
 
 export function AdminProductsCrud() {

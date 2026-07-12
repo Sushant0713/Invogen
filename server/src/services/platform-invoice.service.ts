@@ -4,30 +4,17 @@ import { sendEmail } from '../config/mail';
 import { env } from '../config/env';
 import { mediaService } from './media.service';
 import { buildSubscriptionInvoicePdf } from './platform-invoice-pdf.service';
+import {
+  buildPlatformInvoiceTemplatePdf,
+  buildPlatformInvoiceTemplateSnapshot,
+} from './platform-invoice-template-pdf.service';
+import type { PlatformInvoiceSettingsValue } from '../utils/platform-invoice-template-fill';
 
-interface PlatformInvoiceSettings {
+interface PlatformInvoiceSettings extends PlatformInvoiceSettingsValue {
   prefix: string;
   numberFormat: string;
   nextNumber: number;
   currency: string;
-  invoiceTitle: string;
-  seller: {
-    name: string;
-    addressLine1?: string;
-    addressLine2?: string;
-    city?: string;
-    state?: string;
-    zipCode?: string;
-    country?: string;
-    gstin?: string;
-    email?: string;
-    phone?: string;
-    website?: string;
-  };
-  termsAndConditions?: string;
-  thankYouNote?: string;
-  subscriptionNote?: string;
-  billingSupportEmail?: string;
 }
 
 interface PaymentPricingMeta {
@@ -75,16 +62,15 @@ async function loadPlatformInvoiceSettings(): Promise<PlatformInvoiceSettings> {
   const setting = await Setting.findOne({ key: 'invoice_settings', scope: 'system' });
   const value = (setting?.value || {}) as PlatformInvoiceSettings;
   return {
+    ...value,
     prefix: value.prefix || 'INV',
     numberFormat: value.numberFormat || '{PREFIX}-{YYYY}-{NNNNN}',
     nextNumber: value.nextNumber || 1,
     currency: value.currency || 'INR',
     invoiceTitle: value.invoiceTitle || 'INVOICE',
-    seller: value.seller || { name: 'Invogen' },
-    termsAndConditions: value.termsAndConditions,
+    defaultDueDays: value.defaultDueDays ?? 7,
     thankYouNote: value.thankYouNote || 'Thank you for your business',
-    subscriptionNote: value.subscriptionNote,
-    billingSupportEmail: value.billingSupportEmail,
+    seller: value.seller || { name: 'Invogen' },
   };
 }
 
@@ -140,15 +126,15 @@ function buildInvoiceEmailHtml(params: {
     subscriptionNote,
   } = params;
 
-  const sellerName = escapeHtml(seller.name || 'Invogen');
+  const sellerName = escapeHtml(seller?.name || 'Invogen');
   const greetingName = escapeHtml(recipientName || buyerName || 'Customer');
   const safeInvoiceNumber = escapeHtml(invoiceNumber);
   const safePlanName = escapeHtml(planName);
   const safeBillingCycle = escapeHtml(billingCycle);
   const issueDateLabel = formatLongDate(issueDate);
   const fyLabel = financialYearLabel(issueDate);
-  const supportEmail = escapeHtml(billingSupportEmail || seller.email || '');
-  const supportPhone = seller.phone ? escapeHtml(seller.phone) : '';
+  const supportEmail = escapeHtml(billingSupportEmail || seller?.email || '');
+  const supportPhone = seller?.phone ? escapeHtml(seller.phone) : '';
   const safePdfFilename = escapeHtml(pdfFilename);
 
   const discount = pricing.discountAmount ?? 0;
@@ -209,7 +195,7 @@ function buildInvoiceEmailHtml(params: {
 
   <p style="margin:0;font-size:12px;color:#666666;">
     Please note: This is a computer-generated email. Please do not reply to this message.
-    ${seller.gstin ? ` ${sellerName} · GSTIN ${escapeHtml(seller.gstin)}` : ''}
+    ${seller?.gstin ? ` ${sellerName} · GSTIN ${escapeHtml(seller.gstin)}` : ''}
   </p>
 </body>
 </html>`;
@@ -253,6 +239,8 @@ export const platformInvoiceService = {
     const taxable = pricing.taxableAmount ?? subtotal - discount;
 
     const issueDate = new Date();
+    const dueDate = new Date(issueDate);
+    dueDate.setDate(dueDate.getDate() + (settings.defaultDueDays ?? 7));
     const buyerName = company.name;
     const buyerEmail = company.email || user.email;
 
@@ -289,7 +277,7 @@ export const platformInvoiceService = {
         total,
       },
       issueDate,
-      dueDate: issueDate,
+      dueDate,
       paidAt: issueDate,
       sentAt: issueDate,
       notes: 'Invogen platform subscription invoice',
@@ -304,11 +292,11 @@ export const platformInvoiceService = {
     };
     await payment.save();
 
-    const pdfBuffer = await buildSubscriptionInvoicePdf({
+    const pdfInput = {
+      settings,
       invoiceNumber,
-      invoiceTitle: settings.invoiceTitle || 'INVOICE',
       issueDate,
-      seller: settings.seller,
+      dueDate,
       buyer: {
         name: buyerName,
         email: buyerEmail,
@@ -319,7 +307,6 @@ export const platformInvoiceService = {
       },
       planName: plan.name,
       billingCycle: plan.billingCycle,
-      orderId: params.orderId || payment.razorpayOrderId,
       currency: payment.currency || settings.currency,
       subtotal,
       discount,
@@ -328,10 +315,63 @@ export const platformInvoiceService = {
       sgst,
       tax,
       total,
-      terms: settings.termsAndConditions,
-      thankYouNote: settings.thankYouNote,
-      subscriptionNote: settings.subscriptionNote,
-    });
+    };
+
+    const templateSnapshot = await buildPlatformInvoiceTemplateSnapshot(pdfInput);
+    if (templateSnapshot?.length) {
+      invoice.templateSnapshot = templateSnapshot;
+      await invoice.save();
+    }
+
+    let pdfBuffer: Buffer | null = null;
+    const templateId = settings.platformTemplateId?.trim();
+    if (templateId) {
+      try {
+        pdfBuffer = await buildPlatformInvoiceTemplatePdf(pdfInput);
+        if (!pdfBuffer) {
+          console.warn(
+            `[platform-invoice] Template "${templateId}" not found or has no pages; using legacy PDF`
+          );
+        }
+      } catch (error) {
+        console.warn('[platform-invoice] Template PDF failed, using legacy layout:', error);
+      }
+    } else {
+      console.warn('[platform-invoice] No Super Admin template selected in invoice settings; using legacy PDF');
+    }
+
+    if (!pdfBuffer) {
+      pdfBuffer = await buildSubscriptionInvoicePdf({
+        invoiceNumber,
+        invoiceTitle: settings.invoiceTitle || 'INVOICE',
+        issueDate,
+        dueDate,
+        seller: settings.seller ?? { name: 'Invogen' },
+        bank: settings.bank,
+        buyer: pdfInput.buyer,
+        planName: plan.name,
+        billingCycle: plan.billingCycle,
+        orderId: params.orderId || payment.razorpayOrderId,
+        currency: payment.currency || settings.currency,
+        subtotal,
+        discount,
+        discountCode: pricing.discountCode,
+        cgst,
+        sgst,
+        tax,
+        total,
+        paymentDueText: settings.paymentDueText,
+        latePaymentNote: settings.latePaymentNote,
+        terms: settings.termsAndConditions,
+        thankYouNote: settings.thankYouNote,
+        subscriptionNote: settings.subscriptionNote,
+        billingSupportEmail: settings.billingSupportEmail,
+        signatoryName: settings.signatoryName,
+        signatoryTitle: settings.signatoryTitle,
+        signatoryFor: settings.signatoryFor,
+        digitalSignatureNote: settings.digitalSignatureNote,
+      });
+    }
 
     const pdfFilename = `${invoiceNumber.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`;
     const media = await mediaService.saveFile({
@@ -354,7 +394,7 @@ export const platformInvoiceService = {
       const html = buildInvoiceEmailHtml({
         invoiceNumber,
         issueDate,
-        seller: settings.seller,
+        seller: settings.seller ?? { name: 'Invogen' },
         recipientName,
         buyerName,
         planName: plan.name,
@@ -371,7 +411,7 @@ export const platformInvoiceService = {
       try {
         await sendEmail({
           to: recipient,
-          subject: `Tax Invoice ${invoiceNumber} — ${settings.seller.name || 'Invogen'}`,
+          subject: `Tax Invoice ${invoiceNumber} — ${settings.seller?.name || 'Invogen'}`,
           html,
           attachments: [
             {

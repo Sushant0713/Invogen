@@ -28,6 +28,8 @@ export function useImageCrop({
     startOffsetX: number;
     startOffsetY: number;
   } | null>(null);
+  const pendingCropRef = useRef(crop);
+  pendingCropRef.current = crop;
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -52,14 +54,13 @@ export function useImageCrop({
       if (!drag || !enabled) return;
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
-      onChange(
-        panImageInCrop(
-          { ...crop, offsetX: drag.startOffsetX, offsetY: drag.startOffsetY },
-          dx,
-          dy
-        ),
-        false
+      const next = panImageInCrop(
+        { ...crop, offsetX: drag.startOffsetX, offsetY: drag.startOffsetY },
+        dx,
+        dy
       );
+      pendingCropRef.current = next;
+      onChange(next, false);
     },
     [enabled, crop, onChange]
   );
@@ -69,7 +70,7 @@ export function useImageCrop({
       if (!dragRef.current) return;
       dragRef.current = null;
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      onChange(crop, true);
+      onChange(pendingCropRef.current, true);
     },
     [crop, onChange]
   );

@@ -1,27 +1,35 @@
-import { useState } from 'react';
-import { Download } from 'lucide-react';
-import { toast } from 'sonner';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { ExternalLink, Eye, Settings2 } from 'lucide-react';
+import type { TemplateSummary } from '@invogen/shared';
+import api from '@/api/client';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
-import { ModernInvoicePreview } from './ModernInvoicePreview';
+import { cn } from '@/lib/utils';
+import { PlatformInvoiceLiveWorkspace } from './PlatformInvoiceLiveWorkspace';
 import type { InvoiceSettings } from './invoice-settings.types';
 import type { CompanyBranding } from './company-branding';
 
 const selectClass =
   'w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
 
+type InvoiceSettingsTab = 'preview' | 'defaults';
+
 function SectionCard({
   title,
   description,
   children,
+  className,
 }: {
   title: string;
   description?: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-4 space-y-4">
+    <div className={cn('rounded-xl border border-gray-100 bg-gray-50/60 p-4 space-y-4', className)}>
       <div>
         <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
         {description && <p className="mt-0.5 text-xs text-gray-500">{description}</p>}
@@ -36,7 +44,7 @@ export function InvoiceSettingPanel({
   onChange,
   onSave,
   saving,
-  companyBranding,
+  companyBranding: _companyBranding,
 }: {
   form: InvoiceSettings;
   onChange: (form: InvoiceSettings) => void;
@@ -44,6 +52,8 @@ export function InvoiceSettingPanel({
   saving: boolean;
   companyBranding: CompanyBranding;
 }) {
+  const [tab, setTab] = useState<InvoiceSettingsTab>('preview');
+
   const updateSeller = (field: keyof InvoiceSettings['seller'], value: string) =>
     onChange({ ...form, seller: { ...form.seller, [field]: value } });
 
@@ -53,43 +63,122 @@ export function InvoiceSettingPanel({
   const update = (field: keyof InvoiceSettings, value: string | number | boolean) =>
     onChange({ ...form, [field]: value });
 
-  const [downloading, setDownloading] = useState(false);
+  const { data: superAdminTemplates = [], isLoading: templatesLoading } = useQuery({
+    queryKey: ['super-admin-invoice-template-options'],
+    queryFn: async () => {
+      const res = await api.get('/super-admin/templates', {
+        params: { scope: 'super_admin', limit: 200 },
+      });
+      return (res.data.data ?? []) as TemplateSummary[];
+    },
+  });
 
-  const handleDownload = async () => {
-    setDownloading(true);
-    try {
-      const { downloadInvoicePdf } = await import('./download-invoice-pdf');
-      await downloadInvoicePdf(form, companyBranding);
-      toast.success('Invoice downloaded (A4 PDF)');
-    } catch {
-      toast.error('Failed to generate PDF');
-    } finally {
-      setDownloading(false);
-    }
-  };
+  const selectedTemplate = superAdminTemplates.find((template) => template._id === form.platformTemplateId);
+
+  useEffect(() => {
+    if (form.platformTemplateId || superAdminTemplates.length === 0) return;
+    onChange({ ...form, platformTemplateId: superAdminTemplates[0]._id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.platformTemplateId, superAdminTemplates]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">Invoice setting</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Modern geometric invoice layout. Logo and signature are loaded from Company setting.
+    <div className="flex h-full min-h-0 flex-col">
+      <div
+        className={cn(
+          'flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-2',
+          tab === 'defaults' && 'shadow-sm'
+        )}
+      >
+        <select
+          id="platform-template"
+          value={form.platformTemplateId}
+          onChange={(e) => update('platformTemplateId', e.target.value)}
+          disabled={templatesLoading || superAdminTemplates.length === 0}
+          className="h-9 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:min-w-[12rem] sm:max-w-xs"
+          aria-label="Super Admin template"
+        >
+          {templatesLoading ? (
+            <option value="">Loading…</option>
+          ) : superAdminTemplates.length === 0 ? (
+            <option value="">No templates</option>
+          ) : (
+            superAdminTemplates.map((template) => (
+              <option key={template._id} value={template._id}>
+                {template.name}
+              </option>
+            ))
+          )}
+        </select>
+
+        <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setTab('preview')}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition',
+              tab === 'preview'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            )}
+          >
+            <Eye className="h-4 w-4" />
+            <span className="hidden sm:inline">Live preview</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('defaults')}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition',
+              tab === 'defaults'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            )}
+          >
+            <Settings2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Billing defaults</span>
+          </button>
+        </div>
+
+        <Link
+          to="/super-admin/templates/super-admin"
+          title="Manage Super Admin templates"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition hover:border-primary/40 hover:text-primary"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </Link>
+
+        <p className="hidden w-full text-xs text-gray-500 lg:block lg:w-auto lg:flex-1">
+          Selected template + saved billing defaults are emailed to clients after plan payment.
         </p>
+
+        <Button onClick={onSave} disabled={saving} loading={saving} size="sm" className="ml-auto shrink-0">
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
-          <SectionCard title="Template" description="Active invoice design for platform billing.">
-            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-              <p className="text-sm font-semibold text-primary">Template 7 — Modern Geometric</p>
-              <p className="mt-1 text-xs text-gray-600">
-                Orange header table, payment method block, and signature footer.
-              </p>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Invoice header" description="Title and numbering shown at the top of every invoice.">
-            <div className="grid gap-4 sm:grid-cols-2">
+      {tab === 'preview' ? (
+        <div className="min-h-0 flex-1 bg-gray-100">
+          <PlatformInvoiceLiveWorkspace
+            form={form}
+            templateId={form.platformTemplateId}
+            templateName={selectedTemplate?.name ?? 'Template'}
+          />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-4 md:p-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Billing defaults</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Seller, bank, numbering, and tax options for platform subscription invoices. Changes apply to the live preview when you switch back to that tab — click Save to persist.
+            </p>
+          </div>
+        <div className="grid gap-4 pb-4 md:grid-cols-2">
+          <SectionCard
+            title="Invoice header"
+            description="Title and numbering on every platform invoice."
+            className="md:col-span-2"
+          >
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Input label="Invoice title" value={form.invoiceTitle} onChange={(e) => update('invoiceTitle', e.target.value)} />
               <Input label="Invoice prefix" value={form.prefix} onChange={(e) => update('prefix', e.target.value)} />
               <Input label="Number format" value={form.numberFormat} onChange={(e) => update('numberFormat', e.target.value)} />
@@ -116,7 +205,7 @@ export function InvoiceSettingPanel({
             </p>
           </SectionCard>
 
-          <SectionCard title="Seller details" description="Your company information printed on the invoice.">
+          <SectionCard title="Seller details" description="Printed on the invoice as your company.">
             <div className="grid gap-4 sm:grid-cols-2">
               <Input label="Company name" value={form.seller.name} onChange={(e) => updateSeller('name', e.target.value)} className="sm:col-span-2" />
               <Input label="Address line 1" value={form.seller.addressLine1} onChange={(e) => updateSeller('addressLine1', e.target.value)} className="sm:col-span-2" />
@@ -133,7 +222,7 @@ export function InvoiceSettingPanel({
             </div>
           </SectionCard>
 
-          <SectionCard title="Payment details" description="Bank account information for invoice payments.">
+          <SectionCard title="Payment details" description="Bank account on the invoice.">
             <div className="grid gap-4 sm:grid-cols-2">
               <Input label="Bank name" value={form.bank.bankName} onChange={(e) => updateBank('bankName', e.target.value)} />
               <Input label="Account name" value={form.bank.accountName} onChange={(e) => updateBank('accountName', e.target.value)} />
@@ -143,10 +232,12 @@ export function InvoiceSettingPanel({
             </div>
           </SectionCard>
 
-          <SectionCard title="Payment terms & notes">
-            <div className="space-y-4">
+          <SectionCard title="Payment terms & notes" className="md:col-span-2">
+            <div className="grid gap-4 md:grid-cols-2">
               <Input label="Payment due text" value={form.paymentDueText} onChange={(e) => update('paymentDueText', e.target.value)} />
-              <div className="space-y-1.5">
+              <Input label="Thank you note" value={form.thankYouNote} onChange={(e) => update('thankYouNote', e.target.value)} />
+              <Input label="Billing support email" fieldKind="email" value={form.billingSupportEmail} onChange={(e) => update('billingSupportEmail', e.target.value)} className="md:col-span-2" />
+              <div className="space-y-1.5 md:col-span-2">
                 <label htmlFor="terms-conditions" className="block text-sm font-medium text-gray-700">
                   Terms and conditions
                 </label>
@@ -178,13 +269,11 @@ export function InvoiceSettingPanel({
                   className={selectClass}
                 />
               </div>
-              <Input label="Thank you note" value={form.thankYouNote} onChange={(e) => update('thankYouNote', e.target.value)} />
-              <Input label="Billing support email" fieldKind="email" value={form.billingSupportEmail} onChange={(e) => update('billingSupportEmail', e.target.value)} />
             </div>
           </SectionCard>
 
-          <SectionCard title="Signatory & tax display">
-            <div className="grid gap-4 sm:grid-cols-2">
+          <SectionCard title="Signatory & tax display" className="md:col-span-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Input label="Signatory name" value={form.signatoryName} onChange={(e) => update('signatoryName', e.target.value)} />
               <Input label="Signatory title" value={form.signatoryTitle} onChange={(e) => update('signatoryTitle', e.target.value)} />
               <Input label="Signatory label" value={form.signatoryLabel} onChange={(e) => update('signatoryLabel', e.target.value)} />
@@ -209,7 +298,7 @@ export function InvoiceSettingPanel({
                 onChange={(e) => update('sgstRate', Number(e.target.value))}
               />
             </div>
-            <div className="space-y-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {[
                 { key: 'showDiscount' as const, title: 'Show discount row', desc: 'Display discount line in totals' },
                 { key: 'showGstSummary' as const, title: 'Show GST summary table', desc: 'Display tax breakdown at the bottom' },
@@ -230,33 +319,9 @@ export function InvoiceSettingPanel({
               ))}
             </div>
           </SectionCard>
-
-          <Button onClick={onSave} disabled={saving} className="w-full sm:w-auto">
-            {saving ? 'Saving...' : 'Save invoice settings'}
-          </Button>
         </div>
-
-        <div className="space-y-3 xl:sticky xl:top-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Live preview — Template 7</p>
-              <p className="text-xs text-gray-500">A4 format (210 × 297 mm). Bill-to and line items are sample data.</p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleDownload}
-              loading={downloading}
-              disabled={downloading}
-            >
-              <Download className="h-4 w-4" />
-              Download A4 PDF
-            </Button>
-          </div>
-          <ModernInvoicePreview form={form} branding={companyBranding} />
         </div>
-      </div>
+      )}
     </div>
   );
 }

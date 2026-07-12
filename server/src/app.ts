@@ -3,7 +3,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
-import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { errorHandler, notFound } from './middlewares/error.middleware';
 import healthRoutes from './routes/health.routes';
@@ -38,14 +37,8 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(cookieParser());
 app.use(mongoSanitize());
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50,
-  message: { success: false, message: 'Too many requests, please try again later' },
-});
-
 app.use('/api/v1', healthRoutes);
-app.use('/api/v1/auth', authLimiter, authRoutes);
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/super-admin', superAdminRoutes);
 app.use('/api/v1/admin', enforceMaintenanceMode, adminRoutes);
 app.use('/api/v1/employee', enforceMaintenanceMode, employeeRoutes);

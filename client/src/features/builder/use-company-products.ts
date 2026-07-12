@@ -1,5 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api/client';
+import {
+  companyApiForScope,
+  productsApiForScope,
+  type CompanyBrandingScope,
+} from './company-branding';
+import { useCompanyScope } from './CompanyBrandingProvider';
 
 export type CompanyProductOption = {
   _id: string;
@@ -34,18 +40,22 @@ function extractProducts(payload: unknown): CompanyProductOption[] {
   return [];
 }
 
-/** Products from Admin → Products, with optional name search. */
+/** Company product catalog for invoice / template editors. */
 export function useCompanyProducts(options?: {
   enabled?: boolean;
   search?: string;
+  scope?: CompanyBrandingScope;
 }) {
+  const contextScope = useCompanyScope();
   const enabled = options?.enabled ?? true;
   const search = options?.search?.trim() ?? '';
+  const scope = options?.scope ?? contextScope;
+  const productsApi = productsApiForScope(scope);
 
   return useQuery({
-    queryKey: ['builder-company-products', search],
+    queryKey: ['builder-company-products', scope, search],
     queryFn: async () => {
-      const res = await api.get('/admin/products', {
+      const res = await api.get(productsApi, {
         params: {
           limit: 100,
           ...(search ? { search } : {}),

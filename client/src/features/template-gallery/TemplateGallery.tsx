@@ -26,10 +26,21 @@ export interface TemplateGalleryProps {
   showEdit?: boolean;
   showFavorites?: boolean;
   showRecentlyUsed?: boolean;
-  /** Override default behaviour (open full editor). */
-  onOpenTemplate?: (templateId: string) => void;
+  /** Per-template edit pencil visibility (defaults to showEdit). */
+  canEditTemplate?: (template: TemplateSummary) => boolean;
+  /** Per-template open action for card / recent rows (defaults to always). */
+  canOpenTemplate?: (template: TemplateSummary) => boolean;
+  /** Override default behaviour (open full editor). Used for card / recent quick open. */
+  onOpenTemplate?: (template: TemplateSummary) => void;
+  /** Pencil action — customize template layout. Falls back to onOpenTemplate. */
+  onEditTemplate?: (template: TemplateSummary) => void;
   /** Optional action rendered on each card (e.g. New Invoice). */
-  renderCardAction?: (templateId: string, templateName: string) => React.ReactNode;
+  renderCardAction?: (template: TemplateSummary) => React.ReactNode;
+  /** Opens read-only template preview (eye icon). */
+  onViewTemplate?: (template: TemplateSummary) => void;
+  /** Restrict super-admin system template lists. */
+  listScope?: 'standard' | 'super_admin';
+  hideCategoryFilters?: boolean;
 }
 
 export function TemplateGallery({
@@ -45,8 +56,14 @@ export function TemplateGallery({
   showEdit = true,
   showFavorites = true,
   showRecentlyUsed = true,
+  canEditTemplate,
+  canOpenTemplate,
   onOpenTemplate,
+  onEditTemplate,
   renderCardAction,
+  onViewTemplate,
+  listScope,
+  hideCategoryFilters = false,
 }: TemplateGalleryProps) {
   const navigate = useNavigate();
 
@@ -57,7 +74,7 @@ export function TemplateGallery({
     setCategory,
     favoritesOnly,
     setFavoritesOnly,
-    favorites,
+    scopedFavoriteIds,
     isFavorite,
     templates,
     categories,
@@ -68,19 +85,36 @@ export function TemplateGallery({
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
-  } = useTemplateGallery({ apiBase, queryKey });
+  } = useTemplateGallery({ apiBase, queryKey, listScope });
 
   const categoryOptions = getTemplateCategoryOptions(categories);
 
   const handleOpen = useCallback(
-    (templateId: string) => {
+    (template: TemplateSummary) => {
+      if (canOpenTemplate && !canOpenTemplate(template)) return;
       if (onOpenTemplate) {
-        onOpenTemplate(templateId);
+        onOpenTemplate(template);
         return;
       }
-      openTemplateInEditor({ templateId, editPath, navigate });
+      openTemplateInEditor({ templateId: template._id, editPath, navigate });
     },
-    [editPath, navigate, onOpenTemplate]
+    [canOpenTemplate, editPath, navigate, onOpenTemplate]
+  );
+
+  const handleEdit = useCallback(
+    (template: TemplateSummary) => {
+      if (onEditTemplate) {
+        onEditTemplate(template);
+        return;
+      }
+      handleOpen(template);
+    },
+    [handleOpen, onEditTemplate]
+  );
+
+  const canShowEdit = useCallback(
+    (template: TemplateSummary) => showEdit && (canEditTemplate ? canEditTemplate(template) : true),
+    [canEditTemplate, showEdit]
   );
 
   const onToggleFavorite = (id: string) => {
@@ -115,14 +149,15 @@ export function TemplateGallery({
               }`}
             >
               <Heart className={`h-3.5 w-3.5 ${favoritesOnly ? 'fill-red-500 text-red-500' : ''}`} />
-              Favourites{favorites.length > 0 ? ` (${favorites.length})` : ''}
+              Favourites{scopedFavoriteIds.length > 0 ? ` (${scopedFavoriteIds.length})` : ''}
             </button>
           )}
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {categoryOptions.map((cat) => (
+        {!hideCategoryFilters &&
+          categoryOptions.map((cat) => (
           <button
             key={cat}
             type="button"
@@ -154,6 +189,7 @@ export function TemplateGallery({
                 key={t._id}
                 template={t}
                 onOpen={handleOpen}
+                canOpen={canOpenTemplate ? canOpenTemplate(t) : true}
                 onRemove={handleRemoveRecent}
               />
             ))}
@@ -183,13 +219,14 @@ export function TemplateGallery({
               key={template._id}
               template={template}
               apiBase={apiBase}
-              onOpen={handleOpen}
-              cardAction={renderCardAction?.(template._id, template.name)}
+              onOpen={handleEdit}
+              cardAction={renderCardAction?.(template)}
               onToggleFavorite={showFavorites ? onToggleFavorite : undefined}
               favorite={isFavorite(template._id)}
               onDelete={onDeleteTemplate}
               canDelete={canDeleteTemplate}
-              showEdit={showEdit}
+              showEdit={canShowEdit(template)}
+              onView={onViewTemplate}
               isDeleting={deletingTemplateId === template._id}
             />
           ))}

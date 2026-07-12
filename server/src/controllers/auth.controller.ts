@@ -31,10 +31,31 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+export const registerEmployee = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await authService.registerEmployee(req.body);
+    const message = result.requiresApproval
+      ? 'Registration submitted. An admin will review your request.'
+      : 'Registration successful. You can sign in now.';
+    return sendSuccess(res, result, message, 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getBranding = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const branding = await authService.getBranding();
     return sendSuccess(res, branding);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAgreements = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agreements = await authService.getAgreements();
+    return sendSuccess(res, agreements);
   } catch (error) {
     next(error);
   }
@@ -136,8 +157,12 @@ export const resendVerification = async (req: Request, res: Response, next: Next
 
 export const forgotPassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await authService.forgotPassword(req.body.email);
-    return sendSuccess(res, null, 'If the email exists, a reset link has been sent');
+    const result = await authService.forgotPassword(req.body.email, req.body.portal);
+    return sendSuccess(
+      res,
+      result?.resetUrl ? { resetUrl: result.resetUrl } : null,
+      'If the email exists, a reset link has been sent'
+    );
   } catch (error) {
     next(error);
   }

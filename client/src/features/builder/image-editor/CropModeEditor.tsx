@@ -130,6 +130,7 @@ function CropModeEditorInner({
         frameH={frameH}
         zoom={zoom}
         frameBounds={frameBounds}
+        panEnabled={panEnabled}
         onCropChange={onCropChange}
         onFrameResize={onFrameResize}
       />

@@ -19,11 +19,11 @@ import {
 } from '@/features/builder/product-table';
 import { normalizeTablePropsForType, resolveTableElementType } from '@/features/builder/table-props-normalize';
 import { finalizeComposerTableProps, isSummaryOnlyTable, syncSummaryOnlyTable } from '@/features/builder/composer-table-preview';
-import { updateInvoiceCell, recalculateInvoiceTable, isInvoiceTable1Type, addRow as addInvoice1Row, INVOICE_COL_TAXABLE, INVOICE_COL_CGST, INVOICE_COL_SGST, INVOICE_COL_GST, INVOICE_COL_TOTAL, INVOICE_COL_DISCOUNT, setInvoiceDiscountMode, type InvoiceTableProps, type InvoiceDiscountMode } from '@/features/builder/invoice-table';
+import { updateInvoiceCell, recalculateInvoiceTable, isInvoiceTable1Type, addRow as addInvoice1Row, INVOICE_COL_TAXABLE, INVOICE_COL_CGST, INVOICE_COL_SGST, INVOICE_COL_GST, INVOICE_COL_IGST, INVOICE_COL_TOTAL, INVOICE_COL_DISCOUNT, setInvoiceDiscountMode, type InvoiceTableProps, type InvoiceDiscountMode } from '@/features/builder/invoice-table';
 import { updateInvoice2Cell, isInvoice2ComputedColumn, isInvoice2SummaryRowId, isInvoice2ComputedAmountLabel, recalculateInvoiceTable2, computeInvoice2Summary, isInvoiceTable2Type, addRow as addInvoice2Row, INVOICE2_COL_DISCOUNT, setInvoice2DiscountMode, type InvoiceTable2Props } from '@/features/builder/invoice-table-2';
 import { updateInvoice3Cell, isInvoice3ComputedColumn, recalculateInvoiceTable3, getInvoice3GrandTotal, calculateInvoice3LineAmounts, isInvoiceTable3Type, addRow as addInvoice3Row, INVOICE3_COL_DISCOUNT, setInvoice3DiscountMode, type InvoiceTable3Props } from '@/features/builder/invoice-table-3';
 import { isInvoiceComputedColumn } from '@/features/builder/invoice-table';
-import { EMPTY_TAX_SETTINGS, type TaxSettings, getCombinedGstRate } from '@/features/builder/tax-settings';
+import { EMPTY_TAX_SETTINGS, type TaxSettings, getCombinedGstRate, getIgstRate } from '@/features/builder/tax-settings';
 import {
   EMPTY_PRODUCT_SETTINGS,
   type ProductSettings,
@@ -206,10 +206,10 @@ function normalizeSummaryToken(value: string): string {
 export function isComposerSummaryRow(row: Pick<ProductTableRow, 'id' | 'name' | 'cells'>): boolean {
   if (isInvoice2SummaryRowId(row.id)) return true;
   const nameToken = normalizeSummaryToken(row.name ?? '');
-  if (/^(subtotal|cgst|sgst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
+  if (/^(subtotal|cgst|sgst|igst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
   for (const value of Object.values(row.cells ?? {})) {
     const token = normalizeSummaryToken(String(value));
-    if (/^(subtotal|cgst|sgst|gst|total|final)$/.test(token)) return true;
+    if (/^(subtotal|cgst|sgst|igst|gst|total|final)$/.test(token)) return true;
   }
   return false;
 }
@@ -217,7 +217,7 @@ export function isComposerSummaryRow(row: Pick<ProductTableRow, 'id' | 'name' | 
 function getComposerSummaryRowKind(
   row: Pick<ProductTableRow, 'name' | 'cells'>,
   columns: ProductTableProps['columns']
-): 'subtotal' | 'cgst' | 'sgst' | 'gst' | 'total' | null {
+): 'subtotal' | 'cgst' | 'sgst' | 'igst' | 'gst' | 'total' | null {
   const tokens = [row.name ?? '', ...Object.values(row.cells ?? {})].map((v) =>
     normalizeSummaryToken(String(v))
   );
@@ -225,6 +225,7 @@ function getComposerSummaryRowKind(
     if (token.includes('subtotal')) return 'subtotal';
     if (token.includes('cgst')) return 'cgst';
     if (token.includes('sgst')) return 'sgst';
+    if (token.includes('igst')) return 'igst';
     if (token === 'gst' || token.startsWith('gst')) return 'gst';
     if (token === 'total' || token === 'final' || token.includes('grandtotal')) return 'total';
   }
@@ -234,6 +235,7 @@ function getComposerSummaryRowKind(
     if (labelToken.includes('subtotal')) return 'subtotal';
     if (labelToken.includes('cgst')) return 'cgst';
     if (labelToken.includes('sgst')) return 'sgst';
+    if (labelToken.includes('igst')) return 'igst';
     if (labelToken === 'gst' || labelToken.startsWith('gst')) return 'gst';
     if (labelToken === 'total' || labelToken === 'final') return 'total';
   }
@@ -276,6 +278,7 @@ function syncEmbeddedSummaryRows(
     if (kind === 'subtotal') amount = subtotal;
     else if (kind === 'cgst') amount = taxPart.cgst;
     else if (kind === 'sgst') amount = taxPart.sgst;
+    else if (kind === 'igst') amount = taxPart.igst;
     else if (kind === 'gst') amount = taxPart.gst;
     else if (kind === 'total') amount = taxPart.total;
     return {
@@ -315,25 +318,29 @@ function sumProductTableSubtotal(props: ProductTableProps): number {
 function computeComposerTaxAmount(
   taxableSubtotal: number,
   tax: TaxSettings
-): { tax: number; total: number; cgst: number; sgst: number; gst: number } {
+): { tax: number; total: number; cgst: number; sgst: number; gst: number; igst: number } {
   let cgst = 0;
   let sgst = 0;
   let gst = 0;
+  let igst = 0;
   if (tax.isEnabled && taxableSubtotal > 0) {
     if (tax.taxDisplayMode === 'combined') {
       gst = Math.round((taxableSubtotal * getCombinedGstRate(tax)) / 100 * 100) / 100;
+    } else if (tax.taxDisplayMode === 'igst') {
+      igst = Math.round((taxableSubtotal * getIgstRate(tax)) / 100 * 100) / 100;
     } else {
       cgst = Math.round((taxableSubtotal * tax.cgstRate) / 100 * 100) / 100;
       sgst = Math.round((taxableSubtotal * tax.sgstRate) / 100 * 100) / 100;
     }
   }
-  const taxAmount = cgst + sgst + gst;
+  const taxAmount = cgst + sgst + gst + igst;
   return {
     tax: taxAmount,
     total: Math.round((taxableSubtotal + taxAmount) * 100) / 100,
     cgst,
     sgst,
     gst,
+    igst,
   };
 }
 
@@ -384,6 +391,7 @@ export function extractTablePlaceholderTotals(
   let cgst = 0;
   let sgst = 0;
   let gst = 0;
+  let igst = 0;
   let found = false;
 
   for (const page of pages) {
@@ -399,10 +407,15 @@ export function extractTablePlaceholderTotals(
         found = true;
         for (const row of props.rows) {
           subtotal += parseComposerAmount(row.cells[INVOICE_COL_TAXABLE]);
-          taxAmount +=
-            parseComposerAmount(row.cells[INVOICE_COL_CGST])
-            + parseComposerAmount(row.cells[INVOICE_COL_SGST])
-            + parseComposerAmount(row.cells[INVOICE_COL_GST]);
+          const rowCgst = parseComposerAmount(row.cells[INVOICE_COL_CGST]);
+          const rowSgst = parseComposerAmount(row.cells[INVOICE_COL_SGST]);
+          const rowGst = parseComposerAmount(row.cells[INVOICE_COL_GST]);
+          const rowIgst = parseComposerAmount(row.cells[INVOICE_COL_IGST]);
+          taxAmount += rowCgst + rowSgst + rowGst + rowIgst;
+          cgst += rowCgst;
+          sgst += rowSgst;
+          gst += rowGst;
+          igst += rowIgst;
           total += parseComposerAmount(row.cells[INVOICE_COL_TOTAL]);
         }
       } else if (isInvoiceTable2Type(resolvedType)) {
@@ -410,10 +423,11 @@ export function extractTablePlaceholderTotals(
         const summary = computeInvoice2Summary(props.rows, tax, props.columns, props);
         found = true;
         subtotal += summary.subtotal;
-        taxAmount += summary.cgst + summary.sgst + summary.gst;
+        taxAmount += summary.cgst + summary.sgst + summary.gst + summary.igst;
         cgst += summary.cgst;
         sgst += summary.sgst;
         gst += summary.gst;
+        igst += summary.igst;
         total += summary.total;
       } else if (isInvoiceTable3Type(resolvedType)) {
         const props = recalculateInvoiceTable3(table as InvoiceTable3Props, tax);
@@ -426,9 +440,11 @@ export function extractTablePlaceholderTotals(
             props.discountMode ?? 'amount'
           );
           subtotal += line.taxable;
-          taxAmount += line.gst;
+          taxAmount += line.gst + line.igst;
           total += line.total;
-          if (line.gst > 0) {
+          if (line.igst > 0) {
+            igst += line.igst;
+          } else if (line.gst > 0) {
             if (tax.taxDisplayMode === 'split') {
               const half = Math.round((line.gst / 2) * 100) / 100;
               cgst += half;
@@ -448,6 +464,7 @@ export function extractTablePlaceholderTotals(
           cgst += taxPart.cgst;
           sgst += taxPart.sgst;
           gst += taxPart.gst;
+          igst += taxPart.igst;
           total += taxPart.total;
         }
       }
@@ -461,6 +478,7 @@ export function extractTablePlaceholderTotals(
     Tax: formatComposerAmount(taxAmount),
     CGST: formatComposerAmount(cgst),
     SGST: formatComposerAmount(sgst),
+    IGST: formatComposerAmount(igst),
     GST: formatComposerAmount(gst),
     Total: formatComposerAmount(total),
     Amount: formatComposerAmount(total),
@@ -778,6 +796,7 @@ const COMPOSER_TOTAL_KEYS = new Set([
   'Amount',
   'CGST',
   'SGST',
+  'IGST',
   'GST',
 ]);
 

@@ -12,7 +12,7 @@ export function ActivityListItem({ description, createdAt, userId, meta }: Activ
   const account = formatActivityAccount(userId);
 
   return (
-    <div className="border-b border-gray-50 pb-2">
+    <div className="border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
       <p className="text-sm">{description}</p>
       {account ? (
         <p className="text-xs text-gray-600 mt-0.5">{account}</p>

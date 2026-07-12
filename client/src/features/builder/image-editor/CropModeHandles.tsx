@@ -3,8 +3,11 @@ import type { CropCorner, CropEdge, ImageCropTransform } from './types';
 import type { CoverBaseSize } from './cropUtils';
 import { cropEdgeDrag } from './cropUtils';
 import { rectToPixels } from './cropRect';
-import { computeAnchoredResize, type ElementBounds } from '../element-resize';
-import { applyAspectRatioLock } from './transformUtils';
+import {
+  computeAnchoredResize,
+  type ElementBounds,
+  type ResizeSession,
+} from '../element-resize';
 
 type HandleKind =
   | { type: 'edge'; edge: CropEdge }
@@ -24,7 +27,7 @@ interface Props {
   frameH: number;
   zoom?: number;
   frameBounds: CropFrameBounds;
-  /** When true, drag/wheel pan and zoom the image inside the frame. */
+  /** When true, pan/zoom mode is active — hide resize/crop handles. */
   panEnabled?: boolean;
   onCropChange: (crop: ImageCropTransform, recordHistory?: boolean) => void;
   onFrameResize?: (bounds: ElementBounds, recordHistory?: boolean) => void;
@@ -32,9 +35,9 @@ interface Props {
 
 const HANDLE = 14;
 const CORNER = 18;
-const MIN_FRAME = 24;
+const MIN_FRAME_SIZE = 24;
 
-const CORNER_TO_DIR: Record<CropCorner, string> = {
+const CORNER_DIRECTION: Record<CropCorner, string> = {
   nw: 'topLeft',
   ne: 'topRight',
   sw: 'bottomLeft',
@@ -54,6 +57,49 @@ function edgeCumulativePx(edge: CropEdge, dx: number, dy: number): number {
   }
 }
 
+function cornerResizeBounds(
+  corner: CropCorner,
+  startFrame: CropFrameBounds,
+  dx: number,
+  dy: number
+): ElementBounds {
+  const session: ResizeSession = {
+    startX: startFrame.x,
+    startY: startFrame.y,
+    startW: startFrame.width,
+    startH: startFrame.height,
+  };
+
+  let position = { x: startFrame.x, y: startFrame.y };
+  let size = { width: startFrame.width, height: startFrame.height };
+
+  switch (corner) {
+    case 'se':
+      size = { width: startFrame.width + dx, height: startFrame.height + dy };
+      break;
+    case 'nw':
+      position = { x: startFrame.x + dx, y: startFrame.y + dy };
+      size = { width: startFrame.width - dx, height: startFrame.height - dy };
+      break;
+    case 'ne':
+      position = { x: startFrame.x, y: startFrame.y + dy };
+      size = { width: startFrame.width + dx, height: startFrame.height - dy };
+      break;
+    case 'sw':
+      position = { x: startFrame.x + dx, y: startFrame.y };
+      size = { width: startFrame.width - dx, height: startFrame.height + dy };
+      break;
+  }
+
+  return computeAnchoredResize(
+    session,
+    CORNER_DIRECTION[corner],
+    position,
+    size,
+    MIN_FRAME_SIZE
+  );
+}
+
 function CropModeHandlesInner({
   crop,
   base,
@@ -61,6 +107,7 @@ function CropModeHandlesInner({
   frameH,
   zoom = 1,
   frameBounds,
+  panEnabled = false,
   onCropChange,
   onFrameResize,
 }: Props) {
@@ -70,8 +117,11 @@ function CropModeHandlesInner({
     startY: number;
     startCrop: ImageCropTransform;
     startFrame: CropFrameBounds;
-    lastFrame?: ElementBounds;
   } | null>(null);
+  const pendingCropRef = useRef(crop);
+  const pendingBoundsRef = useRef<ElementBounds | null>(null);
+
+  pendingCropRef.current = crop;
 
   const rectPx = rectToPixels(crop.rect, frameW, frameH);
   const handleRect = rectPx;
@@ -81,6 +131,7 @@ function CropModeHandlesInner({
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      pendingBoundsRef.current = null;
       sessionRef.current = {
         kind,
         startX: e.clientX,
@@ -110,46 +161,14 @@ function CropModeHandlesInner({
           frameW,
           frameH
         );
+        pendingCropRef.current = next;
         onCropChange(next, false);
         return;
       }
 
       if (!onFrameResize) return;
-
-      const { corner } = session.kind;
-      const dir = CORNER_TO_DIR[corner];
-      const { startFrame } = session;
-      const resizeSession = {
-        startX: startFrame.x,
-        startY: startFrame.y,
-        startW: startFrame.width,
-        startH: startFrame.height,
-      };
-
-      let position = { x: startFrame.x, y: startFrame.y };
-      let size = { width: startFrame.width, height: startFrame.height };
-
-      switch (corner) {
-        case 'se':
-          size = { width: startFrame.width + dx, height: startFrame.height + dy };
-          break;
-        case 'sw':
-          position = { x: startFrame.x + dx, y: startFrame.y };
-          size = { width: startFrame.width - dx, height: startFrame.height + dy };
-          break;
-        case 'ne':
-          position = { x: startFrame.x, y: startFrame.y + dy };
-          size = { width: startFrame.width + dx, height: startFrame.height - dy };
-          break;
-        case 'nw':
-          position = { x: startFrame.x + dx, y: startFrame.y + dy };
-          size = { width: startFrame.width - dx, height: startFrame.height - dy };
-          break;
-      }
-
-      let bounds = computeAnchoredResize(resizeSession, dir, position, size, MIN_FRAME);
-      bounds = applyAspectRatioLock(bounds, resizeSession, dir, e.shiftKey);
-      session.lastFrame = bounds;
+      const bounds = cornerResizeBounds(session.kind.corner, session.startFrame, dx, dy);
+      pendingBoundsRef.current = bounds;
       onFrameResize(bounds, false);
     },
     [base, frameW, frameH, onCropChange, onFrameResize, zoom]
@@ -159,17 +178,20 @@ function CropModeHandlesInner({
     (e: React.PointerEvent) => {
       const session = sessionRef.current;
       if (!session) return;
-      const resizedFrame = session.kind.type === 'corner';
-      const lastFrame = session.lastFrame;
       sessionRef.current = null;
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      if (resizedFrame && onFrameResize && lastFrame) {
-        onFrameResize(lastFrame, true);
-      } else {
-        onCropChange(crop, true);
+
+      if (session.kind.type === 'edge') {
+        onCropChange(pendingCropRef.current, true);
+        return;
+      }
+
+      if (pendingBoundsRef.current && onFrameResize) {
+        onFrameResize(pendingBoundsRef.current, true);
+        pendingBoundsRef.current = null;
       }
     },
-    [crop, onCropChange, onFrameResize]
+    [onCropChange, onFrameResize]
   );
 
   const edgeStyle = (edge: CropEdge): React.CSSProperties => {
@@ -252,11 +274,13 @@ function CropModeHandlesInner({
     />
   );
 
+  if (panEnabled) return null;
+
   const edges: CropEdge[] = ['left', 'right', 'top', 'bottom'];
   const corners: CropCorner[] = ['nw', 'ne', 'sw', 'se'];
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-30" aria-hidden>
+    <div className="pointer-events-none absolute inset-0 z-[80]" aria-hidden>
       <div
         className="pointer-events-none absolute border-2 border-white/90"
         style={{
@@ -273,7 +297,7 @@ function CropModeHandlesInner({
       {edges.map((edge) => (
         <div
           key={edge}
-          className="pointer-events-auto absolute flex items-center justify-center"
+          className="builder-image-crop-handle pointer-events-auto absolute flex items-center justify-center"
           style={edgeStyle(edge)}
           onPointerDown={(e) => onHandlePointerDown(e, { type: 'edge', edge })}
           onPointerMove={onHandlePointerMove}
@@ -286,7 +310,7 @@ function CropModeHandlesInner({
       {corners.map((corner) => (
         <div
           key={corner}
-          className="pointer-events-auto absolute flex items-center justify-center"
+          className="builder-image-crop-handle pointer-events-auto absolute flex items-center justify-center"
           style={{ ...cornerStyle(corner), width: CORNER, height: CORNER }}
           onPointerDown={(e) => onHandlePointerDown(e, { type: 'corner', corner })}
           onPointerMove={onHandlePointerMove}

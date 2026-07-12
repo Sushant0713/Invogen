@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Heart, Pencil, Star, Trash2, X } from 'lucide-react';
+import { Heart, Pencil, Star, Trash2, X, Eye } from 'lucide-react';
 import type { TemplateSummary } from '@invogen/shared';
 import { TemplatePreviewRenderer } from './TemplatePreviewRenderer';
 import { fetchTemplateDocument } from './template-loader';
 import { isTemplateFavorite } from './template-manager';
 import { brandingScopeFromApiBase } from '@/features/builder/company-branding';
+import { formatTemplateCategoryLabel, isSuperAdminTemplateCategory } from '@/pages/super-admin/template-categories';
 
 interface TemplateCardProps {
   template: TemplateSummary;
   apiBase: string;
-  onOpen: (templateId: string) => void;
+  onOpen: (template: TemplateSummary) => void;
+  onEdit?: (template: TemplateSummary) => void;
   onToggleFavorite?: (templateId: string) => void;
   onDelete?: (template: TemplateSummary) => void;
   canDelete?: (template: TemplateSummary) => boolean;
   favorite?: boolean;
   showEdit?: boolean;
+  onView?: (template: TemplateSummary) => void;
   isDeleting?: boolean;
   /** Custom primary action (e.g. New Invoice button). */
   cardAction?: React.ReactNode;
@@ -36,11 +39,13 @@ export function TemplateCard({
   template,
   apiBase,
   onOpen,
+  onEdit,
   onToggleFavorite,
   onDelete,
   canDelete,
   favorite,
   showEdit = true,
+  onView,
   isDeleting = false,
   cardAction,
 }: TemplateCardProps) {
@@ -73,7 +78,7 @@ export function TemplateCard({
     staleTime: 10 * 60 * 1000,
   });
 
-  const firstPage = fullTemplate?.pages?.[0];
+  const templatePages = fullTemplate?.pages;
   const brandingScope = brandingScopeFromApiBase(apiBase);
 
   return (
@@ -90,11 +95,11 @@ export function TemplateCard({
             className="overflow-hidden rounded-sm bg-white"
             style={{ width: PREVIEW_WIDTH, height: PREVIEW_VIEWPORT_HEIGHT }}
           >
-            {!visible || isLoading || !firstPage ? (
+            {!visible || isLoading || !templatePages?.length ? (
               <PreviewSkeleton />
             ) : (
               <TemplatePreviewRenderer
-                page={firstPage}
+                pages={templatePages}
                 maxWidth={PREVIEW_WIDTH}
                 brandingScope={brandingScope}
                 className="shadow-none"
@@ -108,7 +113,15 @@ export function TemplateCard({
         <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
           {template.name}
         </h3>
-        <p className="line-clamp-1 text-xs font-medium text-primary/80">{template.category}</p>
+        <p
+          className={`line-clamp-1 text-xs font-medium ${
+            isSuperAdminTemplateCategory(template.category)
+              ? 'text-red-600'
+              : 'text-primary/80'
+          }`}
+        >
+          {formatTemplateCategoryLabel(template.category)}
+        </p>
         {template.description ? (
           <p className="line-clamp-2 text-xs leading-relaxed text-gray-500">{template.description}</p>
         ) : null}
@@ -137,11 +150,21 @@ export function TemplateCard({
 
         <div className="flex items-center gap-1">
           {cardAction}
+          {onView && (
+            <button
+              type="button"
+              title={`View ${template.name}`}
+              onClick={() => onView(template)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-50 hover:text-primary"
+            >
+              <Eye className="h-[17px] w-[17px]" strokeWidth={1.75} />
+            </button>
+          )}
           {showEdit && (
             <button
               type="button"
               title={`Edit ${template.name}`}
-              onClick={() => onOpen(template._id)}
+              onClick={() => (onEdit ?? onOpen)(template)}
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-50 hover:text-primary"
             >
               <Pencil className="h-[17px] w-[17px]" strokeWidth={1.75} />
@@ -167,18 +190,21 @@ export function TemplateCard({
 export function TemplateCardCompact({
   template,
   onOpen,
+  canOpen = true,
   onRemove,
 }: {
   template: TemplateSummary;
-  onOpen: (id: string) => void;
+  onOpen: (template: TemplateSummary) => void;
+  canOpen?: boolean;
   onRemove?: (id: string) => void;
 }) {
   return (
     <div className="group/recent relative shrink-0">
       <button
         type="button"
-        onClick={() => onOpen(template._id)}
-        className="flex min-w-[132px] flex-col items-start gap-0.5 rounded-lg border border-gray-200 bg-white p-2.5 pr-7 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md"
+        onClick={() => canOpen && onOpen(template)}
+        disabled={!canOpen}
+        className="flex min-w-[132px] flex-col items-start gap-0.5 rounded-lg border border-gray-200 bg-white p-2.5 pr-7 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Star className="h-3 w-3 text-amber-500" />
         <span className="line-clamp-2 text-xs font-medium leading-snug text-gray-900">

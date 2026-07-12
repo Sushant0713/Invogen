@@ -7,6 +7,7 @@ export enum UserRole {
 export enum UserStatus {
   ACTIVE = 'active',
   SUSPENDED = 'suspended',
+  PENDING = 'pending',
 }
 
 export type AuthPortal = 'super-admin' | 'admin' | 'employee';

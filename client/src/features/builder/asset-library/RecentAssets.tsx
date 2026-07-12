@@ -45,14 +45,14 @@ export const RecentAssets = memo(function RecentAssets({
             {items.map((item) => (
               <span
                 key={item.id}
-                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] text-gray-600"
               >
                 {item.label ?? item.type}
                 <button
                   type="button"
                   title="Remove from recently used"
                   onClick={() => removeRecentAsset(item.id)}
-                  className="rounded-full p-0.5 hover:bg-gray-200 hover:text-red-500 dark:hover:bg-gray-700"
+                  className="rounded-full p-0.5 hover:bg-gray-200 hover:text-red-500"
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>

@@ -22,7 +22,8 @@ export interface InvoiceBankDetails {
 }
 
 export interface InvoiceSettings {
-  templateStyle: 'templ_7';
+  /** Super Admin template used for platform subscription invoices. */
+  platformTemplateId: string;
   invoiceTitle: string;
   prefix: string;
   numberFormat: string;
@@ -54,7 +55,7 @@ export interface InvoiceSettings {
 }
 
 export const defaultInvoiceSettings = (): InvoiceSettings => ({
-  templateStyle: 'templ_7',
+  platformTemplateId: '',
   invoiceTitle: 'INVOICE',
   prefix: 'INV',
   numberFormat: '{PREFIX}-{YYYY}-{NNNNN}',
@@ -118,11 +119,17 @@ export function formatInvoiceNumber(settings: InvoiceSettings): string {
 export function hydrateInvoiceSettings(raw: Partial<InvoiceSettings> | undefined): InvoiceSettings {
   const defaults = defaultInvoiceSettings();
   if (!raw || typeof raw !== 'object') return defaults;
+
+  const legacy = raw as Partial<InvoiceSettings> & { templateStyle?: string };
+  const { templateStyle: _legacyStyle, ...rest } = legacy;
+
   return {
     ...defaults,
-    ...raw,
-    seller: { ...defaults.seller, ...raw.seller },
-    bank: { ...defaults.bank, ...raw.bank },
+    ...rest,
+    platformTemplateId:
+      typeof rest.platformTemplateId === 'string' ? rest.platformTemplateId : defaults.platformTemplateId,
+    seller: { ...defaults.seller, ...rest.seller },
+    bank: { ...defaults.bank, ...rest.bank },
   };
 }
 

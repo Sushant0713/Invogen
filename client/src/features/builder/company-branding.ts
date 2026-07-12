@@ -1,7 +1,7 @@
 import { ComponentType } from '@invogen/shared';
 import { getResolvedImageSrc } from './image-components';
 
-export type CompanyBrandingScope = 'admin' | 'super-admin';
+export type CompanyBrandingScope = 'admin' | 'super-admin' | 'employee';
 
 export type CompanyBranding = {
   logo: string;
@@ -18,7 +18,19 @@ export const COMPANY_BRANDING_QUERY_KEY = 'company-branding';
 const PLACEHOLDER_SRC_RE = /^\{\{[\w.]+\}\}$/;
 
 export function brandingScopeFromApiBase(apiBase: string): CompanyBrandingScope {
-  return apiBase.includes('super-admin') ? 'super-admin' : 'admin';
+  if (apiBase.includes('super-admin')) return 'super-admin';
+  if (apiBase.includes('/employee')) return 'employee';
+  return 'admin';
+}
+
+export function companyApiForScope(scope: CompanyBrandingScope): string {
+  if (scope === 'employee') return '/employee/company';
+  return '/admin/company';
+}
+
+export function productsApiForScope(scope: CompanyBrandingScope): string {
+  if (scope === 'employee') return '/employee/products/catalog';
+  return '/admin/products';
 }
 
 export function isBrandingImageType(type: string): boolean {

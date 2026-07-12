@@ -5,8 +5,11 @@ import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvi
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
 import type { CompanyBrandingScope } from '@/features/builder/company-branding';
-import { normalizeComposerPages } from '@/features/invoice-composer/invoice-document';
-import { layoutDocumentPages } from '@/features/builder/document-layout';
+import {
+  cloneTemplatePages,
+  normalizeComposerPages,
+} from '@/features/invoice-composer/invoice-document';
+import { applyPreviewPageNumbers } from '@/features/builder/preview-page-reflow';
 
 interface InvoiceViewerProps {
   pages: TemplatePage[];
@@ -18,6 +21,7 @@ interface InvoiceViewerProps {
    * When omitted, uses ambient MadeWithInvogenProvider from Admin/Employee layout.
    */
   madeWithInvogen?: boolean;
+  madeWithImage?: string;
 }
 
 /** Read-only invoice preview (no editing). */
@@ -27,11 +31,13 @@ export function InvoiceViewer({
   brandingScope = 'admin',
   className = '',
   madeWithInvogen,
+  madeWithImage,
 }: InvoiceViewerProps) {
-  const renderPages = useMemo(() => {
-    const normalized = normalizeComposerPages(pages);
-    return layoutDocumentPages(normalized);
-  }, [pages]);
+  // Keep authored positions — TemplatePreviewPages fits long data fields clear of logos.
+  const renderPages = useMemo(
+    () => applyPreviewPageNumbers(normalizeComposerPages(cloneTemplatePages(pages))),
+    [pages]
+  );
 
   const content = (
     <div className={`flex justify-center ${className}`}>
@@ -52,7 +58,11 @@ export function InvoiceViewer({
 
   if (madeWithInvogen !== undefined) {
     return withProviders(
-      <MadeWithInvogenProvider source="none" forcedShow={madeWithInvogen}>
+      <MadeWithInvogenProvider
+        source="none"
+        forcedShow={madeWithInvogen}
+        forcedImage={madeWithImage}
+      >
         {content}
       </MadeWithInvogenProvider>
     );

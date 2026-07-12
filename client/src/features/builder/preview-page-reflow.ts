@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ComponentType } from '@invogen/shared';
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { getPageDimensions, type PageMargins } from './builder-dnd';
-import { isTableElementType, productTablePropsToRecord, resolveBuilderTablePropsForEdit } from './product-table';
+import { isTableElementType, productTablePropsToRecord, resolveBuilderTablePropsForEdit, PREVIEW_PAGINATION_ROWS_KEY, PREVIEW_PAGINATION_RANGE_START_KEY, PREVIEW_PAGINATION_RANGE_END_KEY, PREVIEW_PAGINATION_TABLE_ID_KEY, resolvePaginationTableId, isTableContinuationSegment } from './product-table';
 import { isCardComponentType, estimateCardBlockHeight } from './card-components';
 import {
   resolvePreviewTableFittedLayout,
@@ -20,14 +20,24 @@ import {
 } from './structured-content-layout';
 import { isTextStylable } from './text-styles';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
+import {
+  appendFootersFromMasterPage,
+  getFlowContentBottomLimit,
+  isDocumentFooterElement,
+  normalizeDocumentFooters,
+} from './document-footer';
 
 const PUSH_TOLERANCE_PX = 2;
 const FLOW_GAP_PX = 12;
 const ROW_Y_TOLERANCE_PX = 24;
-const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
-const PREVIEW_PAGINATION_RANGE_START_KEY = '__previewPaginationStart';
-const PREVIEW_PAGINATION_RANGE_END_KEY = '__previewPaginationEnd';
 const LOGICAL_FLOW_Y_KEY = '__logicalFlowY';
+
+/** Word-style: repeat column titles on Page 1 and every continuation page. */
+function resolvePaginatedSegmentShowHeader(
+  fullTable: Pick<ProductTableProps, 'showHeader'>
+): boolean {
+  return fullTable.showHeader !== false;
+}
 
 function getLogicalFlowY(element: CanvasElement): number {
   const props = (element.props ?? {}) as Record<string, unknown>;
@@ -51,9 +61,16 @@ function cloneElements(elements: CanvasElement[]): CanvasElement[] {
   return elements.map((element) => ({ ...element, props: { ...(element.props ?? {}) } }));
 }
 
-/** Background layers only — all other elements participate in document flow. */
+/** Background / fixed layers — do not participate in document flow. */
 export function isPinnedPreviewElement(element: CanvasElement): boolean {
-  return element.visible !== false && element.type === ComponentType.WATERMARK;
+  if (element.visible === false) return false;
+  if (element.type === ComponentType.WATERMARK) return true;
+  if (isDocumentFooterElement(element)) return true;
+  // Invoice watermarks are often plain IMAGE/STAMP — keep authored x/y during reflow.
+  if (element.type === ComponentType.IMAGE || element.type === ComponentType.STAMP) {
+    return true;
+  }
+  return false;
 }
 
 export type PreviewReflowOptions = {
@@ -183,8 +200,19 @@ function contentOverlapsExpandedBlock(
   });
 }
 
-/** True when preview layout must expand tables/blocks or push content below. */
+function pageContentOverflows(page: TemplatePage): boolean {
+  const contentBottom = getFlowContentBottomLimit(page);
+  return page.elements.some((element) => {
+    if (element.visible === false || isPinnedPreviewElement(element)) return false;
+    return element.y + element.height > contentBottom + PUSH_TOLERANCE_PX;
+  });
+}
+
+/** True when preview layout must expand tables/blocks, push content below, or paginate. */
 export function pageNeedsReflow(page: TemplatePage, options: PreviewReflowOptions = {}): boolean {
+  if (pageContentOverflows(page)) return true;
+  if (pageNeedsTableReflow(page)) return true;
+
   return page.elements.some((element) => {
     const { heightDelta, fittedHeight } = measureElementExpansion(element, options);
     if (heightDelta > PUSH_TOLERANCE_PX) return true;
@@ -223,6 +251,14 @@ function pageHasVisibleContent(page: TemplatePage): boolean {
   );
 }
 
+/** Keep user tabs and pages with flow content; drop footer-only auto pages. */
+function shouldKeepTrailingPage(page: TemplatePage): boolean {
+  // Explicitly added page tabs stay, even if currently empty.
+  if (page.userAuthored) return true;
+  // Auto pages need real document-flow content (not only footer/watermark).
+  return pageHasVisibleContent(page);
+}
+
 function pageHasOverlappingFlowElements(page: TemplatePage): boolean {
   const flow = page.elements.filter(
     (element) => element.visible !== false && !isPinnedPreviewElement(element)
@@ -246,11 +282,16 @@ export function builderPagesNeedLayout(pages: TemplatePage[]): boolean {
   return pages.some(pageHasOverlappingFlowElements);
 }
 
-/** Never drop page 1 — only remove empty continuation pages after it. */
+/** Remove empty continuation pages and renumber tabs for the editor. */
+export function normalizeBuilderPagesForEditor(pages: TemplatePage[]): TemplatePage[] {
+  return applyPreviewPageNumbers(dropEmptyTrailingPages(pages));
+}
+
+/** Never drop page 1 — only remove empty auto-generated continuation pages after it. */
 function dropEmptyTrailingPages(pages: TemplatePage[]): TemplatePage[] {
   if (pages.length <= 1) return pages;
   const head = [pages[0]];
-  const tail = pages.slice(1).filter(pageHasVisibleContent);
+  const tail = pages.slice(1).filter(shouldKeepTrailingPage);
   return [...head, ...tail];
 }
 
@@ -291,17 +332,19 @@ function fitAllTableHeightsInPages(pages: TemplatePage[]): TemplatePage[] {
   }));
 }
 
-/** Stack spilled elements from the top margin in visual order (continuation pages only). */
+/** Stack spilled elements from the top margin in document order (continuation pages only). */
 function stackOverflowElementsAtPageTop(
   elements: CanvasElement[],
   margins: PageMargins
 ): CanvasElement[] {
   if (elements.length === 0) return elements;
-  const sorted = [...elements].sort(
+
+  const ordered = [...elements].sort(
     (a, b) => getLogicalFlowY(a) - getLogicalFlowY(b) || a.x - b.x
   );
+
   let cursorY = margins.top;
-  return sorted.map((element) => {
+  return ordered.map((element) => {
     const next = withLogicalFlowY({ ...element, y: cursorY }, cursorY);
     cursorY += element.height + FLOW_GAP_PX;
     return next;
@@ -356,41 +399,35 @@ function groupElementsIntoRows(elements: CanvasElement[]): CanvasElement[][] {
   return rows;
 }
 
-/** True when an element sits below an anchor in the same column (not a side-by-side row). */
-function shouldFlowBelowAnchor(
-  anchor: CanvasElement,
-  element: CanvasElement,
-  anchorBottom: number
-): boolean {
-  if (element.id === anchor.id || element.visible === false) return false;
-  if (isPinnedPreviewElement(element)) return false;
-
-  // Stacked tables/blocks with similar Y must still reflow when heights overlap.
-  const verticallyOverlaps =
-    element.y < anchorBottom - PUSH_TOLERANCE_PX
-    && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX;
-  if (verticallyOverlaps) return true;
-
-  const sameRow = Math.abs(element.y - anchor.y) <= ROW_Y_TOLERANCE_PX;
-  if (sameRow) return false;
-
-  if (element.y + element.height <= anchor.y + PUSH_TOLERANCE_PX) return false;
-
-  if (element.y < anchorBottom + PUSH_TOLERANCE_PX) return true;
-
-  return element.y >= anchorBottom - FLOW_GAP_PX - PUSH_TOLERANCE_PX;
+function elementsShareColumn(a: CanvasElement, b: CanvasElement): boolean {
+  // Require real horizontal overlap so side-by-side columns (logo / invoice meta
+  // beside a company card) are not treated as stacked document flow.
+  const overlap =
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  return overlap > Math.min(a.width, b.width) * 0.15;
 }
 
 function isStackedBelow(anchor: CanvasElement, element: CanvasElement): boolean {
   if (element.id === anchor.id || element.visible === false) return false;
   if (isPinnedPreviewElement(element)) return false;
+
   const anchorBottom = anchor.y + anchor.height;
+
+  // Side-by-side on the same row — not "below" for flow purposes.
+  if (Math.abs(element.y - anchor.y) <= ROW_Y_TOLERANCE_PX) return false;
+
+  // Entirely above the anchor.
+  if (element.y + element.height <= anchor.y + PUSH_TOLERANCE_PX) return false;
+
+  // Starts at or below the anchor bottom (Word-style flow).
+  if (element.y >= anchorBottom - ROW_Y_TOLERANCE_PX) return true;
+
+  // Vertically overlapping the expanded box: only push if in the same column.
+  // Otherwise invoice # / date / logo beside a growing card get dragged down and collide.
   const verticallyOverlaps =
     element.y < anchorBottom - PUSH_TOLERANCE_PX
     && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX;
-  if (verticallyOverlaps) return true;
-  if (Math.abs(element.y - anchor.y) <= ROW_Y_TOLERANCE_PX) return false;
-  return element.y + element.height > anchor.y + PUSH_TOLERANCE_PX;
+  return verticallyOverlaps && elementsShareColumn(anchor, element);
 }
 
 type TableMeasureMode = 'full' | 'segment';
@@ -475,6 +512,95 @@ function expandVerticalContent(elements: CanvasElement[]): CanvasElement[] {
   });
 }
 
+function pushStackedElementsBelowAnchor(
+  elements: CanvasElement[],
+  anchorIndex: number,
+  heightDelta: number
+): { elements: CanvasElement[]; changed: boolean } {
+  const anchor = elements[anchorIndex];
+  const anchorBottom = anchor.y + anchor.height;
+  const minYBelowAnchor = anchorBottom + FLOW_GAP_PX;
+
+  const below = elements.filter(
+    (element) => element.id !== anchor.id && isStackedBelow(anchor, element)
+  );
+  if (below.length === 0) return { elements, changed: false };
+
+  const needsOverlapFix = below.some(
+    (element) =>
+      element.y < anchorBottom - PUSH_TOLERANCE_PX
+      && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+  );
+  // Still resolve overlaps when height was already expanded in a prior pass.
+  if (Math.abs(heightDelta) <= PUSH_TOLERANCE_PX && !needsOverlapFix) {
+    return { elements, changed: false };
+  }
+
+  let result = elements;
+  let changed = false;
+  const rows = groupElementsIntoRows(below);
+
+  for (const row of rows) {
+    const rowTop = Math.min(...row.map((element) => element.y));
+    let rowDelta = heightDelta;
+
+    // Resolve overlap only — preserve authored spacing when already clear.
+    const overlapsAnchor = row.some(
+      (element) =>
+        element.y < anchorBottom - PUSH_TOLERANCE_PX
+        && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+    );
+    const projectedTop = rowTop + rowDelta;
+    if (overlapsAnchor || projectedTop < minYBelowAnchor - PUSH_TOLERANCE_PX) {
+      rowDelta = Math.max(rowDelta, minYBelowAnchor - rowTop);
+    }
+
+    if (Math.abs(rowDelta) <= PUSH_TOLERANCE_PX) continue;
+
+    for (const element of row) {
+      const index = result.findIndex((item) => item.id === element.id);
+      if (index < 0) continue;
+      const targetY = result[index].y + rowDelta;
+      if (Math.abs(result[index].y - targetY) > PUSH_TOLERANCE_PX) {
+        result[index] = withLogicalFlowY({ ...result[index], y: targetY }, targetY);
+        changed = true;
+      }
+    }
+  }
+
+  return { elements: result, changed };
+}
+
+type ElementGeometry = { y: number; height: number };
+
+function snapshotElementGeometry(elements: CanvasElement[]): Map<string, ElementGeometry> {
+  return new Map(elements.map((element) => [element.id, { y: element.y, height: element.height }]));
+}
+
+/** Push rows below each table after page-aware split — avoids gap from expand-then-split. */
+function pushBelowTablesFromBaselines(
+  elements: CanvasElement[],
+  baselines: Map<string, ElementGeometry>
+): CanvasElement[] {
+  let result = elements;
+  const tables = result
+    .filter((element) => element.visible !== false && isTableElementType(element.type))
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+
+  for (const table of tables) {
+    const index = result.findIndex((element) => element.id === table.id);
+    if (index < 0) continue;
+    const baseline = baselines.get(table.id);
+    if (!baseline) continue;
+    const current = result[index];
+    const heightDelta = current.height - baseline.height;
+    const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+    result = push.elements;
+  }
+
+  return result;
+}
+
 function expandTablesAndPushBelow(
   elements: CanvasElement[],
   options: { measureMode?: TableMeasureMode } = {}
@@ -500,11 +626,9 @@ function expandTablesAndPushBelow(
         current,
         measureMode
       );
-      const oldBottom = current.y + current.height;
-      const newBottom = current.y + newHeight;
-      const delta = newBottom - oldBottom;
+      const heightDelta = newHeight - current.height;
 
-      if (Math.abs(current.height - newHeight) > PUSH_TOLERANCE_PX) {
+      if (Math.abs(heightDelta) > PUSH_TOLERANCE_PX) {
         result[index] = {
           ...current,
           height: newHeight,
@@ -517,26 +641,85 @@ function expandTablesAndPushBelow(
         changed = true;
       }
 
-      const anchor = result[index];
-      const anchorBottom = anchor.y + anchor.height;
-      const minYBelowAnchor = anchorBottom + FLOW_GAP_PX;
+      const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+      result = push.elements;
+      if (push.changed) changed = true;
+    }
 
-      for (let elementIndex = 0; elementIndex < result.length; elementIndex += 1) {
-        if (elementIndex === index) continue;
-        const element = result[elementIndex];
-        if (!isStackedBelow(anchor, element)) continue;
+    if (!changed) break;
+  }
 
-        let targetY = element.y;
-        if (Math.abs(delta) > PUSH_TOLERANCE_PX) {
-          targetY = element.y + delta;
-        }
-        targetY = Math.max(targetY, minYBelowAnchor);
+  return result;
+}
 
-        if (Math.abs(element.y - targetY) > PUSH_TOLERANCE_PX) {
-          result[elementIndex] = { ...element, y: targetY };
-          changed = true;
-        }
+function expandCardsAndPushBelow(elements: CanvasElement[]): CanvasElement[] {
+  let result = cloneElements(elements);
+
+  for (let pass = 0; pass < 16; pass += 1) {
+    let changed = false;
+    const cards = result
+      .filter((element) => element.visible !== false && isCardComponentType(element.type))
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+
+    for (const card of cards) {
+      const index = result.findIndex((element) => element.id === card.id);
+      if (index < 0) continue;
+
+      const current = result[index];
+      const newHeight = estimateCardBlockHeight(
+        current.type,
+        (current.props ?? {}) as Record<string, unknown>,
+        current.width,
+        current.height
+      );
+      const heightDelta = newHeight - current.height;
+
+      if (Math.abs(heightDelta) > PUSH_TOLERANCE_PX) {
+        result[index] = { ...current, height: newHeight };
+        changed = true;
       }
+
+      const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+      result = push.elements;
+      if (push.changed) changed = true;
+    }
+
+    if (!changed) break;
+  }
+
+  return result;
+}
+
+function expandStructuredBlocksAndPushBelow(elements: CanvasElement[]): CanvasElement[] {
+  let result = cloneElements(elements);
+
+  for (let pass = 0; pass < 16; pass += 1) {
+    let changed = false;
+    const blocks = result
+      .filter((element) => element.visible !== false && isStructuredContentType(element.type))
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+
+    for (const block of blocks) {
+      const index = result.findIndex((element) => element.id === block.id);
+      if (index < 0) continue;
+
+      const current = result[index];
+      const newHeight = estimateStructuredBlockHeight(
+        current.type,
+        (current.props ?? {}) as Record<string, unknown>,
+        current.width,
+        current.height
+      );
+      const heightDelta = newHeight - current.height;
+
+      if (Math.abs(heightDelta) > PUSH_TOLERANCE_PX) {
+        result[index] = { ...current, height: newHeight };
+        changed = true;
+      }
+
+      const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+      result = push.elements;
+      if (push.changed) changed = true;
     }
 
     if (!changed) break;
@@ -565,7 +748,7 @@ function enforceStackGapBelowTables(elements: CanvasElement[]): CanvasElement[] 
       if (element.visible === false || isPinnedPreviewElement(element)) continue;
       if (!isStackedBelow(anchor, element)) continue;
       if (element.y + PUSH_TOLERANCE_PX < minYBelow) {
-        result[elementIndex] = { ...element, y: minYBelow };
+        result[elementIndex] = withLogicalFlowY({ ...element, y: minYBelow }, minYBelow);
       }
     }
   }
@@ -637,12 +820,14 @@ function tablePropsForPageSegment(
   elementProps: Record<string, unknown>,
   segmentProps: Record<string, unknown>,
   allRows: ProductTableRow[],
+  anchorElementId: string,
   range?: { start: number; end: number }
 ): Record<string, unknown> {
   const props = {
     ...elementProps,
     ...segmentProps,
     [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
+    [PREVIEW_PAGINATION_TABLE_ID_KEY]: resolvePaginationTableId(elementProps, anchorElementId),
   };
   if (range) {
     props[PREVIEW_PAGINATION_RANGE_START_KEY] = range.start;
@@ -663,6 +848,7 @@ function makeTableContinuationElement(
   rowEnd: number,
   height: number
 ): CanvasElement {
+  const anchorId = resolvePaginationTableId(elementProps, element.id);
   return {
     ...element,
     id: uuidv4(),
@@ -670,7 +856,7 @@ function makeTableContinuationElement(
     width: element.width,
     y: element.y,
     height,
-    props: tablePropsForPageSegment(elementProps, segmentProps, allRows, {
+    props: tablePropsForPageSegment(elementProps, segmentProps, allRows, anchorId, {
       start: rowStart,
       end: rowEnd,
     }),
@@ -700,7 +886,7 @@ function paginateTableInDocumentFlow(
       tableForSplit,
       0,
       allRows.length,
-      { showHeader: fullTable.showHeader !== false, isLastSegment: true },
+      { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: true },
       allRows
     );
     return {
@@ -725,7 +911,7 @@ function paginateTableInDocumentFlow(
         ...element,
         y: cursorY,
         height: fullHeight,
-        props: tablePropsForPageSegment(elementProps, fitted.tableProps, allRows),
+        props: tablePropsForPageSegment(elementProps, fitted.tableProps, allRows, element.id),
       },
       overflow: [],
     };
@@ -744,7 +930,7 @@ function paginateTableInDocumentFlow(
       tableForSplit,
       0,
       allRows.length,
-      { showHeader: fullTable.showHeader !== false, isLastSegment: true },
+      { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: true },
       allRows
     );
     return {
@@ -768,7 +954,7 @@ function paginateTableInDocumentFlow(
     tableForSplit,
     0,
     splitIndex,
-    { showHeader: fullTable.showHeader !== false, isLastSegment: false },
+    { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: false },
     allRows
   );
   const continuationSegment = buildTableSegment(
@@ -776,7 +962,7 @@ function paginateTableInDocumentFlow(
     tableForSplit,
     splitIndex,
     allRows.length,
-    { showHeader: true, isLastSegment: true },
+    { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: true },
     allRows
   );
 
@@ -789,6 +975,7 @@ function paginateTableInDocumentFlow(
         elementProps,
         pageSegment.tableProps,
         allRows,
+        element.id,
         { start: 0, end: splitIndex }
       ),
     },
@@ -940,7 +1127,7 @@ function layoutPageDocumentFlow(
 ): { page: TemplatePage; overflow: CanvasElement[] } {
   const { height: pageHeight } = getPageDimensions(page);
   const contentTop = page.margins.top;
-  const contentBottom = pageHeight - page.margins.bottom;
+  const contentBottom = getFlowContentBottomLimit(page);
 
   const pinned = elements.filter(
     (element) => element.visible !== false && isPinnedPreviewElement(element)
@@ -1021,48 +1208,6 @@ function layoutPageDocumentFlow(
   };
 }
 
-/** Stack blocks below expanded tables/cards while keeping same-row horizontal alignment. */
-function flowLayoutBelowExpandables(elements: CanvasElement[]): CanvasElement[] {
-  const expandables = elements
-    .filter(
-      (element) =>
-        element.visible !== false
-        && (isTableElementType(element.type) || isCardComponentType(element.type))
-    )
-    .sort((a, b) => a.y - b.y || a.x - b.x);
-  if (expandables.length === 0) return elements;
-
-  let result = elements.map((element) => ({ ...element }));
-
-  for (let expandableIndex = 0; expandableIndex < expandables.length; expandableIndex += 1) {
-    const anchor = result.find((element) => element.id === expandables[expandableIndex].id);
-    if (!anchor) continue;
-
-    const anchorBottom = anchor.y + anchor.height;
-
-    const segment = result.filter((element) =>
-      shouldFlowBelowAnchor(anchor, element, anchorBottom)
-    );
-
-    if (segment.length === 0) continue;
-
-    const rows = groupElementsIntoRows(segment);
-    let cursorY = anchorBottom + FLOW_GAP_PX;
-
-    for (const row of rows) {
-      const rowHeight = Math.max(...row.map((element) => element.height));
-      for (const element of row) {
-        const index = result.findIndex((item) => item.id === element.id);
-        if (index < 0) continue;
-        result[index] = { ...result[index], y: cursorY };
-      }
-      cursorY += rowHeight + FLOW_GAP_PX;
-    }
-  }
-
-  return result;
-}
-
 function splitOverflowElements(
   elements: CanvasElement[],
   contentBottomLimit: number
@@ -1076,25 +1221,26 @@ function splitOverflowElements(
   const staying: CanvasElement[] = [...hidden, ...pinned];
   const overflow: CanvasElement[] = [];
 
-  let firstOverflowIndex = -1;
-  for (let index = 0; index < flow.length; index += 1) {
-    const element = flow[index];
-    const extendsPastBottom =
-      element.y + element.height > contentBottomLimit + PUSH_TOLERANCE_PX;
-    const startsPastBottom = element.y >= contentBottomLimit - PUSH_TOLERANCE_PX;
-    if (extendsPastBottom || startsPastBottom) {
-      firstOverflowIndex = index;
-      break;
-    }
-  }
-
-  if (firstOverflowIndex < 0) {
-    staying.push(...flow);
+  if (flow.length === 0) {
     return { staying, overflow };
   }
 
-  staying.push(...flow.slice(0, firstOverflowIndex));
-  overflow.push(...flow.slice(firstOverflowIndex));
+  // Per-element spill — never drop a whole "row" of siblings when one tall table
+  // overflows. (Row-based spill was removing headers/components above the table
+  // when they shared a Y-band within ROW_Y_TOLERANCE, or sat after an unsplit table.)
+  for (const element of flow) {
+    const top = element.y;
+    const bottom = element.y + element.height;
+    const startsPastBottom = top >= contentBottomLimit - PUSH_TOLERANCE_PX;
+    const extendsPastBottom = bottom > contentBottomLimit + PUSH_TOLERANCE_PX;
+
+    if (startsPastBottom || extendsPastBottom) {
+      overflow.push(element);
+    } else {
+      staying.push(element);
+    }
+  }
+
   return { staying, overflow: sortOverflowByFlowOrder(overflow) };
 }
 
@@ -1111,31 +1257,57 @@ function resolvePaginationAllRows(
 
 function mergeSegmentRows(segments: Array<{ element: CanvasElement; allRows: ProductTableRow[] }>): ProductTableRow[] {
   const byId = new Map<string, ProductTableRow>();
-  const order: string[] = [];
+  const paginationIdLists = segments.map((segment) => {
+    const props = resolveBuilderTablePropsForEdit((segment.element.props ?? {}) as Record<string, unknown>);
+    const stored = props[PREVIEW_PAGINATION_ROWS_KEY];
+    if (Array.isArray(stored) && stored.length > 0) {
+      return (stored as ProductTableRow[]).map((row) => row.id);
+    }
+    const table = normalizeTablePropsForType(segment.element.type, props) as ProductTableProps;
+    return table.rows.map((row) => row.id);
+  });
+
+  let authoritativeIds = paginationIdLists[0] ?? [];
+  for (let index = 1; index < paginationIdLists.length; index += 1) {
+    const ids = paginationIdLists[index];
+    if (ids.length === 0) continue;
+    const allowed = new Set(ids);
+    authoritativeIds = authoritativeIds.filter((id) => allowed.has(id));
+    if (authoritativeIds.length === 0) {
+      authoritativeIds = ids;
+    }
+  }
 
   for (const segment of segments) {
     const props = resolveBuilderTablePropsForEdit((segment.element.props ?? {}) as Record<string, unknown>);
     const table = normalizeTablePropsForType(segment.element.type, props) as ProductTableProps;
     for (const row of table.rows) {
-      if (!byId.has(row.id)) order.push(row.id);
-      byId.set(row.id, row);
+      if (!byId.has(row.id)) byId.set(row.id, row);
+    }
+    const stored = props[PREVIEW_PAGINATION_ROWS_KEY];
+    if (Array.isArray(stored)) {
+      for (const row of stored as ProductTableRow[]) {
+        byId.set(row.id, row);
+      }
     }
   }
 
-  for (const row of segments[0].allRows) {
-    if (!byId.has(row.id)) {
-      order.push(row.id);
-      byId.set(row.id, row);
-    }
-  }
+  const order =
+    authoritativeIds.length > 0
+      ? authoritativeIds
+      : segments[0].allRows.map((row) => row.id);
 
   return order.map((id) => byId.get(id)).filter((row): row is ProductTableRow => !!row);
 }
 
 function paginationGroupKey(props: Record<string, unknown>): string | null {
+  const tableId = props[PREVIEW_PAGINATION_TABLE_ID_KEY];
+  if (typeof tableId === 'string' && tableId.length > 0) {
+    return `table:${tableId}`;
+  }
   const stored = props[PREVIEW_PAGINATION_ROWS_KEY];
   if (!Array.isArray(stored) || stored.length === 0) return null;
-  return (stored as ProductTableRow[]).map((row) => row.id).join('\0');
+  return `rows:${(stored as ProductTableRow[]).map((row) => row.id).join('\0')}`;
 }
 
 function tableHasContinuationInOverflow(
@@ -1167,7 +1339,10 @@ function consolidatePaginatedTablesForReflow(pages: TemplatePage[]): TemplatePag
       const props = (element.props ?? {}) as Record<string, unknown>;
       const key = paginationGroupKey(props);
       if (!key) continue;
-      const allRows = props[PREVIEW_PAGINATION_ROWS_KEY] as ProductTableRow[];
+      const allRows = resolvePaginationAllRows(
+        props,
+        normalizeTablePropsForType(element.type, props) as ProductTableProps
+      );
       const list = groups.get(key) ?? [];
       list.push({ pageIndex, element, allRows });
       groups.set(key, list);
@@ -1183,32 +1358,263 @@ function consolidatePaginatedTablesForReflow(pages: TemplatePage[]): TemplatePag
     const groupKey = paginationGroupKey((segments[0].element.props ?? {}) as Record<string, unknown>);
     if (!groupKey) continue;
 
+    // Only merge real cross-page continuations. Independent page-2/3 tables must
+    // stay put — previously every paginated table was forced onto page 1.
+    const hasCrossPageContinuation =
+      segments.length > 1
+      || segments.some((segment) =>
+        isTableContinuationSegment((segment.element.props ?? {}) as Record<string, unknown>)
+      );
+    if (!hasCrossPageContinuation) continue;
+
+    const groupTableId = (segments[0].element.props ?? {})[PREVIEW_PAGINATION_TABLE_ID_KEY];
     const mergedRows = mergeSegmentRows(segments);
-    const anchorOnFirstPage = segments.find((segment) => segment.pageIndex === 0);
-    const anchor = anchorOnFirstPage ?? segments[0];
+
+    // Prefer the page-1 head; otherwise keep the table on its own page.
+    const primary =
+      segments.find((segment) => segment.pageIndex === 0)
+      ?? segments.find(
+        (segment) =>
+          !isTableContinuationSegment((segment.element.props ?? {}) as Record<string, unknown>)
+      )
+      ?? segments[0];
+    const targetPageIndex = primary.pageIndex;
 
     for (let pageIndex = 0; pageIndex < next.length; pageIndex += 1) {
       next[pageIndex].elements = next[pageIndex].elements.filter((element) => {
-        const key = paginationGroupKey((element.props ?? {}) as Record<string, unknown>);
-        return key !== groupKey;
+        const props = (element.props ?? {}) as Record<string, unknown>;
+        const key = paginationGroupKey(props);
+        if (key === groupKey) return false;
+        if (
+          typeof groupTableId === 'string'
+          && props[PREVIEW_PAGINATION_TABLE_ID_KEY] === groupTableId
+        ) {
+          return false;
+        }
+        return true;
       });
     }
 
-    const props = { ...(anchor.element.props ?? {}) } as Record<string, unknown>;
+    const props = { ...(primary.element.props ?? {}) } as Record<string, unknown>;
     delete props[PREVIEW_PAGINATION_RANGE_START_KEY];
     delete props[PREVIEW_PAGINATION_RANGE_END_KEY];
     props[PREVIEW_PAGINATION_ROWS_KEY] = mergedRows;
+    props[PREVIEW_PAGINATION_TABLE_ID_KEY] = resolvePaginationTableId(
+      props,
+      primary.element.id
+    );
     props.rows = mergedRows;
 
-    const existingIdx = next[0].elements.findIndex((element) => element.id === anchor.element.id);
+    const targetPage = next[targetPageIndex];
+    if (!targetPage) continue;
+
+    const existingIdx = targetPage.elements.findIndex(
+      (element) => element.id === primary.element.id
+    );
+    const restored = {
+      ...primary.element,
+      props,
+      y: primary.element.y,
+    };
     if (existingIdx >= 0) {
-      next[0].elements[existingIdx] = { ...next[0].elements[existingIdx], props };
+      targetPage.elements[existingIdx] = {
+        ...targetPage.elements[existingIdx],
+        ...restored,
+      };
     } else {
-      next[0].elements.push({ ...anchor.element, props });
+      targetPage.elements.push(restored);
     }
   }
 
   return next;
+}
+
+/**
+ * After a continuation page is deleted, keep the Page 1 anchor showing only rows that fit
+ * on that page. Remaining rows stay in pagination metadata until the next layout pass.
+ */
+function fitPaginatedTableAnchorWithoutContinuation(pages: TemplatePage[]): TemplatePage[] {
+  if (pages.length === 0) return pages;
+  const next = cloneTemplatePages(pages);
+  const page = next[0];
+  const contentBottomLimit = getFlowContentBottomLimit(page);
+
+  let elements = cloneElements(page.elements);
+  const tables = elements
+    .filter((element) => element.visible !== false && isTableElementType(element.type))
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+
+  for (const table of tables) {
+    const index = elements.findIndex((element) => element.id === table.id);
+    if (index < 0) continue;
+
+    const element = elements[index];
+    const elementProps = (element.props ?? {}) as Record<string, unknown>;
+    const fitted = fitTableHeightsPreservingWidths(element.type, elementProps);
+    const fullTable = normalizeTablePropsForType(
+      element.type,
+      fitted.tableProps
+    ) as ProductTableProps;
+    const allRows = resolvePaginationAllRows(elementProps, fullTable);
+    if (allRows.length === 0) continue;
+
+    const tableForMeasure = { ...fullTable, rows: allRows };
+    const tableBottomLimit = getTableContentBottomLimit(elements, element, contentBottomLimit);
+    const availableHeight = tableBottomLimit - element.y;
+    if (availableHeight <= PUSH_TOLERANCE_PX) continue;
+
+    let rowCount = findTableRowSplitIndex(
+      element.type,
+      tableForMeasure,
+      availableHeight,
+      allRows
+    );
+    if (rowCount <= 0) rowCount = 1;
+    rowCount = Math.min(rowCount, allRows.length);
+
+    const pageSegment = buildTableSegment(
+      element.type,
+      tableForMeasure,
+      0,
+      rowCount,
+      {
+        showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+        isLastSegment: rowCount >= allRows.length,
+      },
+      allRows
+    );
+    const anchorId = resolvePaginationTableId(elementProps, element.id);
+    elements[index] = {
+      ...element,
+      height: pageSegment.height,
+      props: tablePropsForPageSegment(
+        elementProps,
+        pageSegment.tableProps,
+        allRows,
+        anchorId,
+        rowCount < allRows.length ? { start: 0, end: rowCount } : undefined
+      ),
+    };
+  }
+
+  return [{ ...page, elements }, ...next.slice(1)];
+}
+
+/** Merge split table rows onto Page 1 after a continuation page tab is removed. */
+export function absorbPaginationAfterPageDelete(pages: TemplatePage[]): TemplatePage[] {
+  const consolidated = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
+  return fitPaginatedTableAnchorWithoutContinuation(consolidated);
+}
+
+/** Page 1 may only host the anchor segment — never a continuation copy at the top. */
+function sanitizeAnchorPageTableDuplicates(pages: TemplatePage[]): TemplatePage[] {
+  if (pages.length === 0 || !pages[0]) return pages;
+
+  const page0 = pages[0];
+  const byTableId = new Map<string, CanvasElement[]>();
+
+  for (const element of page0.elements) {
+    if (!isTableElementType(element.type) || element.visible === false) continue;
+    const tableId = resolvePaginationTableId((element.props ?? {}) as Record<string, unknown>, element.id);
+    const group = byTableId.get(tableId) ?? [];
+    group.push(element);
+    byTableId.set(tableId, group);
+  }
+
+  const removeIds = new Set<string>();
+
+  for (const [, group] of byTableId) {
+    if (group.length === 1) {
+      const element = group[0];
+      if (isTableContinuationSegment((element.props ?? {}) as Record<string, unknown>)) {
+        removeIds.add(element.id);
+      }
+      continue;
+    }
+
+    const sorted = [...group].sort((a, b) => b.y - a.y);
+    const anchor =
+      sorted.find((element) => {
+        const start = (element.props ?? {})[PREVIEW_PAGINATION_RANGE_START_KEY];
+        return typeof start !== 'number' || start === 0;
+      }) ?? sorted[0];
+
+    for (const element of group) {
+      if (element.id !== anchor.id) removeIds.add(element.id);
+    }
+  }
+
+  if (removeIds.size === 0) return pages;
+
+  return [
+    {
+      ...page0,
+      elements: page0.elements.filter((element) => !removeIds.has(element.id)),
+    },
+    ...pages.slice(1),
+  ];
+}
+
+/** Rebuild Page 2+ when row metadata overflows but no continuation tab exists. */
+function ensureMissingTableContinuationPages(pages: TemplatePage[]): TemplatePage[] {
+  if (pages.length === 0 || !pages[0]) return pages;
+
+  const page0 = pages[0];
+  let next = pages;
+  let changed = false;
+
+  for (const element of page0.elements) {
+    if (!isTableElementType(element.type) || element.visible === false) continue;
+
+    const elementProps = (element.props ?? {}) as Record<string, unknown>;
+    const rangeEnd = elementProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+    const allRows = elementProps[PREVIEW_PAGINATION_ROWS_KEY];
+    if (typeof rangeEnd !== 'number' || !Array.isArray(allRows) || rangeEnd >= allRows.length) {
+      continue;
+    }
+
+    const tableId = resolvePaginationTableId(elementProps, element.id);
+    const hasLaterPage = next.slice(1).some((page) =>
+      page.elements.some(
+        (candidate) =>
+          isTableElementType(candidate.type)
+          && resolvePaginationTableId((candidate.props ?? {}) as Record<string, unknown>, candidate.id)
+            === tableId
+      )
+    );
+    if (hasLaterPage) continue;
+
+    const fullTable = normalizeTablePropsForType(
+      element.type,
+      resolveBuilderTablePropsForEdit(elementProps)
+    ) as ProductTableProps;
+    const rows = allRows as ProductTableRow[];
+    const continuationSegment = buildTableSegment(
+      element.type,
+      { ...fullTable, rows },
+      rangeEnd,
+      rows.length,
+      {
+        showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+        isLastSegment: true,
+      },
+      rows
+    );
+    const continuation = makeTableContinuationElement(
+      element,
+      elementProps,
+      continuationSegment.tableProps,
+      rows,
+      rangeEnd,
+      rows.length,
+      continuationSegment.height
+    );
+    const continuationPage = createContinuationPage(next.length + 1, page0, [continuation], page0);
+    next = [...next, continuationPage];
+    changed = true;
+  }
+
+  return changed ? applyPreviewPageNumbers(dropEmptyTrailingPages(next)) : next;
 }
 
 function buildTableSegment(
@@ -1285,7 +1691,7 @@ function findTableRowSplitIndex(
       0,
       rowCount,
       {
-        showHeader: table.showHeader !== false,
+        showHeader: resolvePaginatedSegmentShowHeader(table),
         isLastSegment: isLast,
       },
       allRowsForSummary
@@ -1303,20 +1709,58 @@ function getTableContentBottomLimit(
   table: CanvasElement,
   pageContentBottomLimit: number
 ): number {
+  // Use the table's current box — not its full fitted height — so content that will be
+  // pushed/spilled (logo below a growing table) does not permanently cap row capacity.
   const tableBottom = table.y + table.height;
   let maxTableBottom = pageContentBottomLimit;
+
+  const tablesFurtherBelow = elements.filter(
+    (element) =>
+      element.id !== table.id
+      && element.visible !== false
+      && isTableElementType(element.type)
+      && element.y >= tableBottom - PUSH_TOLERANCE_PX
+  );
 
   for (const element of elements) {
     if (element.id === table.id || element.visible === false) continue;
     if (isPinnedPreviewElement(element)) continue;
     if (Math.abs(element.y - table.y) <= ROW_Y_TOLERANCE_PX) continue;
     if (element.y + element.height <= table.y + PUSH_TOLERANCE_PX) continue;
-    // Only blockers below the table's current bottom (signature between stacked tables).
+    // Only blockers below the table's current bottom.
     if (element.y < tableBottom - PUSH_TOLERANCE_PX) continue;
-    maxTableBottom = Math.min(maxTableBottom, element.y - FLOW_GAP_PX);
+
+    if (isTableElementType(element.type)) {
+      maxTableBottom = Math.min(maxTableBottom, element.y - FLOW_GAP_PX);
+      continue;
+    }
+
+    // Non-table (logo/signature/text) caps this table only when another table sits
+    // further below — i.e. content between stacked tables. Trailing logos flow.
+    const hasTableFurtherBelow = tablesFurtherBelow.some(
+      (candidate) => candidate.y >= element.y + element.height - PUSH_TOLERANCE_PX
+    );
+    if (hasTableFurtherBelow) {
+      maxTableBottom = Math.min(maxTableBottom, element.y - FLOW_GAP_PX);
+    }
   }
 
   return maxTableBottom;
+}
+
+function resolveTableRowsForPageSegment(
+  elementProps: Record<string, unknown>,
+  fullTable: ProductTableProps,
+  allRows: ProductTableRow[]
+): ProductTableProps {
+  const start = elementProps[PREVIEW_PAGINATION_RANGE_START_KEY];
+  const end = elementProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+  if (typeof start === 'number' && typeof end === 'number' && end > start) {
+    const segmentRows = allRows.slice(start, end);
+    return { ...fullTable, rows: segmentRows };
+  }
+  const rows = fullTable.rows.length > 0 ? fullTable.rows : allRows;
+  return { ...fullTable, rows };
 }
 
 /** Split table rows across pages when the fitted table extends past the page bottom. */
@@ -1338,10 +1782,6 @@ function splitOverflowTables(
     if (index < 0) continue;
 
     const element = result[index];
-    if (element.y >= contentBottomLimit - PUSH_TOLERANCE_PX) {
-      continue;
-    }
-
     const elementProps = (element.props ?? {}) as Record<string, unknown>;
     const fitted = fitTableHeightsPreservingWidths(element.type, elementProps);
     const fullTable = normalizeTablePropsForType(
@@ -1349,78 +1789,131 @@ function splitOverflowTables(
       fitted.tableProps
     ) as ProductTableProps;
     const allRows = resolvePaginationAllRows(elementProps, fullTable);
-    const tableForSplit: ProductTableProps = { ...fullTable, rows: allRows };
-    const tableBottomLimit = getTableContentBottomLimit(result, element, contentBottomLimit);
-    const availableHeight = tableBottomLimit - element.y;
-    if (availableHeight <= PUSH_TOLERANCE_PX) {
-      continue;
-    }
+    const tableForSplit = resolveTableRowsForPageSegment(elementProps, fullTable, allRows);
+    const isPaginatedSegment = tableHasPaginationSegment(elementProps);
+    const segmentRowStart = isPaginatedSegment
+      ? (elementProps[PREVIEW_PAGINATION_RANGE_START_KEY] as number)
+      : 0;
+    const segmentRowEnd = isPaginatedSegment
+      ? (elementProps[PREVIEW_PAGINATION_RANGE_END_KEY] as number)
+      : allRows.length;
 
-    const fullHeight = resolveTableElementSize(element.type, tableForSplit).height;
-
-    if (fullHeight <= availableHeight + PUSH_TOLERANCE_PX) {
-      const props = {
-        ...elementProps,
-        ...fitted.tableProps,
-        [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
-      };
-      delete props[PREVIEW_PAGINATION_RANGE_START_KEY];
-      delete props[PREVIEW_PAGINATION_RANGE_END_KEY];
-      result[index] = {
-        ...element,
-        height: fullHeight,
-        props,
-      };
-      continue;
-    }
-
-    const splitIndex = findTableRowSplitIndex(
-      element.type,
-      tableForSplit,
-      availableHeight,
-      allRows
-    );
-    if (splitIndex >= tableForSplit.rows.length) {
-      const props = {
-        ...elementProps,
-        ...fitted.tableProps,
-        [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
-      };
-      delete props[PREVIEW_PAGINATION_RANGE_START_KEY];
-      delete props[PREVIEW_PAGINATION_RANGE_END_KEY];
-      result[index] = {
-        ...element,
-        height: fullHeight,
-        props,
-      };
-      continue;
-    }
-
-    if (splitIndex <= 0) {
+    const spillEntireTableToOverflow = () => {
       const continuationSegment = buildTableSegment(
         element.type,
         tableForSplit,
         0,
         tableForSplit.rows.length,
         {
-          showHeader: fullTable.showHeader !== false,
-          isLastSegment: true,
+          showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+          isLastSegment: segmentRowStart + tableForSplit.rows.length >= allRows.length,
         },
         allRows
       );
-      overflow.push({
-        ...element,
-        id: uuidv4(),
-        height: continuationSegment.height,
-        props: {
-          ...continuationSegment.tableProps,
-          [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
-          [PREVIEW_PAGINATION_RANGE_START_KEY]: 0,
-          [PREVIEW_PAGINATION_RANGE_END_KEY]: allRows.length,
-        },
-      });
+      overflow.push(
+        makeTableContinuationElement(
+          element,
+          elementProps,
+          continuationSegment.tableProps,
+          allRows,
+          segmentRowStart,
+          segmentRowStart + tableForSplit.rows.length,
+          continuationSegment.height
+        )
+      );
       result = result.filter((item) => item.id !== element.id);
+    };
+
+    if (element.y >= contentBottomLimit - PUSH_TOLERANCE_PX) {
+      spillEntireTableToOverflow();
       continue;
+    }
+
+    const tableBottomLimit = getTableContentBottomLimit(result, element, contentBottomLimit);
+    const availableHeight = tableBottomLimit - element.y;
+    if (availableHeight <= PUSH_TOLERANCE_PX) {
+      spillEntireTableToOverflow();
+      continue;
+    }
+
+    const fullHeight = resolveTableElementSize(element.type, tableForSplit).height;
+
+    const anchorId = resolvePaginationTableId(elementProps, element.id);
+
+    if (fullHeight <= availableHeight + PUSH_TOLERANCE_PX) {
+      result[index] = {
+        ...element,
+        height: fullHeight,
+        props: tablePropsForPageSegment(
+          elementProps,
+          {
+            ...fitted.tableProps,
+            showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+          },
+          allRows,
+          anchorId,
+          isPaginatedSegment ? { start: segmentRowStart, end: segmentRowEnd } : undefined
+        ),
+      };
+      continue;
+    }
+
+    let splitIndex = findTableRowSplitIndex(
+      element.type,
+      tableForSplit,
+      availableHeight,
+      allRows
+    );
+    if (splitIndex >= tableForSplit.rows.length) {
+      result[index] = {
+        ...element,
+        height: fullHeight,
+        props: tablePropsForPageSegment(
+          elementProps,
+          {
+            ...fitted.tableProps,
+            showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+          },
+          allRows,
+          anchorId,
+          isPaginatedSegment ? { start: segmentRowStart, end: segmentRowEnd } : undefined
+        ),
+      };
+      continue;
+    }
+
+    if (splitIndex <= 0) {
+      if (
+        tableForSplit.rows.length > 1
+        && element.y < contentBottomLimit - PUSH_TOLERANCE_PX
+      ) {
+        splitIndex = 1;
+      } else {
+        const continuationSegment = buildTableSegment(
+          element.type,
+          tableForSplit,
+          0,
+          tableForSplit.rows.length,
+          {
+            showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+            isLastSegment: segmentRowStart + tableForSplit.rows.length >= allRows.length,
+          },
+          allRows
+        );
+        overflow.push(
+          makeTableContinuationElement(
+            element,
+            elementProps,
+            continuationSegment.tableProps,
+            allRows,
+            segmentRowStart,
+            segmentRowStart + tableForSplit.rows.length,
+            continuationSegment.height
+          )
+        );
+        result = result.filter((item) => item.id !== element.id);
+        continue;
+      }
     }
 
     const pageSegment = buildTableSegment(
@@ -1429,7 +1922,7 @@ function splitOverflowTables(
       0,
       splitIndex,
       {
-        showHeader: fullTable.showHeader !== false,
+        showHeader: resolvePaginatedSegmentShowHeader(fullTable),
         isLastSegment: false,
       },
       allRows
@@ -1437,40 +1930,35 @@ function splitOverflowTables(
     result[index] = {
       ...element,
       height: pageSegment.height,
-      props: {
-        ...elementProps,
-        ...pageSegment.tableProps,
-        [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
-        [PREVIEW_PAGINATION_RANGE_START_KEY]: 0,
-        [PREVIEW_PAGINATION_RANGE_END_KEY]: splitIndex,
-      },
+      props: tablePropsForPageSegment(elementProps, pageSegment.tableProps, allRows, anchorId, {
+        start: segmentRowStart,
+        end: segmentRowStart + splitIndex,
+      }),
     };
 
+    const continuationGlobalEnd = segmentRowStart + tableForSplit.rows.length;
     const continuationSegment = buildTableSegment(
       element.type,
       tableForSplit,
       splitIndex,
       tableForSplit.rows.length,
       {
-        showHeader: true,
-        isLastSegment: true,
+        showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+        isLastSegment: continuationGlobalEnd >= allRows.length,
       },
       allRows
     );
-    overflow.push({
-      ...element,
-      id: uuidv4(),
-      y: element.y,
-      height: continuationSegment.height,
-      width: element.width,
-      x: element.x,
-      props: {
-        ...continuationSegment.tableProps,
-        [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
-        [PREVIEW_PAGINATION_RANGE_START_KEY]: splitIndex,
-        [PREVIEW_PAGINATION_RANGE_END_KEY]: allRows.length,
-      },
-    });
+    overflow.push(
+      makeTableContinuationElement(
+        element,
+        elementProps,
+        continuationSegment.tableProps,
+        allRows,
+        segmentRowStart + splitIndex,
+        continuationGlobalEnd,
+        continuationSegment.height
+      )
+    );
   }
 
   return { elements: result, overflow };
@@ -1489,76 +1977,31 @@ export function measurePreviewPageContentHeight(page: TemplatePage): number {
 
 function reflowSinglePage(
   page: TemplatePage,
-  options: PreviewReflowOptions = {}
+  _options: PreviewReflowOptions = {},
+  footerSource?: TemplatePage | null
 ): { page: TemplatePage; overflow: CanvasElement[] } {
-  const { height: pageHeight } = getPageDimensions(page);
-  const contentBottomLimit = pageHeight - page.margins.bottom;
+  const contentBottomLimit = getFlowContentBottomLimit(page, footerSource);
 
   let elements = cloneElements(page.elements);
 
-  const expandables = elements
-    .filter(
-      (element) =>
-        element.visible !== false
-        && (isTableElementType(element.type)
-          || isStructuredContentType(element.type)
-          || isCardComponentType(element.type))
-    )
-    .sort((a, b) => a.y - b.y || a.x - b.x);
+  // Expand non-table blocks first (headers/cards above the table stay put).
+  elements = expandCardsAndPushBelow(elements);
+  elements = expandStructuredBlocksAndPushBelow(elements);
 
-  for (const expandable of expandables) {
-    const index = elements.findIndex((element) => element.id === expandable.id);
-    if (index < 0) continue;
+  // Snapshot after card growth so table split push uses the right baselines.
+  const baselines = snapshotElementGeometry(elements);
 
-    const current = elements[index];
-    let nextWidth = current.width;
-    let nextHeight = current.height;
-    let nextProps = current.props;
-
-    if (isTableElementType(current.type)) {
-      const fitted = resolveTableExpansion(current, options);
-      nextWidth = options.trustTableProps ? current.width : Math.max(current.width, fitted.fittedWidth);
-      nextHeight = fitted.fittedHeight;
-      nextProps = fitted.tableProps ?? current.props;
-    } else if (isStructuredContentType(current.type)) {
-      nextHeight = Math.max(
-        current.height,
-        estimateStructuredBlockHeight(
-          current.type,
-          (current.props ?? {}) as Record<string, unknown>,
-          current.width,
-          current.height
-        )
-      );
-    } else if (isCardComponentType(current.type)) {
-      nextHeight = estimateCardBlockHeight(
-        current.type,
-        (current.props ?? {}) as Record<string, unknown>,
-        current.width,
-        current.height
-      );
-    }
-
-    elements[index] = {
-      ...current,
-      width: nextWidth,
-      height: nextHeight,
-      props: nextProps,
-    };
-  }
-
-  elements = flowLayoutBelowExpandables(elements);
-
+  // Split/grow tables in place — do NOT pre-expand to full document height
+  // (that made the table cover the page and spilled headers with it).
   const tableSplit = splitOverflowTables(elements, contentBottomLimit);
   elements = tableSplit.elements;
-  const tableOverflow = tableSplit.overflow;
-
-  elements = flowLayoutBelowExpandables(elements);
+  elements = pushBelowTablesFromBaselines(elements, baselines);
+  elements = enforceStackGapBelowTables(elements);
 
   const spill = splitOverflowElements(elements, contentBottomLimit);
   return {
     page: { ...page, elements: spill.staying },
-    overflow: sortOverflowByFlowOrder([...tableOverflow, ...spill.overflow]),
+    overflow: sortOverflowByFlowOrder([...tableSplit.overflow, ...spill.overflow]),
   };
 }
 
@@ -1586,33 +2029,29 @@ function reflowSinglePageTablesOnly(page: TemplatePage): {
 }
 
 function pageNeedsTableReflow(page: TemplatePage): boolean {
-  const { height: pageHeight } = getPageDimensions(page);
-  const contentBottomLimit = pageHeight - page.margins.bottom;
+  const contentBottomLimit = getFlowContentBottomLimit(page);
 
   return page.elements.some((element) => {
     if (!isTableElementType(element.type) || element.visible === false) return false;
-    const fitted = fitTableHeightsPreservingWidths(
-      element.type,
-      (element.props ?? {}) as Record<string, unknown>
-    );
+    const elementProps = (element.props ?? {}) as Record<string, unknown>;
+    const fitted = fitTableHeightsPreservingWidths(element.type, elementProps);
     const table = normalizeTablePropsForType(element.type, element.props ?? {}) as ProductTableProps;
     const fittedTable = normalizeTablePropsForType(
       element.type,
       fitted.tableProps
     ) as ProductTableProps;
-    const allRows = resolvePaginationAllRows(
-      (element.props ?? {}) as Record<string, unknown>,
-      fittedTable
-    );
-    const tableForMeasure: ProductTableProps = { ...fittedTable, rows: allRows };
+    const allRows = resolvePaginationAllRows(elementProps, fittedTable);
+    const tableForMeasure = resolveTableRowsForPageSegment(elementProps, fittedTable, allRows);
     const fittedHeight = resolveTableElementSize(element.type, tableForMeasure).height;
 
     if (fittedHeight > element.height + PUSH_TOLERANCE_PX) return true;
     if (element.y + fittedHeight > contentBottomLimit + PUSH_TOLERANCE_PX) return true;
-    if (allRows.length !== table.rows.length) return true;
+    if (!tableHasPaginationSegment(elementProps) && allRows.length !== table.rows.length) {
+      return true;
+    }
     if (contentOverlapsExpandedBlock(page, element, fittedHeight)) return true;
 
-    return table.rows.some((row, rowIndex) => {
+    return tableForMeasure.rows.some((row, rowIndex) => {
       const next = fittedTable.rows[rowIndex];
       if (!next) return true;
       return next.heightPx > row.heightPx + PUSH_TOLERANCE_PX;
@@ -1621,141 +2060,190 @@ function pageNeedsTableReflow(page: TemplatePage): boolean {
 }
 
 /**
- * Document-style layout (Word / Google Docs / Canva Docs):
- * 1. Measure natural component heights
- * 2. Stack in document order with dynamic Y positions
- * 3. Split table rows at page boundaries (rows are indivisible)
- * 4. Spill whole components to the next page when they do not fit
- * 5. Create continuation pages automatically
- *
- * Multi-page templates from the builder stay page-by-page so authored page 2+
- * content is not merged back onto page 1 in composer / invoice preview.
+ * Preview layout: Word-like flow — grow tables/cards, push rows below, paginate overflow.
  */
 export function layoutDocumentPages(
   pages: TemplatePage[],
   options: DocumentLayoutOptions = {}
 ): TemplatePage[] {
   if (pages.length === 0) return pages;
-
-  // Keep intentional multi-page layouts; only consolidate single-page overflow.
-  if (pages.length > 1) {
-    return reflowPagesForPreview(pages, options);
-  }
-
-  const source = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
-  const hasFlowContent = source.some((page) =>
-    page.elements.some(
-      (element) => element.visible !== false && !isPinnedPreviewElement(element)
-    )
-  );
-  if (!hasFlowContent) {
-    return applyPreviewPageNumbers(dropEmptyTrailingPages(source));
-  }
-
-  const { elements: gathered, startY } = gatherReflowElements(source);
-  const layoutTemplate = source[0];
-  const layoutInput: TemplatePage = {
-    ...layoutTemplate,
-    elements: gathered,
-  };
-
-  const result: TemplatePage[] = [];
-  let pendingOverflow: CanvasElement[] = [];
-
-  const flushOverflowPage = () => {
-    if (pendingOverflow.length === 0) return;
-    const continuationPage: TemplatePage = {
-      id: uuidv4(),
-      name: `Page ${result.length + 1}`,
-      margins: { ...layoutTemplate.margins },
-      pageSize: layoutTemplate.pageSize ? { ...layoutTemplate.pageSize } : undefined,
-      elements: stackOverflowElementsAtPageTop(pendingOverflow, layoutTemplate.margins),
-    };
-    const laid = layoutPageElements(continuationPage, continuationPage.elements, layoutTemplate.margins.top);
-    result.push(laid.page);
-    pendingOverflow = laid.overflow;
-  };
-
-  const first = layoutPageElements(layoutInput, gathered, startY);
-  result.push(first.page);
-  pendingOverflow = first.overflow;
-
-  let guard = 0;
-  while (pendingOverflow.length > 0 && guard < 256) {
-    guard += 1;
-    flushOverflowPage();
-  }
-
-  return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
+  return reflowPagesForPreview(pages, options);
 }
 
 /** @deprecated Use layoutDocumentPages */
 export const reflowTablesOnlyForPreview = layoutDocumentPages;
 
 /**
- * Builder editor layout — per-page reflow with row splits (matches preview rendering).
- * Gathers flow elements from all pages, stacks them, then paginates page by page.
- * Multi-page templates keep each authored page instead of consolidating to page 1.
+ * Builder editor layout — same Word-like engine as live preview so canvas matches output.
  */
 export function layoutBuilderPages(pages: TemplatePage[]): TemplatePage[] {
   if (pages.length === 0) return pages;
-
-  // Preserve intentional multi-page authoring (same as preview).
-  if (pages.length > 1) {
-    return reflowPagesForPreview(pages, { trustTableProps: true });
-  }
-
   const consolidated = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
-  const source = fitAllTableHeightsInPages(consolidated);
-  const hasFlowContent = source.some((page) =>
-    page.elements.some(
-      (element) => element.visible !== false && !isPinnedPreviewElement(element)
-    )
+  // Preserve authored table Y on every page (not only page 1).
+  const anchorTablePositions = new Map<string, number>();
+  for (const page of consolidated) {
+    for (const element of page.elements) {
+      if (element.visible === false || !isTableElementType(element.type)) continue;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (isTableContinuationSegment(props)) continue;
+      anchorTablePositions.set(element.id, element.y);
+    }
+  }
+  const source = builderRepaginationSource(consolidated);
+  let result = dropEmptyTrailingPages(reflowPagesForPreview(source, { trustTableProps: true }));
+  if (anchorTablePositions.size > 0) {
+    result = result.map((page) => ({
+      ...page,
+      elements: page.elements.map((element) => {
+        const anchorY = anchorTablePositions.get(element.id);
+        if (anchorY === undefined) return element;
+        const props = (element.props ?? {}) as Record<string, unknown>;
+        if (isTableContinuationSegment(props)) return element;
+        return { ...element, y: anchorY };
+      }),
+    }));
+  }
+  result = sanitizeAnchorPageTableDuplicates(result);
+  result = ensureMissingTableContinuationPages(result);
+  result = normalizeDocumentFooters(result);
+  return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
+}
+
+/** True when a page only holds auto table-continuations (or is empty aside from footers). */
+function pageIsPureAutoContinuation(page: TemplatePage): boolean {
+  if (page.userAuthored === true) return false;
+  const flow = page.elements.filter(
+    (element) => element.visible !== false && !isPinnedPreviewElement(element)
   );
-  if (!hasFlowContent) {
-    return applyPreviewPageNumbers(dropEmptyTrailingPages(source));
+  if (flow.length === 0) return true;
+  return flow.every(
+    (element) =>
+      isTableElementType(element.type)
+      && isTableContinuationSegment((element.props ?? {}) as Record<string, unknown>)
+  );
+}
+
+/**
+ * Prepare pages for builder reflow without destroying multi-page layouts.
+ * - Keep every page that has real content (letter text, images, independent tables).
+ * - Drop only pure auto table-continuation tabs (rows already merged onto page 1).
+ * Never dump page 2/3 content onto page 1 — that caused overlap and deleted pages.
+ */
+function builderRepaginationSource(pages: TemplatePage[]): TemplatePage[] {
+  if (pages.length <= 1) return pages;
+  const head = pages[0];
+  const keptTail = pages.slice(1).filter((page) => !pageIsPureAutoContinuation(page));
+  return [head, ...keptTail];
+}
+
+/**
+ * Add/remove rows on Page 2+ without re-splitting from Page 1.
+ * Keeps the Page 1 segment row range fixed; only extends the edited continuation.
+ */
+export function applyContinuationTableStructuralEdit(
+  pages: TemplatePage[],
+  editedElementId: string,
+  editedProps: Record<string, unknown>
+): TemplatePage[] {
+  const next = cloneTemplatePages(pages);
+  const tableId = resolvePaginationTableId(editedProps, editedElementId);
+  let editedType = ComponentType.PRODUCT_TABLE;
+  let editedPageIndex = -1;
+
+  for (const page of next) {
+    const hit = page.elements.find((el) => el.id === editedElementId);
+    if (hit) {
+      editedType = hit.type;
+      break;
+    }
   }
 
-  const { elements: gathered, startY } = gatherReflowElements(source);
-  const layoutTemplate = source[0];
+  const fullTable = normalizeTablePropsForType(
+    editedType,
+    resolveBuilderTablePropsForEdit(editedProps)
+  ) as ProductTableProps;
+  const fullRows = fullTable.rows;
 
-  const pinned = layoutTemplate.elements.filter(
-    (element) => element.visible !== false && isPinnedPreviewElement(element)
-  );
-  const flowElements = preserveFlowElementPositions(gathered, layoutTemplate.margins);
-  const firstPage: TemplatePage = {
-    ...layoutTemplate,
-    elements: [...pinned, ...flowElements],
-  };
+  for (let pageIndex = 0; pageIndex < next.length; pageIndex += 1) {
+    const kept: CanvasElement[] = [];
+    for (const element of next[pageIndex].elements) {
+      if (!isTableElementType(element.type) || element.visible === false) {
+        kept.push(element);
+        continue;
+      }
+      const elementProps = (element.props ?? {}) as Record<string, unknown>;
+      if (resolvePaginationTableId(elementProps, element.id) !== tableId) {
+        kept.push(element);
+        continue;
+      }
 
-  const result: TemplatePage[] = [];
+      const isEdited = element.id === editedElementId;
+      if (isEdited) editedPageIndex = pageIndex;
+
+      const rangeStart = elementProps[PREVIEW_PAGINATION_RANGE_START_KEY];
+      const rangeEnd = elementProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+      const hasRange =
+        typeof rangeStart === 'number'
+        && typeof rangeEnd === 'number'
+        && rangeEnd > rangeStart;
+
+      let newStart = hasRange ? rangeStart : 0;
+      let newEnd = hasRange ? rangeEnd : fullRows.length;
+
+      if (isEdited) {
+        newEnd = fullRows.length;
+      }
+
+      if (newEnd <= newStart) continue;
+
+      const pageSegment = buildTableSegment(
+        element.type,
+        { ...fullTable, rows: fullRows },
+        newStart,
+        newEnd,
+        {
+          showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+          isLastSegment: newEnd >= fullRows.length,
+        },
+        fullRows
+      );
+      const fitted = fitTableHeightsPreservingWidths(element.type, pageSegment.tableProps);
+      kept.push({
+        ...element,
+        height: fitted.height,
+        props: tablePropsForPageSegment(
+          elementProps,
+          fitted.tableProps,
+          fullRows,
+          tableId,
+          { start: newStart, end: newEnd }
+        ),
+      });
+    }
+    next[pageIndex].elements = kept;
+  }
+
+  if (editedPageIndex < 0) return next;
+
+  let result = next;
   let pendingOverflow: CanvasElement[] = [];
-
-  const flushOverflowPage = (anchorPage: TemplatePage) => {
-    if (pendingOverflow.length === 0) return;
-    const continuationPage = createContinuationPage(
-      result.length + 1,
-      anchorPage,
-      stackOverflowElementsAtPageTop(pendingOverflow, layoutTemplate.margins)
-    );
-    const laid = layoutPageElements(
-      continuationPage,
-      continuationPage.elements,
-      layoutTemplate.margins.top
-    );
-    result.push(laid.page);
-    pendingOverflow = laid.overflow;
-  };
-
-  const first = layoutPageElements(firstPage, firstPage.elements, startY);
-  result.push(first.page);
-  pendingOverflow = first.overflow;
+  const reflowed = reflowSinglePage(result[editedPageIndex], { trustTableProps: true });
+  result[editedPageIndex] = reflowed.page;
+  pendingOverflow = reflowed.overflow;
 
   let guard = 0;
-  while (pendingOverflow.length > 0 && guard < 256) {
+  while (pendingOverflow.length > 0 && guard < 16) {
     guard += 1;
-    flushOverflowPage(result[result.length - 1]);
-    if (pendingOverflow.length === 0) break;
+    const anchorPage = result[editedPageIndex];
+    const continuation = createContinuationPage(
+      result.length + 1,
+      anchorPage,
+      pendingOverflow,
+      result[0] ?? anchorPage
+    );
+    const spill = reflowSinglePage(continuation, { trustTableProps: true });
+    result.push(spill.page);
+    pendingOverflow = spill.overflow;
   }
 
   return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
@@ -1779,15 +2267,23 @@ export function reflowTablesOnlyForBuilder(pages: TemplatePage[]): TemplatePage[
 function createContinuationPage(
   pageNumber: number,
   sourcePage: TemplatePage,
-  overflow: CanvasElement[]
+  overflow: CanvasElement[],
+  footerSource?: TemplatePage
 ): TemplatePage {
-  return {
+  const page: TemplatePage = {
     id: uuidv4(),
     name: `Page ${pageNumber}`,
     margins: { ...sourcePage.margins },
     pageSize: sourcePage.pageSize ? { ...sourcePage.pageSize } : undefined,
-    elements: repositionForPageTop(overflow, sourcePage.margins),
+    userAuthored: false,
+    elements: stackOverflowElementsAtPageTop(overflow, sourcePage.margins),
   };
+  // Attach shared footers BEFORE reflow so tables/text stop above the footer band
+  // (otherwise footers are added later and collide with page 2+ content).
+  const master = footerSource ?? sourcePage;
+  const footers = appendFootersFromMasterPage(master, page);
+  if (footers.length === 0) return page;
+  return { ...page, elements: [...page.elements, ...footers] };
 }
 
 function expandPreviewCardHeights(pages: TemplatePage[]): TemplatePage[] {
@@ -1819,23 +2315,28 @@ function reflowPagesWithExpandedCards(pages: TemplatePage[]): TemplatePage[] {
   return applyPreviewPageNumbers(
     pages.map((page) => ({
       ...page,
-      elements: flowLayoutBelowExpandables(page.elements),
+      elements: expandStructuredBlocksAndPushBelow(
+        expandCardsAndPushBelow(page.elements)
+      ),
     }))
   );
 }
 
 /**
- * Grow cards to fit their content and push stacked elements below (invoice composer).
- * Skips table expansion so template table positions stay intact.
+ * Grow cards / terms / address blocks to fit filled content and push elements below
+ * (divider, invoice #, table, etc.). Skips table expansion/pagination so authored
+ * table position stays intact — use this for live preview vs builder matching.
  */
 export function fitPreviewCardLayout(pages: TemplatePage[]): TemplatePage[] {
   if (pages.length === 0) return pages;
-  const withCardHeights = expandPreviewCardHeights(pages);
-  if (withCardHeights === pages) return pages;
-  return withCardHeights.map((page) => ({
-    ...page,
-    elements: flowLayoutBelowExpandables(page.elements),
-  }));
+  return applyPreviewPageNumbers(
+    cloneTemplatePages(pages).map((page) => ({
+      ...page,
+      elements: expandStructuredBlocksAndPushBelow(
+        expandCardsAndPushBelow(page.elements)
+      ),
+    }))
+  );
 }
 
 export function reflowPagesForPreview(
@@ -1844,7 +2345,7 @@ export function reflowPagesForPreview(
 ): TemplatePage[] {
   if (pages.length === 0) return pages;
 
-  const source = cloneTemplatePages(pages);
+  const source = builderRepaginationSource(cloneTemplatePages(pages));
   const tableOptions: PreviewReflowOptions = { trustTableProps: true, ...options };
 
   const needsReflow = previewPagesNeedReflow(source, tableOptions);
@@ -1859,29 +2360,43 @@ export function reflowPagesForPreview(
 
   const flushOverflow = (anchorPage: TemplatePage) => {
     if (pendingOverflow.length === 0) return;
-    const continuation = createContinuationPage(result.length + 1, anchorPage, pendingOverflow);
-    const reflowed = reflowSinglePage(continuation, tableOptions);
+    const footerMaster = result[0] ?? withCardHeights[0] ?? anchorPage;
+    const continuation = createContinuationPage(
+      result.length + 1,
+      anchorPage,
+      pendingOverflow,
+      footerMaster
+    );
+    const reflowed = reflowSinglePage(continuation, tableOptions, footerMaster);
     result.push(reflowed.page);
     pendingOverflow = reflowed.overflow;
   };
 
-  for (const sourcePage of withCardHeights) {
-    flushOverflow(result.length > 0 ? result[result.length - 1] : sourcePage);
+  const footerMaster = withCardHeights[0] ?? null;
 
-    const reflowed = reflowSinglePage(sourcePage, tableOptions);
+  for (const sourcePage of withCardHeights) {
+    // Never merge table overflow into an existing content page (that stacked
+    // page-3 tables onto page-1/2 and deleted later tabs). Insert new pages first.
+    let insertGuard = 0;
+    while (pendingOverflow.length > 0 && insertGuard < 32) {
+      insertGuard += 1;
+      flushOverflow(result.length > 0 ? result[result.length - 1] : sourcePage);
+    }
+
+    const reflowed = reflowSinglePage(sourcePage, tableOptions, footerMaster);
     result.push(reflowed.page);
     pendingOverflow = reflowed.overflow;
   }
 
   let guard = 0;
-  while (pendingOverflow.length > 0 && guard < 8) {
+  while (pendingOverflow.length > 0 && guard < 32) {
     guard += 1;
     const sourcePage = result[result.length - 1];
     flushOverflow(sourcePage);
     if (pendingOverflow.length === 0) break;
   }
 
-  return applyPreviewPageNumbers(result);
+  return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
 }
 
 /** Apply placeholders/form data then reflow only when content extends past its box. */

@@ -20,6 +20,12 @@
     @apply bg-gray-50 text-black antialiased;
     font-family: var(--font-sans);
   }
+
+  /* Hide Edge/IE native password reveal — we use a custom eye toggle */
+  input[type='password']::-ms-reveal,
+  input[type='password']::-ms-clear {
+    display: none;
+  }
 }
 
 @layer utilities {
@@ -183,4 +189,84 @@
 .builder-context-toolbar-scroll::-webkit-scrollbar-thumb {
   background: #c4c4c4;
   border-radius: 9999px;
+}
+
+/* ── Sonner toasts ─────────────────────────────────────────────────────── */
+
+[data-sonner-toaster][data-x-position='right'] {
+  --offset-right: 20px;
+}
+
+[data-sonner-toast].invogen-toast {
+  position: relative;
+  width: min(100vw - 2rem, 380px);
+  padding: 0.9rem 3.25rem 0.9rem 1rem !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14) !important;
+  font-family: var(--font-sans);
+}
+
+.invogen-toast-title {
+  font-size: 0.9375rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  padding-right: 0.25rem;
+}
+
+.invogen-toast-description {
+  font-size: 0.8125rem !important;
+  line-height: 1.45 !important;
+  opacity: 0.92;
+  padding-right: 0.25rem;
+}
+
+[data-sonner-toast] .invogen-toast-close,
+[data-sonner-toast] [data-close-button] {
+  position: absolute !important;
+  top: 0.65rem !important;
+  right: 0.65rem !important;
+  left: auto !important;
+  inset-inline-start: auto !important;
+  inset-inline-end: 0.65rem !important;
+  transform: none !important;
+  width: 2rem !important;
+  height: 2rem !important;
+  border-radius: 9999px !important;
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+  background: #ffffff !important;
+  color: #1f2937 !important;
+  opacity: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12) !important;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+[data-sonner-toast] .invogen-toast-close:hover,
+[data-sonner-toast] [data-close-button]:hover {
+  background: #f3f4f6 !important;
+  color: #111827 !important;
+  transform: scale(1.04) !important;
+}
+
+[data-sonner-toast] .invogen-toast-close svg,
+[data-sonner-toast] [data-close-button] svg {
+  width: 1rem !important;
+  height: 1rem !important;
+  stroke-width: 2.25 !important;
+}
+
+[data-sonner-toast][data-type='success'] .invogen-toast-close,
+[data-sonner-toast][data-type='error'] .invogen-toast-close,
+[data-sonner-toast][data-type='warning'] .invogen-toast-close,
+[data-sonner-toast][data-type='info'] .invogen-toast-close,
+[data-sonner-toast][data-type='success'] [data-close-button],
+[data-sonner-toast][data-type='error'] [data-close-button],
+[data-sonner-toast][data-type='warning'] [data-close-button],
+[data-sonner-toast][data-type='info'] [data-close-button] {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+  color: #111827 !important;
 }

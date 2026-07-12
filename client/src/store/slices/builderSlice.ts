@@ -1,21 +1,36 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
+import { ComponentType } from '@invogen/shared';
 import { v4 as uuidv4 } from 'uuid';
 import {
   isTableElementType,
+  mergeTablePaginationProps,
   productTablePropsToRecord,
   isSameTableCell,
   resolveBuilderTablePropsForEdit,
+  syncPaginatedTableRowsAcrossSegments,
+  resolvePaginationTableId,
+  isTableContinuationSegment,
+  collectConnectedTableElementIds,
 } from '@/features/builder/product-table';
 import {
   clampTableElementToPage,
   fitTableHeightsPreservingWidths,
 } from '@/features/builder/table-element-size';
-import { normalizeTablePropsForType } from '@/features/builder/table-props-normalize';
+import { normalizeTablePropsForType, tablePropsNeedDocumentLayout } from '@/features/builder/table-props-normalize';
 import { getPageDimensions, PAGE_WIDTH, PAGE_HEIGHT } from '@/features/builder/builder-dnd';
+import { getPrimarySelectedId } from '@/features/builder/builder-selection';
 import { getNextZIndex, normalizeElementLayers, reorderElementLayer, reorderPageElements } from '@/features/builder/element-layers';
 import { applyClipToElementBounds, shouldBakeShapeClipOnApply } from '@/features/builder/shape-clip';
-import { layoutBuilderPages, builderPagesNeedLayout, touchLogicalFlowY } from '@/features/builder/document-layout';
+import { layoutBuilderPages, touchLogicalFlowY, normalizeBuilderPagesForEditor, applyContinuationTableStructuralEdit, absorbPaginationAfterPageDelete } from '@/features/builder/document-layout';
+import {
+  appendFootersFromMasterPage,
+  collectLinkedFooterElementIds,
+  isDocumentFooterElement,
+  normalizeDocumentFooters,
+  prepareNewFooterElement,
+  syncSharedFooterAcrossPages,
+} from '@/features/builder/document-footer';
 
 export interface SelectedTableCell {
   elementId: string;
@@ -122,18 +137,159 @@ const withNormalizedLayers = (pages: TemplatePage[]): TemplatePage[] =>
     elements: normalizeElementLayers(page.elements),
   }));
 
+function findElementLocation(
+  pages: TemplatePage[],
+  elementId: string,
+  preferredPageIndex: number
+): { pageIndex: number; elementIndex: number } | null {
+  const preferred = pages[preferredPageIndex]?.elements.findIndex((e) => e.id === elementId) ?? -1;
+  if (preferred >= 0) return { pageIndex: preferredPageIndex, elementIndex: preferred };
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    const elementIndex = pages[pageIndex].elements.findIndex((e) => e.id === elementId);
+    if (elementIndex >= 0) return { pageIndex, elementIndex };
+  }
+  return null;
+}
+
+/** True when this table id only appears on one page (not a split across pages). */
+function tableExistsOnlyOnPage(
+  pages: TemplatePage[],
+  tableId: string,
+  pageIndex: number
+): boolean {
+  for (let i = 0; i < pages.length; i += 1) {
+    if (i === pageIndex) continue;
+    const hit = pages[i].elements.some(
+      (element) =>
+        isTableElementType(element.type)
+        && resolvePaginationTableId(
+          (element.props ?? {}) as Record<string, unknown>,
+          element.id
+        ) === tableId
+    );
+    if (hit) return false;
+  }
+  return true;
+}
+
 function clonePages(pages: TemplatePage[]): TemplatePage[] {
   return JSON.parse(JSON.stringify(pages)) as TemplatePage[];
 }
 
+function remapSelectionAfterDocumentLayout(
+  state: BuilderState,
+  previousPages: TemplatePage[],
+  nextPages: TemplatePage[]
+) {
+  const primaryId = getPrimarySelectedId(state.selectedElementIds);
+  if (!primaryId) return;
+
+  for (const page of nextPages) {
+    if (page.elements.some((element) => element.id === primaryId)) return;
+  }
+
+  let oldElement: CanvasElement | undefined;
+  for (const page of previousPages) {
+    oldElement = page.elements.find((element) => element.id === primaryId);
+    if (oldElement) break;
+  }
+  if (!oldElement) {
+    state.selectedElementIds = [];
+    return;
+  }
+
+  if (!isTableElementType(oldElement.type)) {
+    state.selectedElementIds = [];
+    return;
+  }
+
+  const tableId = resolvePaginationTableId(
+    (oldElement.props ?? {}) as Record<string, unknown>,
+    oldElement.id
+  );
+  const anchor = nextPages[0]?.elements.find(
+    (element) =>
+      isTableElementType(element.type)
+      && resolvePaginationTableId((element.props ?? {}) as Record<string, unknown>, element.id)
+        === tableId
+  );
+  if (anchor) {
+    state.selectedElementIds = [anchor.id];
+    return;
+  }
+
+  for (const page of nextPages) {
+    const match = page.elements.find(
+      (element) =>
+        isTableElementType(element.type)
+        && resolvePaginationTableId((element.props ?? {}) as Record<string, unknown>, element.id)
+          === tableId
+    );
+    if (match) {
+      state.selectedElementIds = [match.id];
+      return;
+    }
+  }
+
+  state.selectedElementIds = [];
+}
+
+function findElementAcrossPages(pages: TemplatePage[], id: string): CanvasElement | undefined {
+  for (const page of pages) {
+    const hit = page.elements.find((element) => element.id === id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+function removeDocumentElements(state: BuilderState, elementIds: string[]) {
+  const removeIds = new Set(elementIds);
+  state.pages = state.pages.map((page) => ({
+    ...page,
+    elements: normalizeElementLayers(
+      page.elements.filter((element) => !removeIds.has(element.id) || element.locked)
+    ),
+  }));
+  state.pages = normalizeBuilderPagesForEditor(state.pages);
+  if (state.activePageIndex >= state.pages.length) {
+    state.activePageIndex = Math.max(0, state.pages.length - 1);
+  }
+  state.selectedElementIds = state.selectedElementIds.filter((id) => !removeIds.has(id));
+  if (state.imageCropElementId && removeIds.has(state.imageCropElementId)) {
+    state.imageCropElementId = null;
+  }
+  if (state.shapeCropElementId && removeIds.has(state.shapeCropElementId)) {
+    state.shapeCropElementId = null;
+  }
+}
+
+function resolveDeletableElementIds(state: BuilderState, seedIds: string[]): string[] {
+  const removeIds = new Set<string>();
+  for (const id of seedIds) {
+    const target = findElementAcrossPages(state.pages, id);
+    if (!target || target.locked) continue;
+    const connected =
+      isTableElementType(target.type)
+        ? collectConnectedTableElementIds(state.pages, id)
+        : isDocumentFooterElement(target)
+          ? collectLinkedFooterElementIds(state.pages, id)
+          : [id];
+    for (const connectedId of connected) {
+      const element = findElementAcrossPages(state.pages, connectedId);
+      if (element && !element.locked) removeIds.add(connectedId);
+    }
+  }
+  return [...removeIds];
+}
+
 function commitDocumentLayout(state: BuilderState, plain: TemplatePage[]) {
-  let next = layoutBuilderPages(plain);
-  // Re-run once so consolidated table segments + spilled blocks settle across pages.
-  next = layoutBuilderPages(next);
+  const previousPages = clonePages(state.pages);
+  const next = layoutBuilderPages(plain);
   state.pages = next;
   if (state.activePageIndex >= state.pages.length) {
     state.activePageIndex = Math.max(0, state.pages.length - 1);
   }
+  remapSelectionAfterDocumentLayout(state, previousPages, next);
 }
 
 function isGeometryOnlyChange(changes: Partial<CanvasElement>): boolean {
@@ -168,8 +324,7 @@ function applyManualElementUpdate(elements: CanvasElement[], idx: number, merged
 }
 
 function applyDocumentLayout(pages: TemplatePage[]): TemplatePage[] {
-  let next = layoutBuilderPages(pages);
-  return layoutBuilderPages(next);
+  return layoutBuilderPages(pages);
 }
 
 const builderSlice = createSlice({
@@ -182,18 +337,34 @@ const builderSlice = createSlice({
     ) => {
       state.templateId = action.payload.id;
       state.templateName = action.payload.name;
-      const normalizedPages = action.payload.pages.map((page) => {
-        const normalized = page.elements.map((el) => normalizeElement(el, page.margins));
-        return { ...page, elements: normalizeElementLayers(normalized) };
+      const sourcePages =
+        Array.isArray(action.payload.pages) && action.payload.pages.length > 0
+          ? action.payload.pages
+          : [defaultPage()];
+      const normalizedPages = sourcePages.map((page, pageIndex) => {
+        const normalized = (page.elements ?? []).map((el) => normalizeElement(el, page.margins));
+        const flowTables = (page.elements ?? []).filter(
+          (el) => el.visible !== false && isTableElementType(el.type)
+        );
+        const looksLikeAutoContinuation =
+          pageIndex > 0
+          && (
+            flowTables.length === 0
+            || flowTables.every((el) =>
+              isTableContinuationSegment((el.props ?? {}) as Record<string, unknown>)
+            )
+          );
+        return {
+          ...page,
+          // Only keep explicit user pages; clear stale flags on auto-spilled pages.
+          userAuthored: page.userAuthored === true && !looksLikeAutoContinuation,
+          elements: normalizeElementLayers(normalized),
+        };
       });
-      // Multi-page templates are saved intentionally — do not consolidate / drop
-      // pages on open (layoutBuilderPages gathers everything onto page 1).
-      state.pages =
-        normalizedPages.length > 1
-          ? normalizedPages
-          : builderPagesNeedLayout(normalizedPages)
-            ? applyDocumentLayout(normalizedPages)
-            : normalizedPages;
+      // Keep authored positions on open — preview/composer reflow, not the canvas editor.
+      state.pages = normalizeBuilderPagesForEditor(
+        normalizeDocumentFooters(normalizedPages)
+      );
       state.activePageIndex = 0;
       state.selectedElementIds = [];
       state.imageCropElementId = null;
@@ -208,9 +379,15 @@ const builderSlice = createSlice({
       state.shapeCropElementId = null;
     },
     addPage: (state) => {
-      state.pages.push({
+      const masterPage = state.pages[0];
+      const blank: TemplatePage = {
         ...defaultPage(),
         name: `Page ${state.pages.length + 1}`,
+        userAuthored: true,
+      };
+      state.pages.push({
+        ...blank,
+        elements: appendFootersFromMasterPage(masterPage, blank),
       });
       state.activePageIndex = state.pages.length - 1;
       state.isDirty = true;
@@ -219,9 +396,12 @@ const builderSlice = createSlice({
     deletePage: (state, action: PayloadAction<number | undefined>) => {
       if (state.pages.length <= 1) return;
       const index = action.payload ?? state.activePageIndex;
-      if (index < 0 || index >= state.pages.length) return;
+      // Page 1 (index 0) is never deletable.
+      if (index <= 0 || index >= state.pages.length) return;
 
       state.pages.splice(index, 1);
+      state.pages = absorbPaginationAfterPageDelete(clonePages(state.pages));
+      state.pages = normalizeBuilderPagesForEditor(state.pages);
       if (state.activePageIndex > index) {
         state.activePageIndex -= 1;
       } else if (state.activePageIndex >= state.pages.length) {
@@ -232,8 +412,29 @@ const builderSlice = createSlice({
       pushHistory(state);
     },
     addElement: (state, action: PayloadAction<CanvasElement>) => {
-      const page = state.pages[state.activePageIndex];
-      const newId = action.payload.id;
+      const pageIndex = state.activePageIndex;
+      const page = state.pages[pageIndex];
+
+      if (action.payload.type === ComponentType.FOOTER) {
+        const footer = prepareNewFooterElement(
+          {
+            ...action.payload,
+            zIndex: getNextZIndex(page.elements),
+          },
+          page
+        );
+        const plain = clonePages(state.pages);
+        plain[pageIndex] = {
+          ...plain[pageIndex],
+          elements: normalizeElementLayers([...plain[pageIndex].elements, footer]),
+        };
+        state.pages = syncSharedFooterAcrossPages(plain, footer);
+        state.selectedElementIds = [footer.id];
+        state.isDirty = true;
+        pushHistory(state);
+        return;
+      }
+
       page.elements = normalizeElementLayers([
         ...page.elements,
         touchLogicalFlowY({
@@ -241,7 +442,7 @@ const builderSlice = createSlice({
           zIndex: getNextZIndex(page.elements),
         }),
       ]);
-      state.selectedElementIds = [newId];
+      state.selectedElementIds = [action.payload.id];
       state.isDirty = true;
       pushHistory(state);
     },
@@ -260,11 +461,17 @@ const builderSlice = createSlice({
         skipDocumentLayout?: boolean;
       }>
     ) => {
-      const elements = state.pages[state.activePageIndex].elements;
-      const idx = elements.findIndex((e) => e.id === action.payload.id);
-      if (idx !== -1) {
-        const page = state.pages[state.activePageIndex];
-        const current = elements[idx];
+      const location = findElementLocation(
+        state.pages,
+        action.payload.id,
+        state.activePageIndex
+      );
+      if (!location) return;
+
+      const { pageIndex: targetPageIndex, elementIndex: idx } = location;
+      const page = state.pages[targetPageIndex];
+      const elements = page.elements;
+      const current = elements[idx];
         const skipLayout =
           action.payload.skipDocumentLayout === true
           || action.payload.skipTableReflow === true;
@@ -283,10 +490,15 @@ const builderSlice = createSlice({
           }
         }
         if (isTableElementType(merged.type)) {
+          const currentProps = (current.props ?? {}) as Record<string, unknown>;
+          const mergedProps = (merged.props ?? {}) as Record<string, unknown>;
           const table = normalizeTablePropsForType(
             merged.type,
-            resolveBuilderTablePropsForEdit((merged.props ?? {}) as Record<string, unknown>)
+            resolveBuilderTablePropsForEdit(mergedProps)
           );
+          const structuralChange =
+            propsPatch !== undefined
+            && tablePropsNeedDocumentLayout(merged.type, currentProps, mergedProps);
 
           if (propsPatch !== undefined) {
             const shouldReflow =
@@ -296,47 +508,81 @@ const builderSlice = createSlice({
             if (!shouldReflow) {
               const fitted = fitTableHeightsPreservingWidths(
                 merged.type,
-                productTablePropsToRecord(table)
+                resolveBuilderTablePropsForEdit(mergedProps)
               );
               applyManualElementUpdate(elements, idx, {
                 ...merged,
                 width: merged.width > 0 ? merged.width : current.width,
                 height: merged.height > 0 ? merged.height : fitted.height,
-                props: fitted.tableProps,
+                props: mergeTablePaginationProps(currentProps, fitted.tableProps),
               });
             } else {
-              const plain = JSON.parse(JSON.stringify(state.pages)) as TemplatePage[];
-              for (let pageIndex = 0; pageIndex < plain.length; pageIndex += 1) {
-                plain[pageIndex].elements = plain[pageIndex].elements.map((el) => {
-                  if (!isTableElementType(el.type)) return el;
-                  const table = normalizeTablePropsForType(
-                    el.type,
-                    resolveBuilderTablePropsForEdit((el.props ?? {}) as Record<string, unknown>)
-                  );
-                  const fitted = fitTableHeightsPreservingWidths(
-                    el.type,
-                    productTablePropsToRecord(table)
-                  );
-                  return { ...el, props: fitted.tableProps };
-                });
-              }
-              const pageIdx = state.activePageIndex;
-              const elIdx = plain[pageIdx]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
-              if (elIdx >= 0) {
-                const fitted = fitTableHeightsPreservingWidths(
-                  merged.type,
-                  productTablePropsToRecord(table)
+              const tableId = resolvePaginationTableId(currentProps, action.payload.id);
+              const isContinuationEdit =
+                structuralChange && isTableContinuationSegment(currentProps);
+              const finalProps = mergeTablePaginationProps(currentProps, mergedProps, {
+                clearSegmentRange: structuralChange && !isContinuationEdit,
+                anchorElementId: tableId,
+              });
+              const editedTable = normalizeTablePropsForType(
+                merged.type,
+                resolveBuilderTablePropsForEdit(finalProps)
+              );
+              const fitted = fitTableHeightsPreservingWidths(
+                merged.type,
+                resolveBuilderTablePropsForEdit(finalProps)
+              );
+              const propsWithFit = mergeTablePaginationProps(finalProps, fitted.tableProps, {
+                anchorElementId: tableId,
+              });
+
+              if (isContinuationEdit) {
+                const previousPages = clonePages(state.pages);
+                let plain = syncPaginatedTableRowsAcrossSegments(
+                  clonePages(state.pages),
+                  tableId,
+                  editedTable.rows
+                ) as TemplatePage[];
+                state.pages = applyContinuationTableStructuralEdit(
+                  plain,
+                  action.payload.id,
+                  propsWithFit
                 );
-                const currentEl = plain[pageIdx].elements[elIdx];
-                plain[pageIdx].elements[elIdx] = {
-                  ...currentEl,
-                  props: fitted.tableProps,
-                  width: merged.width > 0 ? merged.width : currentEl.width,
-                };
-              }
-              state.pages = applyDocumentLayout(plain);
-              if (state.activePageIndex >= state.pages.length) {
-                state.activePageIndex = Math.max(0, state.pages.length - 1);
+                remapSelectionAfterDocumentLayout(state, previousPages, state.pages);
+              } else {
+                let plain = syncPaginatedTableRowsAcrossSegments(
+                  clonePages(state.pages),
+                  tableId,
+                  editedTable.rows
+                ) as TemplatePage[];
+                const editLocation = findElementLocation(plain, action.payload.id, targetPageIndex);
+                if (editLocation) {
+                  const currentEl = plain[editLocation.pageIndex].elements[editLocation.elementIndex];
+                  plain[editLocation.pageIndex].elements[editLocation.elementIndex] = {
+                    ...currentEl,
+                    ...merged,
+                    props: propsWithFit,
+                    width: merged.width > 0 ? merged.width : currentEl.width,
+                    height: currentEl.height,
+                  };
+                }
+                // Independent tables on page 2+ must not run full-document consolidate
+                // (that used to move them onto page 1 and delete their page).
+                const localLaterPageEdit =
+                  !!editLocation
+                  && editLocation.pageIndex > 0
+                  && tableExistsOnlyOnPage(plain, tableId, editLocation.pageIndex);
+                if (localLaterPageEdit) {
+                  const previousPages = clonePages(state.pages);
+                  state.pages = applyContinuationTableStructuralEdit(
+                    plain,
+                    action.payload.id,
+                    propsWithFit
+                  );
+                  remapSelectionAfterDocumentLayout(state, previousPages, state.pages);
+                } else {
+                  commitDocumentLayout(state, plain);
+                }
               }
             }
           } else {
@@ -345,7 +591,10 @@ const builderSlice = createSlice({
               ...merged,
               width: merged.width > 0 ? merged.width : current.width,
               height: merged.height > 0 ? merged.height : current.height,
-              props: productTablePropsToRecord(table),
+              props: mergeTablePaginationProps(
+                currentProps,
+                productTablePropsToRecord(table)
+              ),
             });
           }
         } else {
@@ -362,48 +611,62 @@ const builderSlice = createSlice({
             applyManualElementUpdate(elements, idx, merged);
           }
         }
+
+        const updated = findElementAcrossPages(state.pages, action.payload.id);
+        if (updated && isDocumentFooterElement(updated)) {
+          state.pages = syncSharedFooterAcrossPages(clonePages(state.pages), updated);
+        }
+
         state.isDirty = true;
         if (action.payload.recordHistory) {
           pushHistory(state);
         }
-      }
     },
     deleteElement: (state, action: PayloadAction<string>) => {
-      const page = state.pages[state.activePageIndex];
-      const target = page.elements.find((e) => e.id === action.payload);
-      if (!target || target.locked) return;
+      const removeIds = resolveDeletableElementIds(state, [action.payload]);
+      if (removeIds.length === 0) return;
 
-      page.elements = page.elements.filter((e) => e.id !== action.payload);
-      page.elements = normalizeElementLayers(page.elements);
-      state.selectedElementIds = state.selectedElementIds.filter((id) => id !== action.payload);
-      if (state.imageCropElementId === action.payload) state.imageCropElementId = null;
-      if (state.shapeCropElementId === action.payload) state.shapeCropElementId = null;
+      removeDocumentElements(state, removeIds);
       state.isDirty = true;
       pushHistory(state);
     },
     deleteSelectedElements: (state) => {
       if (state.selectedElementIds.length === 0) return;
-      const selected = new Set(state.selectedElementIds);
-      const page = state.pages[state.activePageIndex];
-      page.elements = page.elements.filter((el) => !selected.has(el.id) || el.locked);
-      page.elements = normalizeElementLayers(page.elements);
-      state.selectedElementIds = state.selectedElementIds.filter((id) =>
-        page.elements.some((el) => el.id === id)
-      );
-      if (state.imageCropElementId && !page.elements.some((el) => el.id === state.imageCropElementId)) {
-        state.imageCropElementId = null;
-      }
-      if (state.shapeCropElementId && !page.elements.some((el) => el.id === state.shapeCropElementId)) {
-        state.shapeCropElementId = null;
-      }
+      const removeIds = resolveDeletableElementIds(state, state.selectedElementIds);
+      if (removeIds.length === 0) return;
+
+      removeDocumentElements(state, removeIds);
       state.isDirty = true;
       pushHistory(state);
     },
     duplicateElement: (state, action: PayloadAction<string>) => {
-      const page = state.pages[state.activePageIndex];
+      const pageIndex = state.activePageIndex;
+      const page = state.pages[pageIndex];
       const elements = page.elements;
       const el = elements.find((e) => e.id === action.payload);
       if (!el) return;
+
+      if (isDocumentFooterElement(el)) {
+        const dup = prepareNewFooterElement(
+          {
+            ...JSON.parse(JSON.stringify(el)) as CanvasElement,
+            id: uuidv4(),
+            locked: false,
+            zIndex: getNextZIndex(elements),
+          },
+          page
+        );
+        const plain = clonePages(state.pages);
+        plain[pageIndex] = {
+          ...plain[pageIndex],
+          elements: normalizeElementLayers([...plain[pageIndex].elements, dup]),
+        };
+        state.pages = syncSharedFooterAcrossPages(plain, dup);
+        state.selectedElementIds = [dup.id];
+        state.isDirty = true;
+        pushHistory(state);
+        return;
+      }
 
       const offset = 24;
       let dup: CanvasElement = {
@@ -463,6 +726,10 @@ const builderSlice = createSlice({
       if (idx !== -1) {
         const visible = elements[idx].visible !== false;
         elements[idx] = { ...elements[idx], visible: !visible };
+        const updated = elements[idx];
+        if (isDocumentFooterElement(updated)) {
+          state.pages = syncSharedFooterAcrossPages(clonePages(state.pages), updated);
+        }
         state.isDirty = true;
         pushHistory(state);
       }
@@ -697,6 +964,12 @@ const builderSlice = createSlice({
     markClean: (state) => {
       state.isDirty = false;
     },
+    setTemplateName: (state, action: PayloadAction<string>) => {
+      const next = action.payload.trim();
+      if (!next || next === state.templateName) return;
+      state.templateName = next;
+      state.isDirty = true;
+    },
     markDirty: (state) => {
       state.isDirty = true;
     },
@@ -734,6 +1007,7 @@ export const {
   undo,
   redo,
   markClean,
+  setTemplateName,
   markDirty,
   resetBuilder,
 } = builderSlice.actions;

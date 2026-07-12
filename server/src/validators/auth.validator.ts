@@ -44,6 +44,7 @@ export const loginSchema = z.object({
 export const forgotPasswordSchema = z.object({
   body: z.object({
     email: z.string().email(),
+    portal: z.enum(['super-admin', 'admin', 'employee']).optional(),
   }),
 });
 
@@ -74,5 +75,21 @@ export const googleLoginSchema = z.object({
   body: z.object({
     credential: z.string().min(1, 'Google credential is required'),
     remember: z.boolean().optional(),
+  }),
+});
+
+export const employeeRegisterSchema = z.object({
+  body: z.object({
+    joinCode: z.string().min(6, 'Company join code is required'),
+    email: z.string().email(),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(8).optional(),
+    firstName: z.string().min(1, 'First name is required'),
+    lastName: z.string().min(1, 'Last name is required'),
+    department: z.string().optional(),
+    designation: z.string().optional(),
+  }).refine((data) => !data.confirmPassword || data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
   }),
 });

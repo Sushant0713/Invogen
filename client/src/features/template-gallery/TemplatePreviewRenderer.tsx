@@ -2,12 +2,14 @@ import { useMemo } from 'react';
 import type { TemplatePage } from '@invogen/shared';
 import { ElementRenderer } from '@/features/builder/ElementRenderer';
 import { getPageDimensions } from '@/features/builder/builder-dnd';
-import { sortByLayer } from '@/features/builder/element-layers';
+import { sortByLayer, getBaseOpacity, getElementSlotOverflow } from '@/features/builder/element-layers';
 import {
   applyPlaceholdersToPages,
   SAMPLE_PREVIEW_CONTEXT,
 } from './placeholder-utils';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
+import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
+import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
@@ -16,13 +18,18 @@ import {
 } from '@/features/builder/company-branding';
 
 interface TemplatePreviewRendererProps {
-  page: TemplatePage;
+  /** Single page — used when only page 1 is available. */
+  page?: TemplatePage;
+  /** Full document — preferred so table pagination matches live preview. */
+  pages?: TemplatePage[];
   /** Scale factor applied via CSS transform (e.g. 0.22 for card thumbnails). */
   scale?: number;
   /** Fit preview to this width (overrides scale when set). */
   maxWidth?: number;
   /** Replace {{Placeholders}} with sample data for realistic previews. */
   useSampleData?: boolean;
+  /** Run the same reflow engine as builder preview / live preview. */
+  autoReflow?: boolean;
   /** Where logo/signature are loaded from (defaults to tenant company). */
   brandingScope?: CompanyBrandingScope;
   className?: string;
@@ -34,17 +41,31 @@ interface TemplatePreviewRendererProps {
  */
 export function TemplatePreviewRenderer({
   page,
+  pages,
   scale = 0.22,
   maxWidth,
   useSampleData = true,
+  autoReflow = false,
   brandingScope = 'admin',
   className = '',
 }: TemplatePreviewRendererProps) {
   const renderPage = useMemo(() => {
-    if (!useSampleData) return page;
-    const [first] = applyPlaceholdersToPages([page], SAMPLE_PREVIEW_CONTEXT);
-    return first ?? page;
-  }, [page, useSampleData]);
+    const sourcePages = pages?.length ? pages : page ? [page] : [];
+    if (sourcePages.length === 0) return null;
+
+    let resolved = sourcePages;
+    if (useSampleData) {
+      resolved = applyPlaceholdersToPages(sourcePages, SAMPLE_PREVIEW_CONTEXT);
+    }
+
+    const cloned = cloneTemplatePages(resolved);
+    if (!autoReflow) return cloned[0] ?? null;
+
+    const reflowed = reflowPagesForPreview(cloned, { trustTableProps: true });
+    return reflowed[0] ?? cloned[0] ?? null;
+  }, [autoReflow, page, pages, useSampleData]);
+
+  if (!renderPage) return null;
 
   const { width, height } = getPageDimensions(renderPage);
   const effectiveScale = maxWidth ? maxWidth / width : scale;
@@ -79,6 +100,8 @@ export function TemplatePreviewRenderer({
                 width: element.width,
                 height: element.height,
                 zIndex: element.zIndex,
+                opacity: getBaseOpacity(element),
+                overflow: getElementSlotOverflow(element),
               }}
             >
               <div

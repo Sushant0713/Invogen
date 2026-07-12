@@ -1,8 +1,7 @@
 import { useMadeWithInvogen } from './MadeWithInvogenProvider';
 
 /**
- * Bottom-right "Made with Invogen" advertisement badge.
- * Sized in page pixels so it stays readable when the page is CSS-scaled.
+ * Bottom-right "Made with" advertisement badge (super-admin image replaces brand name).
  */
 export function MadeWithInvogenBadge({
   compact = false,
@@ -10,33 +9,25 @@ export function MadeWithInvogenBadge({
   /** Smaller chip for gallery thumbnails. */
   compact?: boolean;
 }) {
-  const { show, name, logoUrl } = useMadeWithInvogen();
-  if (!show) return null;
-
-  const brand = name || 'Invogen';
+  const { show, imageUrl } = useMadeWithInvogen();
+  if (!show || !imageUrl) return null;
 
   if (compact) {
     return (
       <div
-        className="pointer-events-none absolute bottom-1.5 right-1.5 z-[9999] flex max-w-[90%] items-center gap-1 rounded bg-white/95 px-1.5 py-0.5 shadow-sm ring-1 ring-black/10"
+        className="pointer-events-none absolute bottom-1.5 right-1.5 z-[9999] flex max-w-[92%] items-center gap-1 rounded bg-white/95 px-1.5 py-0.5 shadow-sm ring-1 ring-black/10"
         data-made-with-invogen="true"
         aria-hidden
       >
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt=""
-            className="h-3 w-3 shrink-0 object-contain"
-            draggable={false}
-          />
-        ) : (
-          <span className="flex h-3 w-3 shrink-0 items-center justify-center rounded bg-slate-800 text-[7px] font-bold text-white">
-            {brand.charAt(0).toUpperCase()}
-          </span>
-        )}
-        <span className="truncate text-[9px] font-medium leading-none text-slate-700">
-          Made with {brand}
+        <span className="shrink-0 text-[9px] font-medium leading-none text-slate-600">
+          Made with
         </span>
+        <img
+          src={imageUrl}
+          alt=""
+          className="h-3.5 max-w-[72px] shrink object-contain object-left"
+          draggable={false}
+        />
       </div>
     );
   }
@@ -45,24 +36,17 @@ export function MadeWithInvogenBadge({
     <div
       className="pointer-events-none absolute bottom-4 right-4 z-[9999] flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md ring-1 ring-black/10"
       data-made-with-invogen="true"
-      style={{ fontSize: 11 }}
       aria-hidden
     >
-      {logoUrl ? (
-        <img
-          src={logoUrl}
-          alt=""
-          className="h-5 w-5 shrink-0 object-contain"
-          draggable={false}
-        />
-      ) : (
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-slate-800 text-[10px] font-bold text-white">
-          {brand.charAt(0).toUpperCase()}
-        </span>
-      )}
-      <span className="whitespace-nowrap font-medium leading-none text-slate-700">
-        Made with {brand}
+      <span className="shrink-0 text-[11px] font-medium leading-none text-slate-600">
+        Made with
       </span>
+      <img
+        src={imageUrl}
+        alt=""
+        className="h-5 max-w-[120px] shrink object-contain object-left"
+        draggable={false}
+      />
     </div>
   );
 }

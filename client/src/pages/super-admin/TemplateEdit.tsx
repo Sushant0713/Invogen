@@ -1,17 +1,13 @@
-import { useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api/client';
-import { useAppDispatch } from '@/hooks/useAppDispatch';
-import { loadTemplate, markDirty, resetBuilder } from '@/store/slices/builderSlice';
-import { loadBuilderDraft } from '@/features/builder/builder-draft';
 import { InvoiceBuilder } from '@/features/builder/InvoiceBuilder';
+import { useHydrateTemplateBuilder } from '@/features/builder/use-hydrate-template-builder';
 import { Loader } from '@/components/ui/Loader';
+import { isSuperAdminTemplateCategory } from '@/pages/super-admin/template-categories';
 
 export default function SuperAdminTemplateEdit() {
   const { id } = useParams<{ id: string }>();
-  const dispatch = useAppDispatch();
-  const loadedIdRef = useRef<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['super-admin-template', id],
@@ -20,42 +16,19 @@ export default function SuperAdminTemplateEdit() {
     refetchOnWindowFocus: false,
   });
 
-  // Load once per template id. Do not re-run on query refetch after Save —
-  // that used to reset the builder and drop multi-page edits.
-  useEffect(() => {
-    if (!data?._id) return;
-    if (loadedIdRef.current === data._id) return;
+  const { isReady } = useHydrateTemplateBuilder(data, id);
 
-    loadedIdRef.current = data._id;
-    const draft = loadBuilderDraft(data._id);
-    if (draft?.isDirty && draft.pages?.length) {
-      dispatch(
-        loadTemplate({
-          id: data._id,
-          name: draft.templateName || data.name,
-          pages: draft.pages,
-        })
-      );
-      dispatch(markDirty());
-    } else {
-      dispatch(loadTemplate({ id: data._id, name: data.name, pages: data.pages }));
-    }
-  }, [data, dispatch]);
+  if (isLoading || !id || !data || !isReady) return <Loader fullScreen />;
 
-  useEffect(() => {
-    return () => {
-      loadedIdRef.current = null;
-      dispatch(resetBuilder());
-    };
-  }, [id, dispatch]);
-
-  if (isLoading || !id) return <Loader fullScreen />;
+  const backTo = isSuperAdminTemplateCategory(data.category ?? '')
+    ? '/super-admin/templates/super-admin'
+    : '/super-admin/templates';
 
   return (
     <InvoiceBuilder
       templateId={id}
       apiBase="/super-admin/templates"
-      backTo="/super-admin/templates"
+      backTo={backTo}
     />
   );
 }

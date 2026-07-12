@@ -1,7 +1,8 @@
 import { AppLayout } from './AppLayout';
 import { superAdminNav } from '@/config/navigation';
 import { useLocation } from 'react-router-dom';
-import { isTemplateBuilderPath } from '@/lib/builder-routes';
+import { isTemplateBuilderPath, isSettingsWorkspacePath } from '@/lib/builder-routes';
+import { SuperAdminNotificationBell } from '@/components/notifications/AdminNotificationBell';
 
 const planTitles: Record<string, string> = {
   '/super-admin/plans/types': 'Plan Type',
@@ -19,5 +20,14 @@ export default function SuperAdminLayout() {
   );
   const title = planTitle || current?.label || 'Super Admin';
   const isBuilder = isTemplateBuilderPath(location.pathname);
-  return <AppLayout navItems={superAdminNav} title={title} variant={isBuilder ? 'builder' : 'default'} />;
+  const isSettings = isSettingsWorkspacePath(location.pathname);
+  const variant = isBuilder ? 'builder' : isSettings ? 'compact' : 'default';
+  return (
+    <AppLayout
+      navItems={superAdminNav}
+      title={isSettings ? '' : title}
+      variant={variant}
+      headerActions={<SuperAdminNotificationBell />}
+    />
+  );
 }

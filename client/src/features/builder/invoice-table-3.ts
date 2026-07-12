@@ -31,7 +31,7 @@ import {
   applySerialNumbers,
 } from './product-table';
 import { type InvoiceDiscountMode } from './invoice-table';
-import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate } from './tax-settings';
+import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate } from './tax-settings';
 import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceTable3Props = ProductTableProps & {
@@ -64,7 +64,10 @@ function discountColumnLabel(mode: InvoiceDiscountMode): string {
 }
 
 function gstColumnLabel(tax: TaxSettings = EMPTY_TAX_SETTINGS): string {
-  if (!tax.isEnabled) return 'GST';
+  if (!tax.isEnabled) return tax.taxDisplayMode === 'igst' ? 'IGST' : 'GST';
+  if (tax.taxDisplayMode === 'igst') {
+    return `IGST (${getIgstRate(tax)}%)`;
+  }
   return `GST (${getCombinedGstRate(tax)}%)`;
 }
 
@@ -271,13 +274,13 @@ function computeDiscountAmount(
   return discountInput;
 }
 
-/** Line: taxable = QTY × Rate − Discount; GST on taxable; Total = taxable + GST. */
+/** Line: taxable = QTY × Rate − Discount; GST/IGST on taxable; Total = taxable + tax. */
 export function calculateInvoice3LineAmounts(
   cells: Record<string, string>,
   tax: TaxSettings = EMPTY_TAX_SETTINGS,
   columns: ProductTableColumn[] = [],
   discountMode: InvoiceDiscountMode = 'amount'
-): { taxable: number; gst: number; total: number } {
+): { taxable: number; gst: number; igst: number; total: number } {
   const { qty, rate } = resolveInvoice3QtyRate(cells, columns);
   const discountInput = resolveInvoice3DiscountInput(cells, columns);
   const subtotal = qty * rate;
@@ -285,12 +288,17 @@ export function calculateInvoice3LineAmounts(
   const taxable = Math.max(0, roundAmount(subtotal - discountAmount));
 
   let gst = 0;
+  let igst = 0;
   if (tax.isEnabled && isInvoice3ColumnVisible(columns, INVOICE3_COL_GST)) {
-    gst = roundAmount((taxable * getCombinedGstRate(tax)) / 100);
+    if (tax.taxDisplayMode === 'igst') {
+      igst = roundAmount((taxable * getIgstRate(tax)) / 100);
+    } else {
+      gst = roundAmount((taxable * getCombinedGstRate(tax)) / 100);
+    }
   }
 
-  const total = roundAmount(taxable + gst);
-  return { taxable, gst, total };
+  const total = roundAmount(taxable + gst + igst);
+  return { taxable, gst, igst, total };
 }
 
 export function getInvoice3GrandTotal(
@@ -345,12 +353,12 @@ export function recalculateInvoice3Row(
   columns: ProductTableColumn[] = [],
   discountMode: InvoiceDiscountMode = 'amount'
 ): ProductTableRow {
-  const { gst, total } = calculateInvoice3LineAmounts(row.cells, tax, columns, discountMode);
+  const { gst, igst, total } = calculateInvoice3LineAmounts(row.cells, tax, columns, discountMode);
   return {
     ...row,
     cells: {
       ...row.cells,
-      [INVOICE3_COL_GST]: formatAmount(gst),
+      [INVOICE3_COL_GST]: formatAmount(gst + igst),
       [INVOICE3_COL_TOTAL]: formatAmount(total),
     },
   };

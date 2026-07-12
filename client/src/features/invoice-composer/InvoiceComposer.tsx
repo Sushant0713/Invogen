@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -18,7 +18,7 @@ import { Loader } from '@/components/ui/Loader';
 import { Badge } from '@/components/ui/Badge';
 import { fetchTemplateDocument } from '@/features/template-gallery/template-loader';
 import { extractPlaceholderKeys } from '@/features/template-gallery/placeholder-utils';
-import { brandingScopeFromApiBase } from '@/features/builder/company-branding';
+import { brandingScopeFromApiBase, companyApiForScope } from '@/features/builder/company-branding';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import {
@@ -32,7 +32,9 @@ import { InvoiceComposerForm } from './InvoiceComposerForm';
 import { InvoiceLivePreview } from './InvoiceLivePreview';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
 import {
+  createPdfExportRunner,
   downloadPdfBlob,
+  pagesExportSignature,
   templatePdfFilename,
 } from '@/features/builder/template-pdf-export';
 import { exportInvoicePreviewPdf } from './InvoiceLivePreview';
@@ -41,7 +43,8 @@ import {
   nativeSharePdf,
 } from '@/features/builder/template-share';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
-import { layoutDocumentPages } from '@/features/builder/document-layout';
+import { fitPreviewCardLayout } from '@/features/builder/preview-page-reflow';
+import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
 import type { TemplatePage } from '@invogen/shared';
 import { toast } from 'sonner';
@@ -50,6 +53,7 @@ import { deleteInvoiceApi } from './invoice-share';
 import { ShareInvoiceDialog } from './ShareInvoiceDialog';
 import {
   deleteComposerPage,
+  cloneTemplatePages,
   normalizeComposerPages,
   updateComposerTableCell,
   updateComposerProductPick,
@@ -81,6 +85,7 @@ import {
   fetchSavedInvoice,
   hydrateComposerFromSavedInvoice,
 } from './saved-invoice';
+import { buildInvoiceTotalsFromPlaceholders } from './invoice-totals';
 
 export interface InvoiceComposerConfig {
   apiBase: '/admin' | '/employee';
@@ -95,6 +100,11 @@ export interface InvoiceComposerConfig {
   templatePickPath: string;
   composerPath: string;
   invoiceEditPath: string;
+  /** When false, hides save and post-save invoice actions (template preview from gallery). */
+  canSaveInvoice?: boolean;
+  canShareInvoice?: boolean;
+  canDuplicateInvoice?: boolean;
+  canDeleteInvoice?: boolean;
 }
 
 function companyToDefaults(company: Record<string, unknown> | undefined): CompanyDefaults {
@@ -117,7 +127,15 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   const { templateId = '', invoiceId = '' } = useParams();
   const isEditing = !!invoiceId;
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
+  const canSaveInvoice = config.canSaveInvoice !== false;
+  const canShareInvoice = config.canShareInvoice ?? canSaveInvoice;
+  const canDuplicateInvoice = config.canDuplicateInvoice ?? canSaveInvoice;
+  const canDeleteInvoice = config.canDeleteInvoice ?? canSaveInvoice;
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
+  const backPath =
+    returnTo ?? (isEditing ? config.invoicesListPath : config.templatePickPath);
   const brandingScope = brandingScopeFromApiBase(`${config.templatesApi}`);
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [workingPages, setWorkingPages] = useState<TemplatePage[]>([]);
@@ -125,8 +143,13 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(invoiceId || null);
   const [sharing, setSharing] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [loadedTemplateId, setLoadedTemplateId] = useState('');
+  const exportKeyRef = useRef('');
+  const exportRunnerRef = useRef(
+    createPdfExportRunner(() => exportKeyRef.current)
+  );
 
   const { data: template, isLoading: loadingTemplate } = useQuery({
     queryKey: ['invoice-composer-template', config.templatesApi, templateId],
@@ -146,12 +169,13 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   });
 
   const { data: company } = useQuery({
-    queryKey: ['invoice-composer-company', config.companyApi],
+    queryKey: ['invoice-composer-company', config.companyApi, brandingScope],
     queryFn: async () =>
-      config.companyApi
-        ? ((await api.get(config.companyApi)).data.data as Record<string, unknown>)
-        : undefined,
-    enabled: !!config.companyApi,
+      ((await api.get(config.companyApi ?? companyApiForScope(brandingScope))).data.data as Record<
+        string,
+        unknown
+      >),
+    enabled: Boolean(config.companyApi) || brandingScope === 'employee' || brandingScope === 'admin',
   });
 
   const { data: customers = [] } = useQuery({
@@ -163,7 +187,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     enabled: !!config.customersApi,
   });
 
-  const { data: queriedTax } = useTaxSettingsQuery('admin');
+  const { data: queriedTax } = useTaxSettingsQuery(brandingScope);
 
   const taxSettings = useMemo(() => {
     if (company) return parseAdminCompanyTax(company);
@@ -396,24 +420,30 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     [config.composerPath, navigate, loadedTemplateId]
   );
 
-  const buildSavePayload = () => ({
-    templateId: loadedTemplateId || templateId || undefined,
-    customerId: selectedCustomerId || undefined,
-    customerSnapshot: {
-      name: formContext.ClientName,
-      email: formContext.Email,
-      phone: formContext.Phone,
-      gst: formContext.GST,
-      address: formContext.Address,
-      state: formContext.State,
-      placeholders: mergedFormContext,
-    },
-    templateSnapshot: filledPages,
-    lineItems: [{ name: 'Service', quantity: 1, unit: 'pcs', price: 0, discount: 0, tax: 0, total: 0 }],
-    totals: { subtotal: 0, discount: 0, tax: 0, total: 0 },
-    type: 'tax',
-    status: 'draft',
-  });
+  const buildSavePayload = () => {
+    const tableTotals = extractTablePlaceholderTotals(displayPages, taxSettings);
+    const placeholders = { ...formContext, ...tableTotals };
+    const totals = buildInvoiceTotalsFromPlaceholders(placeholders);
+
+    const payload = {
+      templateId: loadedTemplateId || templateId || undefined,
+      customerId: selectedCustomerId || undefined,
+      customerSnapshot: {
+        name: formContext.ClientName,
+        email: formContext.Email,
+        phone: formContext.Phone,
+        gst: formContext.GST,
+        address: formContext.Address,
+        state: formContext.State,
+        placeholders,
+      },
+      templateSnapshot: filledPages,
+      lineItems: [{ name: 'Service', quantity: 1, unit: 'pcs', price: 0, discount: 0, tax: 0, total: 0 }],
+      totals,
+      type: 'tax',
+    };
+    return savedInvoiceId ? payload : { ...payload, status: 'draft' };
+  };
 
   const displayPages = useMemo(
     () => recalculatePagesTables(workingPages, taxSettings),
@@ -431,7 +461,10 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   );
 
   const pagesForPreview = useMemo(
-    () => (filledPages.length ? layoutDocumentPages(filledPages) : []),
+    () =>
+      filledPages.length
+        ? fitOverflowingDataFields(fitPreviewCardLayout(cloneTemplatePages(filledPages)))
+        : [],
     [filledPages]
   );
 
@@ -518,7 +551,15 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
   const getPdfBlob = async () => {
     if (!filledPages.length) throw new Error('No template pages');
-    return exportInvoicePreviewPdf(filledPages, exportPageRefs);
+    exportKeyRef.current = pagesExportSignature(filledPages);
+    setExportingPdf(true);
+    try {
+      return await exportRunnerRef.current(() =>
+        exportInvoicePreviewPdf(filledPages, exportPageRefs)
+      );
+    } finally {
+      setExportingPdf(false);
+    }
   };
 
   const handleDownloadPdf = async () => {
@@ -601,10 +642,11 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   const invoiceStatus = savedInvoice?.status ?? 'draft';
 
   return (
+    <CompanyBrandingProvider scope={brandingScope}>
     <div className="flex h-full min-h-0 flex-col bg-gray-50">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:px-6">
         <Link
-          to={isEditing ? config.invoicesListPath : config.templatePickPath}
+          to={backPath}
           className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100"
           title={isEditing ? 'Back to invoices' : 'Back to templates'}
         >
@@ -612,7 +654,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold text-gray-900">
-            {isEditing ? 'Edit Invoice' : 'Create Invoice'}
+            {isEditing ? 'Edit Invoice' : canSaveInvoice ? 'Create Invoice' : 'Invoice Preview'}
           </h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             <span className="text-sm text-gray-600">{invoiceLabel}</span>
@@ -620,11 +662,13 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => saveMutation.mutate()} loading={saveMutation.isPending}>
-            <Save className="h-4 w-4" />
-            {isEditing ? 'Save Changes' : 'Save Invoice'}
-          </Button>
-          {savedInvoiceId ? (
+          {canSaveInvoice && (
+            <Button onClick={() => saveMutation.mutate()} loading={saveMutation.isPending}>
+              <Save className="h-4 w-4" />
+              {isEditing ? 'Save Changes' : 'Save Invoice'}
+            </Button>
+          )}
+          {canSaveInvoice && savedInvoiceId ? (
             <>
               <Link to={`${config.invoicesListPath}/${savedInvoiceId}/view`}>
                 <Button variant="outline" size="sm">
@@ -632,35 +676,51 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
                   View
                 </Button>
               </Link>
-              <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
-                <Share2 className="h-4 w-4" />
-                Share
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => duplicateMutation.mutate()}
-                loading={duplicateMutation.isPending}
-              >
-                <Copy className="h-4 w-4" />
-                Duplicate
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-red-600 hover:bg-red-50"
-                onClick={() => void handleDeleteInvoice()}
-                loading={deleteMutation.isPending}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {canShareInvoice && (
+                <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
+                  <Share2 className="h-4 w-4" />
+                  Share
+                </Button>
+              )}
+              {canDuplicateInvoice && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => duplicateMutation.mutate()}
+                  loading={duplicateMutation.isPending}
+                >
+                  <Copy className="h-4 w-4" />
+                  Duplicate
+                </Button>
+              )}
+              {canDeleteInvoice && invoiceStatus === 'draft' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-600 hover:bg-red-50"
+                  onClick={() => void handleDeleteInvoice()}
+                  loading={deleteMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
             </>
           ) : null}
-          <Button variant="outline" size="sm" onClick={() => void handleDownloadPdf()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleDownloadPdf()}
+            loading={exportingPdf}
+          >
             <Download className="h-4 w-4" />
             PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={() => void handlePrint()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handlePrint()}
+            loading={exportingPdf}
+          >
             <Printer className="h-4 w-4" />
             Print
           </Button>
@@ -681,7 +741,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(320px,38%)_1fr] lg:p-6">
         <div className="min-h-0 overflow-auto pr-1">
-          <ProductSettingsProvider>
+          <ProductSettingsProvider scope={brandingScope}>
           <InvoiceComposerForm
             pages={displayPages}
             pageList={workingPages}
@@ -727,12 +787,11 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       <div aria-hidden className="pointer-events-none fixed left-[-10000px] top-0 opacity-0">
         <CompanyBrandingProvider scope={brandingScope}>
           <TaxSettingsProvider scope={brandingScope}>
-            <ProductSettingsProvider>
+            <ProductSettingsProvider scope={brandingScope}>
               <TemplatePreviewPages
                 pages={pagesForPreview}
                 useSampleData={false}
                 pageRefs={exportPageRefs}
-                trustTableProps
               />
             </ProductSettingsProvider>
           </TaxSettingsProvider>
@@ -755,5 +814,6 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
         />
       ) : null}
     </div>
+    </CompanyBrandingProvider>
   );
 }

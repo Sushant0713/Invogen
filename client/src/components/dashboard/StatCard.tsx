@@ -13,16 +13,27 @@ interface StatCardProps {
 
 export function StatCard({ title, value, icon: Icon, trend, compact, className }: StatCardProps) {
   return (
-    <Card className={cn('relative overflow-hidden', compact ? 'p-4' : undefined, className)}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className={cn('font-medium text-gray-500', compact ? 'text-xs' : 'text-sm')}>{title}</p>
-          <p className={cn('font-bold text-gray-900', compact ? 'mt-1 text-xl' : 'mt-2 text-3xl')}>{value}</p>
-          {trend && <p className="mt-1 text-xs text-green-600">{trend}</p>}
-        </div>
-        <div className={cn('shrink-0 rounded-lg bg-primary-50', compact ? 'p-2' : 'rounded-xl p-3')}>
-          <Icon className={cn('text-primary', compact ? 'h-4 w-4' : 'h-6 w-6')} />
-        </div>
+    <Card className={cn('relative', compact ? 'p-4' : undefined, className)}>
+      <div
+        className={cn(
+          'absolute right-4 top-4 rounded-xl bg-primary-50',
+          compact ? 'p-2' : 'p-2.5',
+        )}
+      >
+        <Icon className={cn('text-primary', compact ? 'h-4 w-4' : 'h-5 w-5')} />
+      </div>
+
+      <div className="min-w-0 pr-12">
+        <p className={cn('font-medium text-gray-500', compact ? 'text-xs' : 'text-sm')}>{title}</p>
+        <p
+          className={cn(
+            'mt-2 font-bold tabular-nums leading-snug text-gray-900 break-words',
+            compact ? 'text-lg' : 'text-lg sm:text-xl xl:text-2xl',
+          )}
+        >
+          {value}
+        </p>
+        {trend ? <p className="mt-2 text-xs leading-relaxed text-green-600">{trend}</p> : null}
       </div>
     </Card>
   );

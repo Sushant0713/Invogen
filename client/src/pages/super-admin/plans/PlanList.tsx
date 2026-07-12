@@ -774,7 +774,8 @@ export default function PlanListPage() {
                 <p className="text-sm font-medium text-gray-800">Made with Invogen</p>
                 <p className="mt-0.5 text-xs text-gray-500">
                   When on, every invoice/template for companies on this plan shows a small
-                  &quot;Made with Invogen&quot; badge (with Invogen logo) at the bottom-right.
+                  &quot;Made with&quot; badge with your advertising image (set in Super Admin →
+                  Settings → Made with ad) at the bottom-right.
                 </p>
               </div>
             </div>

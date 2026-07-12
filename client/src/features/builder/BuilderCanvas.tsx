@@ -59,6 +59,7 @@ import {
   getCanvasZIndex,
   getDisplayOpacity,
   getElementPointerEvents,
+  getElementSlotOverflow,
   findTopElementAtPoint,
   findElementsAtPoint,
   pickStackedClickTarget,
@@ -897,11 +898,13 @@ export function BuilderCanvas() {
                 cancel={
                   isShapeCropMode
                     ? '.shape-clip-handle'
-                    : isEditing
-                      ? '.builder-text-editor, .outline-list-editor'
-                      : isTable
-                        ? '.builder-table-product-cell, .product-cell-select'
-                        : undefined
+                    : isImage && isSelected
+                      ? '.builder-image-crop-handle'
+                      : isEditing
+                        ? '.builder-text-editor, .outline-list-editor'
+                        : isTable
+                          ? '.builder-table-product-cell, .product-cell-select'
+                          : undefined
                 }
                 onDragStart={() => {
                   stackedClickRef.current = null;
@@ -1110,14 +1113,11 @@ export function BuilderCanvas() {
                       selectedTableCell?.elementId === element.id
                       && selectedTableCells.length === 1,
                   }),
-                  overflow:
-                    isShapeCropMode
-                    || (isImage && isSelected)
-                    || elementRotation !== 0
-                    || isTable
-                    || (isSelected && !isEditing && !isStructuredContentType(element.type))
-                      ? 'visible'
-                      : 'hidden',
+                  overflow: getElementSlotOverflow(element, {
+                    isSelected,
+                    isEditing,
+                    isShapeCropMode,
+                  }),
                   pointerEvents: getElementPointerEvents(element, {
                     isSelected,
                     isReferenceBg,

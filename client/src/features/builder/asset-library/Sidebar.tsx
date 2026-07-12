@@ -97,8 +97,8 @@ export function AssetLibrarySidebar() {
   const showRecent = recentItems.length > 0 && !search;
 
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-      <div className="shrink-0 space-y-3 border-b border-gray-100 p-3 dark:border-gray-800">
+    <aside className="invogen-asset-sidebar flex h-full w-[300px] shrink-0 flex-col border-r border-gray-200 bg-white">
+      <div className="shrink-0 space-y-3 border-b border-gray-100 p-3">
         <SidebarHeader />
         <SearchBar value={search} />
       </div>
@@ -149,7 +149,7 @@ export function AssetLibrarySidebar() {
           ))}
 
           {filteredAssets.length === 0 && (
-            <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            <p className="py-8 text-center text-sm text-gray-500">
               No assets match your search.
             </p>
           )}

@@ -1,0 +1,116 @@
+name: Deploy to Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout (CI metadata only)
+        uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS host to known_hosts
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${VPS_HOST:-}" ] || [ -z "${VPS_USER:-}" ]; then
+            echo "::error::Missing secrets VPS_HOST and/or VPS_USER"
+            exit 1
+          fi
+
+          REMOTE_DIR="${DEPLOY_PATH:-~/Invogen}"
+
+          echo "==> Connecting to ${VPS_USER}@${VPS_HOST}"
+          echo "==> Deploy path: ${REMOTE_DIR}"
+
+          ssh -o StrictHostKeyChecking=yes "${VPS_USER}@${VPS_HOST}" \
+            REMOTE_DIR="$REMOTE_DIR" \
+            'bash -s' <<'EOF'
+          set -euo pipefail
+
+          echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting deployment"
+          cd "$REMOTE_DIR"
+
+          if [ ! -f .env ]; then
+            echo "ERROR: Production .env is missing at $REMOTE_DIR/.env"
+            echo "Create it on the VPS before deploying (do not commit secrets)."
+            exit 1
+          fi
+
+          if [ ! -d .git ]; then
+            echo "ERROR: $REMOTE_DIR is not a git repository"
+            exit 1
+          fi
+
+          echo "==> Fetching latest code from origin/main"
+          git fetch --prune origin main
+          git checkout main
+          git reset --hard origin/main
+
+          echo "==> Building and starting containers"
+          docker compose up -d --build
+
+          echo "==> Waiting for healthy containers"
+          READY=0
+          for i in $(seq 1 36); do
+            if docker compose ps | grep -q unhealthy; then
+              echo "ERROR: unhealthy service detected"
+              docker compose ps
+              docker compose logs --tail=200
+              exit 1
+            fi
+            SERVER_OK=$(docker compose ps server 2>/dev/null | grep -c healthy || true)
+            CLIENT_OK=$(docker compose ps client 2>/dev/null | grep -c healthy || true)
+            if [ "${SERVER_OK}" -ge 1 ] && [ "${CLIENT_OK}" -ge 1 ]; then
+              READY=1
+              break
+            fi
+            echo "… waiting for healthchecks (${i}/36)"
+            sleep 5
+          done
+
+          if [ "$READY" != "1" ]; then
+            echo "ERROR: services did not become healthy in time"
+            docker compose ps
+            docker compose logs --tail=200
+            exit 1
+          fi
+
+          echo "==> Removing unused Docker images"
+          docker image prune -f
+
+          echo "==> Container status"
+          docker compose ps
+
+          echo "==> Recent deployment logs"
+          docker compose logs --tail=120
+
+          echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] Deployment succeeded"
+          EOF

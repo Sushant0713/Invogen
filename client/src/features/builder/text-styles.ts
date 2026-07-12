@@ -286,9 +286,16 @@ export function getDisplayText(
   const key = getEditableTextKey(type);
   if (key === 'label') {
     const label = (props.label as string) || 'Label';
-    const value = getDataFieldValue(props, type);
+    let value = getDataFieldValue(props, type).trim();
+    // Avoid "Date: Date: …" when value already includes the label (placeholders / imports).
+    const labelPrefix = `${label}:`;
+    if (value.toLowerCase().startsWith(labelPrefix.toLowerCase())) {
+      value = value.slice(labelPrefix.length).trim();
+    } else if (value.toLowerCase().startsWith(`${label.toLowerCase()} `)) {
+      value = value.slice(label.length).trim();
+    }
     if (type === ComponentType.ADDRESS) return `${label}:\n${value}`;
-    return `${label}: ${value}`;
+    return value ? `${label}: ${value}` : `${label}:`;
   }
   if (key === 'text') return (props.text as string) || fallback || 'DRAFT';
   if (key === 'content') return (props.content as string) || fallback;

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
 import { adminNav } from '@/config/navigation';
@@ -13,6 +14,11 @@ import { logout } from '@/store/slices/authSlice';
 import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
 import { useNavigate } from 'react-router-dom';
 import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
+import { AdminNotificationBell } from '@/components/notifications/AdminNotificationBell';
+import {
+  invalidateAdminPlanQueries,
+  useSubscriptionStatus,
+} from '@/hooks/useAdminSubscription';
 
 function PlanSelectionShell({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch();
@@ -52,24 +58,27 @@ function PlanSelectionShell({ children }: { children: React.ReactNode }) {
 
 export default function AdminLayout() {
   const location = useLocation();
+  const queryClient = useQueryClient();
   const current = adminNav.find((n) => {
     if (n.children?.some((c) => {
       if (c.path.includes('/invoices')) return isInvoiceNavChildActive(c.path, location.pathname);
-      return isSubscriptionNavChildActive(c.path, location.pathname);
+      if (c.path.includes('/subscription')) return isSubscriptionNavChildActive(c.path, location.pathname);
+      return location.pathname === c.path || location.pathname.startsWith(`${c.path}/`);
     })) return true;
     return location.pathname.startsWith(n.path);
   });
   const currentChild = current?.children?.find((c) => {
     if (c.path.includes('/invoices')) return isInvoiceNavChildActive(c.path, location.pathname);
-    return isSubscriptionNavChildActive(c.path, location.pathname);
+    if (c.path.includes('/subscription')) return isSubscriptionNavChildActive(c.path, location.pathname);
+    return location.pathname === c.path || location.pathname.startsWith(`${c.path}/`);
   });
   const pageTitle = currentChild?.label || current?.label || 'Admin';
 
-  const { data: status, isLoading } = useQuery({
-    queryKey: ['admin-subscription-status'],
-    queryFn: async () => (await api.get('/admin/subscription/status')).data.data,
-    staleTime: 0,
-  });
+  const { data: status, isLoading } = useSubscriptionStatus();
+
+  useEffect(() => {
+    invalidateAdminPlanQueries(queryClient);
+  }, [location.pathname, queryClient]);
 
   if (isLoading) return <Loader fullScreen />;
 
@@ -89,6 +98,7 @@ export default function AdminLayout() {
       <AppLayout
         navItems={adminNav}
         title={pageTitle}
+        headerActions={<AdminNotificationBell />}
         variant={isFullHeightWorkspacePath(location.pathname) ? 'builder' : 'default'}
       />
     </MadeWithInvogenProvider>

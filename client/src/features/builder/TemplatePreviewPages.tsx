@@ -2,7 +2,7 @@ import { useMemo, type MutableRefObject } from 'react';
 import type { TemplatePage } from '@invogen/shared';
 import { ElementRenderer } from '@/features/builder/ElementRenderer';
 import { getPageDimensions } from '@/features/builder/builder-dnd';
-import { sortByLayer, getBaseOpacity } from '@/features/builder/element-layers';
+import { sortByLayer, getBaseOpacity, getElementSlotOverflow } from '@/features/builder/element-layers';
 import {
   applyPlaceholdersToPages,
   SAMPLE_PREVIEW_CONTEXT,
@@ -11,6 +11,7 @@ import {
 import { applyInvoiceFormToPages } from '@/features/invoice-composer/apply-invoice-form';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
 import { reflowPagesForPreview, applyPreviewPageNumbers } from '@/features/builder/preview-page-reflow';
+import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import {
   type CompanyBrandingScope,
@@ -74,6 +75,7 @@ function renderPageElements(
           height: element.height,
           zIndex: element.zIndex,
           opacity: getBaseOpacity(element),
+          overflow: getElementSlotOverflow(element),
         }}
       >
         <div
@@ -127,8 +129,11 @@ export function TemplatePreviewPages({
     else if (useSampleData) resolved = applyPlaceholdersToPages(pages, SAMPLE_PREVIEW_CONTEXT);
 
     const cloned = cloneTemplatePages(resolved);
-    if (!autoReflow) return applyPreviewPageNumbers(cloned);
-    return reflowPagesForPreview(cloned, { trustTableProps });
+    const laidOut = autoReflow
+      ? reflowPagesForPreview(cloned, { trustTableProps })
+      : applyPreviewPageNumbers(cloned);
+    // Keep long live values (invoice #, dates) clear of logos/neighbors in every preview.
+    return fitOverflowingDataFields(laidOut);
   }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow]);
 
   return (

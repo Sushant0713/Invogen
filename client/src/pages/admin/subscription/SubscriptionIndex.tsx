@@ -1,14 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link, Navigate } from 'react-router-dom';
-import api from '@/api/client';
+import { Navigate } from 'react-router-dom';
 import { Loader } from '@/components/ui/Loader';
+import { useSubscriptionStatus } from '@/hooks/useAdminSubscription';
 
 export default function SubscriptionIndex() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['admin-subscription-status'],
-    queryFn: async () => (await api.get('/admin/subscription/status')).data.data as { active: boolean },
-    staleTime: 0,
-  });
+  const { data, isLoading } = useSubscriptionStatus();
 
   if (isLoading) return <Loader fullScreen />;
 

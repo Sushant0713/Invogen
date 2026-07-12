@@ -1,9 +1,6 @@
 /**
- * Document-style automatic page layout (Word / Google Docs / Canva Docs).
- *
- * Components are stored in document order; Y positions are computed dynamically
- * from cumulative heights. Tables paginate at row boundaries; other components
- * spill whole to the next page when they do not fit.
+ * Preview layout for live preview / composer: grow tables, push rows below, paginate.
+ * Same engine as the template builder (`layoutBuilderPages`).
  */
 export {
   layoutDocumentPages,
@@ -12,10 +9,14 @@ export {
   prepareDocumentLayoutPages,
   reflowPagesForPreview,
   preparePreviewPages,
+  fitPreviewCardLayout,
   reflowTablesOnlyForPreview,
   reflowTablesOnlyForBuilder,
   applyPreviewPageNumbers,
   measurePreviewPageContentHeight,
+  normalizeBuilderPagesForEditor,
+  applyContinuationTableStructuralEdit,
+  absorbPaginationAfterPageDelete,
   isPinnedPreviewElement,
   pageNeedsReflow,
   previewPagesNeedReflow,
@@ -24,3 +25,10 @@ export {
   type DocumentLayoutOptions,
   type PreviewReflowOptions,
 } from './preview-page-reflow';
+
+export {
+  getFlowContentBottomLimit,
+  isDocumentFooterElement,
+  normalizeDocumentFooters,
+  syncSharedFooterAcrossPages,
+} from './document-footer';

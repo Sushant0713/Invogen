@@ -5,6 +5,7 @@ import {
   type PlaceholderContext,
 } from '@/features/template-gallery/placeholder-utils';
 import { parseAddressFromProps, buildAddressProps } from '@/features/builder/address-content';
+import { buildTermsProps, DEFAULT_TERMS_TITLE } from '@/features/builder/terms-content';
 
 const DATA_FIELD_KEYS: Partial<Record<ComponentType, keyof PlaceholderContext | string>> = {
   [ComponentType.INVOICE_NUMBER]: 'InvoiceNumber',
@@ -74,14 +75,19 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
   }
 
   if (element.type === ComponentType.COMPANY_CARD) {
+    const companyContext = {
+      ...context,
+      CompanyGST: context.CompanyGST ?? context.GST,
+      CompanyPAN: context.CompanyPAN ?? context.PAN,
+    };
     return patchCardElement(
       element,
-      { ...context, CompanyGST: context.CompanyGST ?? context.GST },
+      companyContext,
       {
         name: 'CompanyName',
         address: 'CompanyAddress',
         gst: 'CompanyGST',
-        pan: 'PAN',
+        pan: 'CompanyPAN',
         email: 'CompanyEmail',
         phone: 'CompanyPhone',
       },
@@ -94,6 +100,23 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
         { key: 'phone', placeholder: '+91 98765 43210' },
       ]
     );
+  }
+
+  if (element.type === ComponentType.TERMS) {
+    const termsText = context.TermsAndConditions?.trim();
+    if (!termsText) return element;
+    const items = termsText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const title =
+      typeof context.TermsTitle === 'string' && context.TermsTitle.trim()
+        ? context.TermsTitle.trim()
+        : DEFAULT_TERMS_TITLE;
+    return {
+      ...element,
+      props: buildTermsProps(title, items.length > 0 ? items : [termsText], element.props ?? {}),
+    };
   }
 
   if (element.type === ComponentType.ADDRESS) {
@@ -120,7 +143,10 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
   }
   if (value == null || value === '') return element;
 
-  return { ...element, props: { ...(element.props ?? {}), value } };
+  const nextProps: Record<string, unknown> = { ...(element.props ?? {}), value };
+  // Drop stale rich-text runs so preview can't stack old + new date strings.
+  if ('textRuns' in nextProps) delete nextProps.textRuns;
+  return { ...element, props: nextProps };
 }
 
 /** Apply {{Placeholder}} tokens and sync data-field elements from the invoice form. */

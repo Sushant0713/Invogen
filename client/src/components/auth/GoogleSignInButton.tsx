@@ -1,6 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGoogleAuthConfig } from '@/hooks/useGoogleAuthConfig';
+import { useGsiScriptLoaded } from '@/hooks/useGsiScriptLoaded';
+import {
+  currentOrigin,
+  ensureGsiInitialized,
+  renderGsiButton,
+  setGsiCredentialHandler,
+} from '@/lib/google-gsi';
 
 interface GoogleSignInButtonProps {
   mode: 'signin' | 'signup';
@@ -10,8 +16,13 @@ interface GoogleSignInButtonProps {
 
 export function GoogleSignInButton({ mode, onCredential, disabled }: GoogleSignInButtonProps) {
   const { data: config, isLoading, isError } = useGoogleAuthConfig();
+  const scriptLoaded = useGsiScriptLoaded(Boolean(config?.enabled && config?.clientId));
   const containerRef = useRef<HTMLDivElement>(null);
+  const onCredentialRef = useRef(onCredential);
   const [buttonWidth, setButtonWidth] = useState(320);
+  const [originBlocked, setOriginBlocked] = useState(false);
+
+  onCredentialRef.current = onCredential;
 
   useLayoutEffect(() => {
     const element = containerRef.current;
@@ -19,7 +30,7 @@ export function GoogleSignInButton({ mode, onCredential, disabled }: GoogleSignI
 
     const updateWidth = () => {
       const next = Math.floor(element.getBoundingClientRect().width);
-      if (next > 0) setButtonWidth(next);
+      if (next > 0) setButtonWidth((prev) => (prev === next ? prev : next));
     };
 
     updateWidth();
@@ -27,6 +38,37 @@ export function GoogleSignInButton({ mode, onCredential, disabled }: GoogleSignI
     observer.observe(element);
     return () => observer.disconnect();
   }, [config?.enabled]);
+
+  useEffect(() => {
+    setGsiCredentialHandler((credential) => onCredentialRef.current(credential));
+    return () => setGsiCredentialHandler(null);
+  }, []);
+
+  useEffect(() => {
+    if (!scriptLoaded || !config?.clientId || !containerRef.current) return;
+
+    if (!ensureGsiInitialized(config.clientId)) return;
+
+    renderGsiButton(containerRef.current, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'large',
+      text: mode === 'signup' ? 'signup_with' : 'signin_with',
+      shape: 'rectangular',
+      width: buttonWidth,
+    });
+  }, [scriptLoaded, config?.clientId, mode, buttonWidth]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !scriptLoaded || !config?.clientId) return;
+
+    const timer = window.setTimeout(() => {
+      const hasIframe = Boolean(containerRef.current?.querySelector('iframe'));
+      if (!hasIframe) setOriginBlocked(true);
+    }, 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [scriptLoaded, config?.clientId, buttonWidth]);
 
   if (isLoading) return null;
 
@@ -42,21 +84,17 @@ export function GoogleSignInButton({ mode, onCredential, disabled }: GoogleSignI
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`w-full ${disabled ? 'pointer-events-none opacity-50' : ''}`}
-    >
-      <GoogleLogin
-        onSuccess={(response: CredentialResponse) => {
-          if (response.credential) onCredential(response.credential);
-        }}
-        onError={() => undefined}
-        theme="outline"
-        size="large"
-        width={buttonWidth}
-        text={mode === 'signup' ? 'signup_with' : 'signin_with'}
-        shape="rectangular"
+    <div className="w-full">
+      <div
+        ref={containerRef}
+        className={`w-full ${disabled ? 'pointer-events-none opacity-50' : ''}`}
       />
+      {originBlocked && import.meta.env.DEV && (
+        <p className="mt-2 text-center text-xs text-amber-700">
+          Google blocked this origin ({currentOrigin()}). Add it under Authorized JavaScript origins
+          in Google Cloud Console for client ID {config.clientId}.
+        </p>
+      )}
     </div>
   );
 }

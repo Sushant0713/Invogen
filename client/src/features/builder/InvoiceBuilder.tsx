@@ -1,13 +1,13 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import type { TemplateDocument } from '@invogen/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TemplateDocument, TemplateSummary } from '@invogen/shared';
 import {
-  Undo2, Redo2, ZoomIn, ZoomOut, Grid3X3, Plus, Trash2, Save, ArrowLeft, Layers, Eye,
+  Undo2, Redo2, ZoomIn, ZoomOut, Grid3X3, Plus, Trash2, Save, ArrowLeft, Layers, Eye, PencilLine,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import {
-  undo, redo, setZoom, toggleSnapToGrid, addPage, deletePage, setActivePage, markClean,
+  undo, redo, setZoom, toggleSnapToGrid, addPage, deletePage, setActivePage, markClean, setTemplateName,
 } from '@/store/slices/builderSlice';
 import { clearBuilderDraft, saveBuilderDraft } from '@/features/builder/builder-draft';
 import { AssetLibrarySidebar } from './asset-library';
@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/Button';
 import api from '@/api/client';
 import { toast } from 'sonner';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
+import { TemplateRenameDialog } from './TemplateRenameDialog';
 import {
   invalidateTemplateCache,
   publishSavedTemplateDocument,
@@ -34,6 +35,8 @@ interface InvoiceBuilderProps {
   apiBase?: string;
   backTo?: string;
   onSave?: () => void;
+  /** Show rename control for company custom templates (admin). */
+  allowRename?: boolean;
 }
 
 export function InvoiceBuilder({
@@ -41,6 +44,7 @@ export function InvoiceBuilder({
   apiBase = '/admin/templates',
   backTo = '/admin/templates',
   onSave,
+  allowRename = false,
 }: InvoiceBuilderProps) {
   const dispatch = useAppDispatch();
   const queryClient = useQueryClient();
@@ -48,15 +52,34 @@ export function InvoiceBuilder({
     useAppSelector((s) => s.builder);
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
-  const canDeletePage = pages.length > 1;
+  const canDeletePage = pages.length > 1 && activePageIndex > 0;
+  const selectedPageName = pages[activePageIndex]?.name ?? 'selected page';
   const [saving, setSaving] = useState(false);
   const [positionOpen, setPositionOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+
+  const { data: companyTemplates = [] } = useQuery({
+    queryKey: [apiBase, 'rename', templateId],
+    queryFn: async () =>
+      (await api.get(apiBase, { params: { limit: 200 } })).data.data as TemplateSummary[],
+    enabled: allowRename,
+    staleTime: 0,
+  });
+
+  const takenTemplateNames = useMemo(
+    () =>
+      new Set(
+        companyTemplates
+          .filter((template) => !template.isSystem && template._id !== templateId)
+          .map((template) => template.name)
+      ),
+    [companyTemplates, templateId]
+  );
 
   const handleDeletePage = () => {
     if (!canDeletePage) return;
-    const pageName = pages[activePageIndex]?.name ?? 'this page';
-    if (!window.confirm(`Delete "${pageName}"? This cannot be undone until you save.`)) return;
+    if (!window.confirm(`Delete "${selectedPageName}"? This cannot be undone until you save.`)) return;
     dispatch(deletePage(activePageIndex));
     toast.success('Page deleted');
   };
@@ -228,7 +251,13 @@ export function InvoiceBuilder({
           size="sm"
           onClick={handleDeletePage}
           disabled={!canDeletePage}
-          title={canDeletePage ? 'Delete current page' : 'At least one page is required'}
+          title={
+            canDeletePage
+              ? `Delete ${selectedPageName}`
+              : activePageIndex === 0
+                ? 'Cannot delete Page 1'
+                : 'Cannot delete the only page'
+          }
           className="text-gray-600 hover:text-red-600 disabled:hover:text-gray-400"
         >
           <Trash2 className="h-4 w-4" />
@@ -246,6 +275,17 @@ export function InvoiceBuilder({
           <Eye className="h-4 w-4" />
           Preview
         </Button>
+        {allowRename ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setRenameOpen(true)}
+            title="Rename template"
+          >
+            <PencilLine className="h-4 w-4" />
+            Rename
+          </Button>
+        ) : null}
         <Button size="sm" onClick={() => void saveTemplate()} loading={saving} disabled={saving}>
           <Save className="h-4 w-4" />
           Save
@@ -271,6 +311,17 @@ export function InvoiceBuilder({
       pages={pages}
       templateName={templateName}
       apiBase={apiBase}
+    />
+    <TemplateRenameDialog
+      open={renameOpen}
+      currentName={templateName}
+      takenNames={takenTemplateNames}
+      onClose={() => setRenameOpen(false)}
+      onApply={(name) => {
+        dispatch(setTemplateName(name));
+        setRenameOpen(false);
+        toast.success('Template renamed — click Save to keep changes');
+      }}
     />
     </CompanyBrandingProvider>
   );

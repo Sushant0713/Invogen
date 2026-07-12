@@ -4,9 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { UserRole, type AuthUser } from '@invogen/shared';
 import api from '@/api/client';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
-import { setCredentials } from '@/store/slices/authSlice';
+import { setCredentials, logout as logoutAction } from '@/store/slices/authSlice';
+import { clearSession } from '@/lib/auth-session';
 import { Loader } from '@/components/ui/Loader';
 import { getLoginPath } from '@/config/navigation';
+import { loginPath as buildLoginPath } from '@/lib/workspace-portal';
 import { useRehydrateUserPreferences } from '@/lib/use-rehydrate-user-preferences';
 
 interface MeResponse {
@@ -23,15 +25,18 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
   const dispatch = useAppDispatch();
   const { isAuthenticated, user } = useAppSelector((s) => s.auth);
   const location = useLocation();
+  const shouldLiveSync = roles.includes(UserRole.EMPLOYEE);
 
-  const { data, isLoading, isError, isFetching } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['me'],
     queryFn: async () => {
       const { data } = await api.get<{ data: MeResponse }>('/auth/me');
       return data.data;
     },
     enabled: isAuthenticated,
-    staleTime: 0,
+    staleTime: shouldLiveSync ? 15_000 : 5 * 60_000,
+    refetchOnWindowFocus: shouldLiveSync,
+    refetchInterval: shouldLiveSync ? 30_000 : false,
     retry: false,
   });
 
@@ -53,11 +58,34 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
 
   if (isError) {
     const loginPath = roles[0] ? getLoginPath(roles[0]) : '/';
+    if (
+      roles.includes(UserRole.ADMIN)
+      && user?.role === UserRole.ADMIN
+      && user.authProvider === 'local'
+      && !user.isEmailVerified
+    ) {
+      clearSession();
+      dispatch(logoutAction());
+      const params = new URLSearchParams({ registered: '1', email: user.email });
+      return <Navigate to={buildLoginPath('admin', Object.fromEntries(params.entries()))} replace />;
+    }
     return <Navigate to={loginPath} state={{ from: location }} replace />;
   }
 
-  if (isLoading || isFetching || !data) {
+  if (isLoading || !data) {
     return <Loader fullScreen />;
+  }
+
+  if (
+    roles.includes(UserRole.ADMIN)
+    && data.user.role === UserRole.ADMIN
+    && data.user.authProvider === 'local'
+    && !data.user.isEmailVerified
+  ) {
+    clearSession();
+    dispatch(logoutAction());
+    const params = new URLSearchParams({ registered: '1', email: data.user.email });
+    return <Navigate to={buildLoginPath('admin', Object.fromEntries(params.entries()))} replace />;
   }
 
   if (!roles.includes(data.user.role)) {

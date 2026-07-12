@@ -83,6 +83,8 @@ interface InvoiceComposerFormProps {
   customers: CustomerRecord[];
   selectedCustomerId: string;
   onSelectCustomer: (customerId: string) => void;
+  /** When false, hides page delete controls (settings preview). */
+  showPageManagement?: boolean;
 }
 
 function FormSection({
@@ -173,6 +175,7 @@ export function InvoiceComposerForm({
   customers,
   selectedCustomerId,
   onSelectCustomer,
+  showPageManagement = true,
 }: InvoiceComposerFormProps) {
   const formModel = buildComposerFormModel(pages);
 
@@ -191,7 +194,9 @@ export function InvoiceComposerForm({
 
   return (
     <div className="space-y-4">
-      <InvoicePagesSection pages={pageList} onDeletePage={onDeletePage} />
+      {showPageManagement ? (
+        <InvoicePagesSection pages={pageList} onDeletePage={onDeletePage} />
+      ) : null}
 
       {!hasEditableContent ? (
         <FormSection title="No editable fields" subtitle="This template has no editable content on the preview.">

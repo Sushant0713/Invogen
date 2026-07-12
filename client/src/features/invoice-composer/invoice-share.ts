@@ -48,6 +48,7 @@ export interface PublicInvoiceView {
   issueDate?: string;
   companyName: string;
   showMadeWithInvogen?: boolean;
+  madeWithImage?: string;
 }
 
 export async function fetchPublicInvoiceView(token: string): Promise<PublicInvoiceView> {

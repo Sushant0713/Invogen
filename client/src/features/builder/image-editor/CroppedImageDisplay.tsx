@@ -74,6 +74,7 @@ function CroppedImageDisplayInner({
           src={src}
           alt={alt}
           draggable={false}
+          data-cropped-image="true"
           className={`absolute max-w-none select-none ${interactive ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
           style={{
             left: crop.offsetX - rectPx.x,

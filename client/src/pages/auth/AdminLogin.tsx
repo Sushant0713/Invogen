@@ -1,11 +1,8 @@
-import { LoginForm } from '@/components/auth/LoginForm';
+import { Navigate, useSearchParams } from 'react-router-dom';
 
 export default function AdminLogin() {
-  return (
-    <LoginForm
-      portal="admin"
-      title="Admin Login"
-      subtitle="Sign in to your workspace"
-    />
-  );
+  const [searchParams] = useSearchParams();
+  const next = new URLSearchParams(searchParams);
+  next.set('portal', 'admin');
+  return <Navigate to={`/login?${next.toString()}`} replace />;
 }

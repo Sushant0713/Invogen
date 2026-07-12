@@ -25,6 +25,7 @@ export const sendEmail = async (options: {
   to: string;
   subject: string;
   html: string;
+  text?: string;
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -36,8 +37,13 @@ export const sendEmail = async (options: {
       console.warn('[mail] SMTP not configured — skipping send in development');
       console.warn(`  To: ${options.to}`);
       console.warn(`  Subject: ${options.subject}`);
-      const linkMatch = options.html.match(/href="([^"]+)"/);
-      if (linkMatch) console.warn(`  Link: ${linkMatch[1]}`);
+      if (options.text) {
+        console.warn(`  Text:\n${options.text}`);
+      }
+      const linkMatches = [...options.html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+      for (const link of linkMatches) {
+        console.warn(`  Link: ${link.replace(/&amp;/g, '&')}`);
+      }
       return;
     }
     throw new Error('SMTP is not configured');
@@ -49,6 +55,7 @@ export const sendEmail = async (options: {
       to: options.to,
       subject: options.subject,
       html: options.html,
+      text: options.text,
       attachments: options.attachments?.map((file) => ({
         filename: file.filename,
         content: file.content,
@@ -56,6 +63,14 @@ export const sendEmail = async (options: {
       })),
     });
     console.log(`[mail] Sent to ${options.to}: ${options.subject} (${info.messageId || 'ok'})`);
+    if (env.NODE_ENV === 'development' && options.text) {
+      const urlLine = options.text
+        .split('\n')
+        .find((line) => line.startsWith('http://') || line.startsWith('https://'));
+      if (urlLine) {
+        console.warn(`[mail] Link in email: ${urlLine}`);
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[mail] SMTP send failed:', message);

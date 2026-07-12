@@ -28,7 +28,7 @@ import {
 } from './invoice-table-3';
 import type { InvoiceDiscountMode } from './invoice-table';
 import { useTaxSettings } from './TaxSettingsProvider';
-import { getCombinedGstRate } from './tax-settings';
+import { getCombinedGstRate, getIgstRate } from './tax-settings';
 import { InvoiceTable3ColumnList } from './InvoiceTable3ColumnList';
 import { AddColumnTypeSelect } from './AddColumnTypeSelect';
 import { ProductColumnOptions } from './ProductColumnOptions';
@@ -97,13 +97,15 @@ export function InvoiceTable3Properties({
       </div>
 
       <p className="text-xs text-gray-500">
-        Line total = (QTY × Rate − Discount) + GST. GST rate comes from Admin → Settings → Set up tax.
+        Line total = (QTY × Rate − Discount) + GST/IGST. Rates come from Admin → Settings → Set up tax.
       </p>
 
       <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Tax (from settings)</p>
         {!taxSettings.isEnabled ? (
           <p className="text-xs text-amber-700">Tax is disabled in company settings.</p>
+        ) : taxSettings.taxDisplayMode === 'igst' ? (
+          <p className="text-xs text-gray-600">IGST: {getIgstRate(taxSettings)}%</p>
         ) : (
           <p className="text-xs text-gray-600">GST: {getCombinedGstRate(taxSettings)}%</p>
         )}

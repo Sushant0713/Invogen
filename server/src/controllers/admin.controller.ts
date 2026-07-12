@@ -1,4 +1,5 @@
 import { adminService } from '../services/admin.service';
+import { InvoiceStatus } from '@invogen/shared';
 import { wrap, param } from '../utils/controller';
 
 export const getDashboard = wrap((req) => adminService.getDashboard(req.companyId!));
@@ -13,6 +14,25 @@ export const updateEmployee = wrap((req) =>
 );
 export const deleteEmployee = wrap(async (req) => {
   await adminService.deleteEmployee(req.companyId!, param(req.params.id));
+});
+export const getPendingEmployees = wrap((req) => adminService.getPendingEmployees(req.companyId!));
+export const approveEmployee = wrap((req) =>
+  adminService.approveEmployee(req.companyId!, param(req.params.id), req.body.permissions)
+);
+export const rejectEmployee = wrap(async (req) => {
+  await adminService.rejectEmployee(req.companyId!, param(req.params.id));
+});
+export const getNotifications = wrap((req) =>
+  adminService.getNotifications(req.user!.userId, req.companyId!)
+);
+export const getUnreadNotificationCount = wrap((req) =>
+  adminService.getUnreadNotificationCount(req.user!.userId, req.companyId!)
+);
+export const markNotificationRead = wrap((req) =>
+  adminService.markNotificationRead(req.user!.userId, req.companyId!, param(req.params.id))
+);
+export const markAllNotificationsRead = wrap(async (req) => {
+  await adminService.markAllNotificationsRead(req.user!.userId, req.companyId!);
 });
 export const getCustomers = wrap((req) => adminService.getCustomers(req.companyId!, req.query));
 export const createCustomer = wrap((req) => adminService.createCustomer(req.companyId!, req.body));
@@ -48,6 +68,13 @@ export const createInvoice = wrap((req) =>
 );
 export const updateInvoice = wrap((req) =>
   adminService.updateInvoice(req.companyId!, param(req.params.id), req.body)
+);
+export const updateInvoiceStatus = wrap((req) =>
+  adminService.updateInvoiceStatus(
+    req.companyId!,
+    param(req.params.id),
+    req.body.status as InvoiceStatus
+  )
 );
 export const duplicateInvoice = wrap((req) =>
   adminService.duplicateInvoice(req.companyId!, req.user!.userId, param(req.params.id))

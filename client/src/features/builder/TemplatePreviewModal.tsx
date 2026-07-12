@@ -15,10 +15,11 @@ import { CompanyBrandingProvider } from './CompanyBrandingProvider';
 import { TaxSettingsProvider } from './TaxSettingsProvider';
 import { TemplatePreviewPages } from './TemplatePreviewPages';
 import {
+  buildExportPageInputs,
   downloadPdfBlob,
   exportTemplatePagesToPdf,
-  readRenderedPageSize,
   templatePdfFilename,
+  waitForExportNodes,
 } from './template-pdf-export';
 import {
   canNativeShareFiles,
@@ -27,10 +28,6 @@ import {
   openWhatsAppShare,
 } from './template-share';
 import { brandingScopeFromApiBase } from './company-branding';
-import {
-  MadeWithInvogenProvider,
-  madeWithInvogenSourceFromApiBase,
-} from './MadeWithInvogenProvider';
 import { toast } from 'sonner';
 
 interface TemplatePreviewModalProps {
@@ -49,7 +46,6 @@ export function TemplatePreviewModal({
   apiBase = '/admin/templates',
 }: TemplatePreviewModalProps) {
   const brandingScope = brandingScopeFromApiBase(apiBase);
-  const madeWithSource = madeWithInvogenSourceFromApiBase(apiBase);
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -61,18 +57,8 @@ export function TemplatePreviewModal({
     setGenerating(true);
     setPdfBlob(null);
     try {
-      await new Promise((resolve) => window.setTimeout(resolve, pages.length > 1 ? 600 : 350));
-      const nodes = exportPageRefs.current.filter(
-        (node): node is HTMLDivElement => node != null
-      );
-      if (nodes.length === 0) {
-        throw new Error('Preview pages not ready');
-      }
-      const pageInputs = nodes.map((element) => ({
-        element,
-        size: readRenderedPageSize(element),
-      }));
-      const blob = await exportTemplatePagesToPdf(pageInputs);
+      const nodes = await waitForExportNodes(exportPageRefs, pages.length);
+      const blob = await exportTemplatePagesToPdf(buildExportPageInputs(nodes));
       setPdfBlob(blob);
     } catch {
       toast.error('Failed to generate PDF preview');
@@ -150,7 +136,6 @@ export function TemplatePreviewModal({
   return createPortal(
     <CompanyBrandingProvider scope={brandingScope}>
       <TaxSettingsProvider scope={brandingScope}>
-        <MadeWithInvogenProvider source={madeWithSource}>
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div
             className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
@@ -167,7 +152,7 @@ export function TemplatePreviewModal({
                   Preview — {templateName}
                 </h2>
                 <p className="text-sm text-gray-500">
-                  Sample data is shown
+                  Matches the editor layout
                   {pages.length > 1 ? ` · ${pages.length} pages` : ''}. PDF is generated from this preview.
                 </p>
               </div>
@@ -184,6 +169,7 @@ export function TemplatePreviewModal({
             <div className="min-h-0 flex-1 overflow-auto bg-[#eef0f4] p-6">
               <TemplatePreviewPages
                 pages={pages}
+                useSampleData={false}
                 previewMaxWidth={Math.min(680, window.innerWidth - 120)}
               />
             </div>
@@ -256,10 +242,9 @@ export function TemplatePreviewModal({
             aria-hidden
             className="pointer-events-none fixed left-[-10000px] top-0 overflow-hidden opacity-0"
           >
-            <TemplatePreviewPages pages={pages} pageRefs={exportPageRefs} />
+            <TemplatePreviewPages pages={pages} pageRefs={exportPageRefs} useSampleData={false} />
           </div>
         </div>
-        </MadeWithInvogenProvider>
       </TaxSettingsProvider>
     </CompanyBrandingProvider>,
     document.body

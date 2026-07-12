@@ -5,6 +5,7 @@ export const PERMISSIONS = {
   INVOICE_DELETE: 'invoice.delete',
   TEMPLATE_VIEW: 'template.view',
   TEMPLATE_EDIT: 'template.edit',
+  TEMPLATE_CREATE: 'template.create',
   CUSTOMER_MANAGE: 'customer.manage',
   PRODUCT_MANAGE: 'product.manage',
   EMPLOYEE_MANAGE: 'employee.manage',

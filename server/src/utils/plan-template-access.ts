@@ -69,14 +69,25 @@ export async function getCompanyPlanAccess(
 
 /**
  * System template IDs allowed for a company based on its plan.
- * `null` means unrestricted (legacy plans that never configured template access).
+ * `null` means unrestricted (legacy plans with no template list).
+ * `[]` means the plan allows no pre-built system templates.
  */
 export async function getAllowedSystemTemplateIds(
   companyId: string
 ): Promise<string[] | null> {
   const access = await getCompanyPlanAccess(companyId);
-  if (!access || !access.templateAccessConfigured) return null;
-  return access.templateIds;
+  if (!access) return null;
+
+  if (access.templateIds.length > 0) {
+    const resolved = await resolvePlanTemplateIds(access.templateIds);
+    return resolved.map((id) => String(id));
+  }
+
+  if (access.templateAccessConfigured) {
+    return [];
+  }
+
+  return null;
 }
 
 export function systemTemplateAccessCondition(

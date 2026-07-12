@@ -7,8 +7,8 @@ export function SidebarHeader() {
         <Layers className="h-4 w-4" />
       </div>
       <div>
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Asset Library</h2>
-        <p className="text-[10px] text-gray-500 dark:text-gray-400">Drag, click, or double-click to add</p>
+        <h2 className="text-sm font-semibold text-gray-900">Asset Library</h2>
+        <p className="text-[10px] text-gray-500">Drag, click, or double-click to add</p>
       </div>
     </div>
   );

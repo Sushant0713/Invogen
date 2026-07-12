@@ -103,7 +103,7 @@ export function InvoiceTable2Properties({
       </div>
 
       <p className="text-xs text-gray-500">
-        Line total = QTY × Rate − Discount. CGST, SGST, and GST rates come from Admin → Settings →
+        Line total = QTY × Rate − Discount. CGST, SGST, GST, and IGST rates come from Admin → Settings →
         Set up tax. Tax is applied on the subtotal in the summary block.
       </p>
 
@@ -119,6 +119,8 @@ export function InvoiceTable2Properties({
           <p className="text-xs text-amber-700">Tax is disabled in company settings.</p>
         ) : taxOptions.taxDisplayMode === 'combined' ? (
           <p className="text-xs text-gray-600">GST: {getCombinedGstRate(taxSettings)}%</p>
+        ) : taxOptions.taxDisplayMode === 'igst' ? (
+          <p className="text-xs text-gray-600">IGST: {taxSettings.igstRate}%</p>
         ) : (
           <p className="text-xs text-gray-600">
             CGST: {taxSettings.cgstRate}% · SGST: {taxSettings.sgstRate}%
@@ -162,6 +164,7 @@ export function InvoiceTable2Properties({
           >
             <option value="split">CGST + SGST</option>
             <option value="combined">GST (combined)</option>
+            <option value="igst">IGST</option>
           </select>
         </div>
       </div>

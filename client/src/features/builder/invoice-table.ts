@@ -32,11 +32,11 @@ import {
   applySerialNumbers,
 } from './product-table';
 import { arrayMove } from '@dnd-kit/sortable';
-import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate } from './tax-settings';
+import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate, normalizeTaxDisplayMode } from './tax-settings';
 import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceDiscountMode = 'amount' | 'percent';
-export type InvoiceTaxDisplayMode = 'split' | 'combined';
+export type InvoiceTaxDisplayMode = 'split' | 'combined' | 'igst';
 
 export type InvoiceTableProps = ProductTableProps & {
   discountMode?: InvoiceDiscountMode;
@@ -52,6 +52,7 @@ export const INVOICE_COL_TAXABLE = 'col_taxable';
 export const INVOICE_COL_CGST = 'col_cgst';
 export const INVOICE_COL_SGST = 'col_sgst';
 export const INVOICE_COL_GST = 'col_gst';
+export const INVOICE_COL_IGST = 'col_igst';
 export const INVOICE_COL_TOTAL = 'col_total';
 
 export const INVOICE_FIXED_COLUMN_IDS = new Set([
@@ -60,6 +61,7 @@ export const INVOICE_FIXED_COLUMN_IDS = new Set([
   INVOICE_COL_CGST,
   INVOICE_COL_SGST,
   INVOICE_COL_GST,
+  INVOICE_COL_IGST,
   INVOICE_COL_TOTAL,
 ]);
 
@@ -68,13 +70,13 @@ function discountColumnLabel(mode: InvoiceDiscountMode): string {
 }
 
 function getFixedColumnDefs(taxDisplayMode: InvoiceTaxDisplayMode): ProductTableColumn[] {
-  const splitTax = taxDisplayMode === 'split';
   return [
     { id: INVOICE_COL_DISCOUNT, label: 'Discount', widthPx: 88, visible: true },
     { id: INVOICE_COL_TAXABLE, label: 'Taxable Amount', widthPx: 108, visible: true },
-    { id: INVOICE_COL_CGST, label: 'CGST', widthPx: 80, visible: splitTax },
-    { id: INVOICE_COL_SGST, label: 'SGST', widthPx: 80, visible: splitTax },
-    { id: INVOICE_COL_GST, label: 'GST', widthPx: 80, visible: !splitTax },
+    { id: INVOICE_COL_CGST, label: 'CGST', widthPx: 80, visible: taxDisplayMode === 'split' },
+    { id: INVOICE_COL_SGST, label: 'SGST', widthPx: 80, visible: taxDisplayMode === 'split' },
+    { id: INVOICE_COL_GST, label: 'GST', widthPx: 80, visible: taxDisplayMode === 'combined' },
+    { id: INVOICE_COL_IGST, label: 'IGST', widthPx: 80, visible: taxDisplayMode === 'igst' },
     { id: INVOICE_COL_TOTAL, label: 'Total Amount', widthPx: 100, visible: true },
   ];
 }
@@ -108,6 +110,7 @@ export const DEFAULT_INVOICE_TABLE_PROPS: InvoiceTableProps = {
         [INVOICE_COL_CGST]: '9',
         [INVOICE_COL_SGST]: '9',
         [INVOICE_COL_GST]: '0',
+        [INVOICE_COL_IGST]: '0',
         [INVOICE_COL_TOTAL]: '118',
       },
     },
@@ -138,6 +141,7 @@ export function isInvoiceTaxColumn(columnId: string): boolean {
     columnId === INVOICE_COL_CGST
     || columnId === INVOICE_COL_SGST
     || columnId === INVOICE_COL_GST
+    || columnId === INVOICE_COL_IGST
   );
 }
 
@@ -179,7 +183,7 @@ export function getInvoiceTableDisplayWidth(columns: ProductTableColumn[]): numb
 }
 
 function normalizeInvoiceTaxDisplayMode(value: unknown): InvoiceTaxDisplayMode {
-  return value === 'combined' ? 'combined' : 'split';
+  return normalizeTaxDisplayMode(value);
 }
 
 function normalizeInvoiceDiscountMode(value: unknown): InvoiceDiscountMode {
@@ -264,7 +268,7 @@ function computeDiscountAmount(
   return discountInput;
 }
 
-/** Taxable = (Rate × Units) − Discount; tax as CGST+SGST or combined GST. */
+/** Taxable = (Rate × Units) − Discount; tax as CGST+SGST, combined GST, or IGST. */
 export function calculateInvoiceAmounts(
   cells: Record<string, string>,
   tax: TaxSettings = EMPTY_TAX_SETTINGS,
@@ -278,6 +282,7 @@ export function calculateInvoiceAmounts(
   cgst: number;
   sgst: number;
   gst: number;
+  igst: number;
   total: number;
 } {
   const discountMode = options.discountMode ?? 'amount';
@@ -293,6 +298,7 @@ export function calculateInvoiceAmounts(
   let cgst = 0;
   let sgst = 0;
   let gst = 0;
+  let igst = 0;
 
   if (tax.isEnabled) {
     if (taxDisplayMode === 'split') {
@@ -301,6 +307,10 @@ export function calculateInvoiceAmounts(
       }
       if (isInvoiceColumnVisible(columns, INVOICE_COL_SGST)) {
         sgst = roundInvoiceAmount((taxable * tax.sgstRate) / 100);
+      }
+    } else if (taxDisplayMode === 'igst') {
+      if (isInvoiceColumnVisible(columns, INVOICE_COL_IGST)) {
+        igst = roundInvoiceAmount((taxable * getIgstRate(tax)) / 100);
       }
     } else if (isInvoiceColumnVisible(columns, INVOICE_COL_GST)) {
       gst = roundInvoiceAmount((taxable * getCombinedGstRate(tax)) / 100);
@@ -312,9 +322,9 @@ export function calculateInvoiceAmounts(
     tax,
     columns,
     { discountMode, taxDisplayMode },
-    { taxable, cgst, sgst, gst }
+    { taxable, cgst, sgst, gst, igst }
   );
-  return { taxable, cgst, sgst, gst, total };
+  return { taxable, cgst, sgst, gst, igst, total };
 }
 
 export function getInvoiceLineTotal(
@@ -325,7 +335,7 @@ export function getInvoiceLineTotal(
     discountMode?: InvoiceDiscountMode;
     taxDisplayMode?: InvoiceTaxDisplayMode;
   } = {},
-  amounts?: { taxable: number; cgst: number; sgst: number; gst: number }
+  amounts?: { taxable: number; cgst: number; sgst: number; gst: number; igst: number }
 ): number {
   const taxDisplayMode = calcOptions.taxDisplayMode ?? 'split';
   const computed =
@@ -339,10 +349,15 @@ export function getInvoiceLineTotal(
           [INVOICE_COL_CGST, computed.cgst],
           [INVOICE_COL_SGST, computed.sgst],
         ]
-      : [
-          [INVOICE_COL_TAXABLE, computed.taxable],
-          [INVOICE_COL_GST, computed.gst],
-        ];
+      : taxDisplayMode === 'igst'
+        ? [
+            [INVOICE_COL_TAXABLE, computed.taxable],
+            [INVOICE_COL_IGST, computed.igst],
+          ]
+        : [
+            [INVOICE_COL_TAXABLE, computed.taxable],
+            [INVOICE_COL_GST, computed.gst],
+          ];
 
   const visibleParts = parts.filter(([columnId]) => isInvoiceColumnVisible(columns, columnId));
   if (visibleParts.length > 0) {
@@ -350,7 +365,7 @@ export function getInvoiceLineTotal(
   }
   if (isInvoiceColumnVisible(columns, INVOICE_COL_TOTAL)) {
     return roundInvoiceAmount(
-      computed.taxable + computed.cgst + computed.sgst + computed.gst
+      computed.taxable + computed.cgst + computed.sgst + computed.gst + computed.igst
     );
   }
   return 0;
@@ -365,7 +380,7 @@ export function recalculateInvoiceRow(
     taxDisplayMode?: InvoiceTaxDisplayMode;
   } = {}
 ): ProductTableRow {
-  const { taxable, cgst, sgst, gst, total } = calculateInvoiceAmounts(
+  const { taxable, cgst, sgst, gst, igst, total } = calculateInvoiceAmounts(
     row.cells,
     tax,
     columns,
@@ -379,6 +394,7 @@ export function recalculateInvoiceRow(
       [INVOICE_COL_CGST]: formatInvoiceAmount(cgst),
       [INVOICE_COL_SGST]: formatInvoiceAmount(sgst),
       [INVOICE_COL_GST]: formatInvoiceAmount(gst),
+      [INVOICE_COL_IGST]: formatInvoiceAmount(igst),
       [INVOICE_COL_TOTAL]: formatInvoiceAmount(total),
     },
   };
@@ -461,6 +477,7 @@ export function isInvoiceComputedColumn(columnId: string): boolean {
     columnId === INVOICE_COL_CGST ||
     columnId === INVOICE_COL_SGST ||
     columnId === INVOICE_COL_GST ||
+    columnId === INVOICE_COL_IGST ||
     columnId === INVOICE_COL_TOTAL
   );
 }

@@ -1,6 +1,6 @@
 import type { CompanyBrandingScope } from './company-branding';
 
-export type TaxDisplayMode = 'split' | 'combined';
+export type TaxDisplayMode = 'split' | 'combined' | 'igst';
 
 export type TaxSettings = {
   isEnabled: boolean;
@@ -8,6 +8,8 @@ export type TaxSettings = {
   sgstRate: number;
   /** Combined GST rate when using single GST column (defaults to CGST + SGST). */
   gstRate: number;
+  /** IGST rate for inter-state invoices (single IGST column). */
+  igstRate: number;
   /** Default tax column layout for invoice tables. */
   taxDisplayMode: TaxDisplayMode;
   includeInPrice: boolean;
@@ -18,6 +20,7 @@ export const EMPTY_TAX_SETTINGS: TaxSettings = {
   cgstRate: 9,
   sgstRate: 9,
   gstRate: 18,
+  igstRate: 18,
   taxDisplayMode: 'split',
   includeInPrice: false,
 };
@@ -25,6 +28,16 @@ export const EMPTY_TAX_SETTINGS: TaxSettings = {
 export function getCombinedGstRate(tax: TaxSettings): number {
   if (typeof tax.gstRate === 'number' && tax.gstRate > 0) return tax.gstRate;
   return tax.cgstRate + tax.sgstRate;
+}
+
+export function getIgstRate(tax: TaxSettings): number {
+  if (typeof tax.igstRate === 'number' && tax.igstRate > 0) return tax.igstRate;
+  return getCombinedGstRate(tax);
+}
+
+export function normalizeTaxDisplayMode(value: unknown): TaxDisplayMode {
+  if (value === 'combined' || value === 'igst' || value === 'split') return value;
+  return EMPTY_TAX_SETTINGS.taxDisplayMode;
 }
 
 export const TAX_SETTINGS_QUERY_KEY = 'tax-settings';
@@ -39,16 +52,19 @@ export function parseTaxSettings(raw: unknown): TaxSettings {
     typeof value.gstRate === 'number'
       ? value.gstRate
       : defaultRate ?? cgstRate + sgstRate;
-  const taxDisplayMode =
-    value.taxDisplayMode === 'combined' || value.taxDisplayMode === 'split'
-      ? value.taxDisplayMode
-      : EMPTY_TAX_SETTINGS.taxDisplayMode;
+  const igstRate =
+    typeof value.igstRate === 'number'
+      ? value.igstRate
+      : typeof defaultRate === 'number'
+        ? defaultRate
+        : EMPTY_TAX_SETTINGS.igstRate;
   return {
     isEnabled: value.isEnabled !== false,
     cgstRate,
     sgstRate,
     gstRate,
-    taxDisplayMode,
+    igstRate,
+    taxDisplayMode: normalizeTaxDisplayMode(value.taxDisplayMode),
     includeInPrice: value.includeInPrice === true,
   };
 }

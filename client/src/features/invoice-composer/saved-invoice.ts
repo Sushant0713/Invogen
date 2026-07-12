@@ -9,6 +9,7 @@ export interface SavedInvoiceRecord {
   status: string;
   templateId?: string;
   templateSnapshot?: TemplatePage[];
+  pdfUrl?: string;
   customerId?: string | { _id?: string; name?: string };
   customerSnapshot?: {
     name?: string;

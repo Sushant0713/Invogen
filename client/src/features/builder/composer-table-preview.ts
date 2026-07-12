@@ -22,10 +22,10 @@ function normalizeSummaryToken(value: string): string {
 export function isEmbeddedSummaryRow(row: Pick<ProductTableRow, 'id' | 'name' | 'cells'>): boolean {
   if (row.id.startsWith('summary_')) return true;
   const nameToken = normalizeSummaryToken(row.name ?? '');
-  if (/^(subtotal|cgst|sgst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
+  if (/^(subtotal|cgst|sgst|igst|gst|total|final|amount|tax)$/.test(nameToken)) return true;
   for (const value of Object.values(row.cells ?? {})) {
     const token = normalizeSummaryToken(String(value));
-    if (/^(subtotal|cgst|sgst|gst|total|final)$/.test(token)) return true;
+    if (/^(subtotal|cgst|sgst|igst|gst|total|final)$/.test(token)) return true;
   }
   return false;
 }
@@ -82,6 +82,7 @@ export function syncSummaryOnlyTable(
       kind === 'subtotal' ? totals.Subtotal
       : kind === 'cgst' ? totals.CGST
       : kind === 'sgst' ? totals.SGST
+      : kind === 'igst' ? totals.IGST
       : kind === 'gst' ? totals.GST ?? totals.Tax
       : totals.Total;
     if (!amount) return row;
@@ -202,6 +203,7 @@ function syncEmbeddedSummaryFromInvoice2(
       : kind === 'subtotal' ? summary.subtotal
       : kind === 'cgst' ? summary.cgst
       : kind === 'sgst' ? summary.sgst
+      : kind === 'igst' ? summary.igst
       : summary.gst;
     return { ...row, cells: { ...row.cells, [amountCol]: formatPreviewAmount(amount) } };
   });
@@ -214,7 +216,7 @@ function syncEmbeddedSummaryFromInvoice2(
 
 function detectSummaryKind(
   row: Pick<ProductTableRow, 'name' | 'cells'>
-): 'subtotal' | 'cgst' | 'sgst' | 'gst' | 'total' | null {
+): 'subtotal' | 'cgst' | 'sgst' | 'igst' | 'gst' | 'total' | null {
   const tokens = [row.name ?? '', ...Object.values(row.cells ?? {})].map((v) =>
     normalizeSummaryToken(String(v))
   );
@@ -222,6 +224,7 @@ function detectSummaryKind(
     if (token.includes('subtotal')) return 'subtotal';
     if (token.includes('cgst')) return 'cgst';
     if (token.includes('sgst')) return 'sgst';
+    if (token.includes('igst')) return 'igst';
     if (token === 'gst' || token.startsWith('gst')) return 'gst';
     if (token === 'final' || token === 'total') return 'total';
   }

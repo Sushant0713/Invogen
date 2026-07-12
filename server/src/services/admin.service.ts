@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { UserRole, EMPLOYEE_DEFAULT_PERMISSIONS } from '@invogen/shared';
+import { UserRole, EMPLOYEE_DEFAULT_PERMISSIONS, UserStatus } from '@invogen/shared';
 import {
   Company,
   User,
@@ -23,28 +23,110 @@ import {
   assertCanAddTemplate,
   assertSystemTemplateAccess,
   buildCompanyTemplateListFilter,
+  getAllowedSystemTemplateIds,
   getCompanyPlanAccess,
+  resolvePlanTemplateIds,
+  systemTemplateAccessCondition,
 } from '../utils/plan-template-access';
-import { createBlankTemplate } from '../seeds/data/templates';
+import { getMadeWithAdvertisingImage } from '../utils/made-with-advertising';
+import { resolveInitialTemplatePages } from '../utils/resolve-initial-template-pages';
 import { InvoiceStatus, SubscriptionStatus } from '@invogen/shared';
 import type { TemplatePage } from '@invogen/shared';
 import { cashfreeService } from './cashfree.service';
+import { ensureCompanyInvoiceCode } from '../utils/company-invoice-code';
+import { assignNextCompanyInvoiceNumber } from '../utils/company-invoice-number';
+import { applyForwardInvoiceStatus } from '../utils/invoice-status';
+import { enrichInvoiceWithTotals, getInvoiceAmount, resolveInvoiceTotals, syncResolvedInvoiceTotals } from '../utils/invoice-gst';
+import { EXCLUDE_PLATFORM_INVOICE_FILTER } from '../utils/sales-report';
+import { notificationService } from './notification.service';
+import {
+  notifyInvoiceCreated,
+  notifyInvoiceStatusIfPaid,
+  notifySubscriptionRenewed,
+} from '../utils/notification-events';
+
+function toCompanyObjectId(companyId: string): mongoose.Types.ObjectId {
+  if (!mongoose.Types.ObjectId.isValid(companyId)) {
+    throw new AppError('Invalid company', 400);
+  }
+  return new mongoose.Types.ObjectId(companyId);
+}
+
+async function generateUniqueJoinCode(companyId: string): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const joinCode = generateEmployeeJoinCode();
+    const clash = await Company.findOne({
+      _id: { $ne: companyId },
+      'employeeSettings.joinCode': joinCode,
+    }).select('_id');
+    if (!clash) return joinCode;
+  }
+  throw new AppError('Could not generate a unique join code. Please try again.', 500);
+}
+
+async function resolveJoinCode(
+  companyId: string,
+  currentJoinCode: string,
+  options: { regenerate?: boolean; requestedJoinCode?: unknown }
+): Promise<string> {
+  if (options.regenerate) {
+    return generateUniqueJoinCode(companyId);
+  }
+
+  if (typeof options.requestedJoinCode !== 'string') {
+    return currentJoinCode;
+  }
+
+  const normalized = normalizeJoinCode(options.requestedJoinCode);
+  const formatError = validateJoinCodeFormat(normalized);
+  if (formatError) throw new AppError(formatError, 400);
+
+  if (normalized === currentJoinCode) return normalized;
+
+  const clash = await Company.findOne({
+    _id: { $ne: companyId },
+    'employeeSettings.joinCode': normalized,
+  }).select('_id');
+  if (clash) throw new AppError('Join code already in use. Choose another.', 409);
+
+  return normalized;
+}
 import { checkoutPricingService } from './checkout-pricing.service';
 import { platformInvoiceService } from './platform-invoice.service';
+import { adminSalesReportService } from './admin-sales-report.service';
+import { adminGstReportService } from './admin-gst-report.service';
+import { adminCustomersReportService } from './admin-customers-report.service';
+import { adminProductsReportService } from './admin-products-report.service';
+import {
+  defaultEmployeeSettings,
+  generateEmployeeJoinCode,
+  normalizeJoinCode,
+  parseEmployeeSettings,
+  sanitizeEmployeePermissions,
+  validateJoinCodeFormat,
+} from '../utils/employee-settings';
 
 export const adminService = {
   async getDashboard(companyId: string) {
-    const [customers, products, invoices, revenue] = await Promise.all([
+    const tenantInvoiceFilter = { companyId, ...EXCLUDE_PLATFORM_INVOICE_FILTER };
+    const invoiceAmountFields = 'totals customerSnapshot status templateSnapshot';
+
+    const [customers, products, invoices, paidInvoices, sentInvoices] = await Promise.all([
       Customer.countDocuments({ companyId }),
       Product.countDocuments({ companyId }),
-      Invoice.countDocuments({ companyId }),
-      Invoice.aggregate([
-        { $match: { companyId: companyId as unknown as import('mongoose').Types.ObjectId, status: InvoiceStatus.PAID } },
-        { $group: { _id: null, total: { $sum: '$totals.total' } } },
-      ]),
+      Invoice.countDocuments(tenantInvoiceFilter),
+      Invoice.find({ ...tenantInvoiceFilter, status: InvoiceStatus.PAID })
+        .select(invoiceAmountFields)
+        .lean(),
+      Invoice.find({ ...tenantInvoiceFilter, status: InvoiceStatus.SENT })
+        .select(invoiceAmountFields)
+        .lean(),
     ]);
 
-    const recentInvoices = await Invoice.find({ companyId })
+    const actualRevenue = paidInvoices.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
+    const expectedRevenue = sentInvoices.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
+
+    const recentInvoices = await Invoice.find(tenantInvoiceFilter)
       .sort({ createdAt: -1 })
       .limit(5)
       .populate('customerId', 'name');
@@ -54,8 +136,17 @@ export const adminService = {
       .sort({ createdAt: -1 });
 
     return {
-      stats: { customers, products, invoices, revenue: revenue[0]?.total || 0 },
-      recentInvoices,
+      stats: {
+        customers,
+        products,
+        invoices,
+        actualRevenue,
+        expectedRevenue,
+        revenue: actualRevenue,
+      },
+      recentInvoices: recentInvoices.map((invoice) =>
+        enrichInvoiceWithTotals(invoice.toObject())
+      ),
       subscription,
     };
   },
@@ -63,21 +154,102 @@ export const adminService = {
   async getCompany(companyId: string) {
     const company = await Company.findById(companyId);
     if (!company) throw new AppError('Company not found', 404);
+    if (!company.employeeSettings?.joinCode) {
+      company.employeeSettings = defaultEmployeeSettings();
+      await company.save();
+    }
     return company;
   },
 
   async updateCompany(companyId: string, data: Record<string, unknown>) {
-    const company = await Company.findByIdAndUpdate(companyId, data, { new: true });
-    if (!company) throw new AppError('Company not found', 404);
-    return company;
+    const shouldRegenerate = data.regenerateJoinCode === true;
+    const incomingSettings = data.employeeSettings as Record<string, unknown> | undefined;
+    const { regenerateJoinCode: _regenerateJoinCode, employeeSettings: _employeeSettings, ...rest } =
+      data;
+
+    if (!shouldRegenerate && !incomingSettings) {
+      const company = await Company.findByIdAndUpdate(companyId, rest, { new: true });
+      if (!company) throw new AppError('Company not found', 404);
+      return company;
+    }
+
+    const company = await this.getCompany(companyId);
+    const current = parseEmployeeSettings(company.employeeSettings);
+    const joinCode = await resolveJoinCode(companyId, current.joinCode, {
+      regenerate: shouldRegenerate,
+      requestedJoinCode: incomingSettings?.joinCode,
+    });
+
+    const employeeSettings = {
+      ...current,
+      ...(incomingSettings
+        ? {
+            allowSelfRegistration: incomingSettings.allowSelfRegistration !== false,
+            requireApproval: incomingSettings.requireApproval !== false,
+            defaultPermissions: sanitizeEmployeePermissions(incomingSettings.defaultPermissions),
+          }
+        : {}),
+      joinCode,
+    };
+
+    const updated = await Company.findByIdAndUpdate(
+      companyId,
+      { ...rest, employeeSettings },
+      { new: true }
+    );
+    if (!updated) throw new AppError('Company not found', 404);
+    return updated;
   },
 
   async getEmployees(companyId: string, query: Record<string, unknown>) {
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
-    const [data, total] = await Promise.all([
-      Employee.find({ companyId }).skip(skip).limit(limit).populate('userId', 'firstName lastName email status'),
+    const [employees, total] = await Promise.all([
+      Employee.find({ companyId })
+        .skip(skip)
+        .limit(limit)
+        .populate('userId', 'firstName lastName email status lastLogin')
+        .sort({ createdAt: -1 }),
       Employee.countDocuments({ companyId }),
     ]);
+
+    const userIds = employees
+      .map((employee) => {
+        const user = employee.userId as { _id?: { toString(): string } } | null;
+        return user?._id?.toString();
+      })
+      .filter((id): id is string => Boolean(id));
+
+    const usersWithSession = userIds.length
+      ? await User.find({ _id: { $in: userIds } }).select('+refreshTokenHash')
+      : [];
+
+    const loggedInByUserId = new Map(
+      usersWithSession.map((user) => [user._id.toString(), Boolean(user.refreshTokenHash)])
+    );
+
+    const data = employees.map((employee) => {
+      const record = employee.toObject();
+      const user = record.userId as {
+        _id?: { toString(): string };
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        status?: string;
+        lastLogin?: Date;
+      } | null;
+
+      if (user?._id) {
+        const userId = user._id.toString();
+        record.userId = {
+          ...user,
+          isLoggedIn: loggedInByUserId.get(userId) ?? false,
+          hasAccess: user.status === UserStatus.ACTIVE,
+        };
+      }
+
+      return record;
+    });
+
     return { data, meta: buildMeta(page, limit, total) };
   },
 
@@ -98,6 +270,7 @@ export const adminService = {
     if (existing) throw new AppError('Email already exists', 409);
 
     const passwordHash = await bcrypt.hash(data.password, 12);
+    const permissions = sanitizeEmployeePermissions(data.permissions);
     const user = await User.create({
       email: data.email,
       passwordHash,
@@ -105,14 +278,14 @@ export const adminService = {
       lastName: data.lastName,
       role: UserRole.EMPLOYEE,
       companyId,
-      permissions: data.permissions || EMPLOYEE_DEFAULT_PERMISSIONS,
+      permissions,
       isEmailVerified: true,
     });
 
     const employee = await Employee.create({
       userId: user._id,
       companyId,
-      permissions: data.permissions || EMPLOYEE_DEFAULT_PERMISSIONS,
+      permissions,
       createdBy: adminId,
       department: data.department,
       designation: data.designation,
@@ -122,12 +295,43 @@ export const adminService = {
   },
 
   async updateEmployee(companyId: string, id: string, data: Record<string, unknown>) {
-    const employee = await Employee.findOneAndUpdate({ _id: id, companyId }, data, { new: true });
+    const employee = await Employee.findOne({ _id: id, companyId });
     if (!employee) throw new AppError('Employee not found', 404);
-    if (data.permissions) {
-      await User.findByIdAndUpdate(employee.userId, { permissions: data.permissions });
+
+    const { accessEnabled, ...employeeFields } = data;
+
+    if (typeof accessEnabled === 'boolean') {
+      const user = await User.findById(employee.userId).select('+refreshTokenHash');
+      if (!user) throw new AppError('User not found', 404);
+      if (user.status === UserStatus.PENDING) {
+        throw new AppError('Approve the employee before changing access', 400);
+      }
+
+      if (accessEnabled) {
+        user.status = UserStatus.ACTIVE;
+      } else {
+        user.status = UserStatus.SUSPENDED;
+        user.refreshTokenHash = undefined;
+      }
+      await user.save();
     }
-    return employee;
+
+    let updated = employee;
+    if (Object.keys(employeeFields).length > 0) {
+      if (employeeFields.permissions) {
+        employeeFields.permissions = sanitizeEmployeePermissions(employeeFields.permissions);
+      }
+      const next = await Employee.findOneAndUpdate({ _id: id, companyId }, employeeFields, {
+        new: true,
+      });
+      if (!next) throw new AppError('Employee not found', 404);
+      updated = next;
+      if (employeeFields.permissions) {
+        await User.findByIdAndUpdate(updated.userId, { permissions: employeeFields.permissions });
+      }
+    }
+
+    return updated.populate('userId', 'firstName lastName email status lastLogin');
   },
 
   async deleteEmployee(companyId: string, id: string) {
@@ -135,6 +339,84 @@ export const adminService = {
     if (!employee) throw new AppError('Employee not found', 404);
     await User.findByIdAndDelete(employee.userId);
     await employee.deleteOne();
+  },
+
+  async getPendingEmployees(companyId: string) {
+    const employees = await Employee.find({ companyId })
+      .populate('userId', 'firstName lastName email status createdAt')
+      .sort({ createdAt: -1 });
+    return employees.filter((employee) => {
+      const user = employee.userId as { status?: string } | null;
+      return user?.status === UserStatus.PENDING;
+    });
+  },
+
+  async approveEmployee(
+    companyId: string,
+    id: string,
+    permissions: string[] | undefined
+  ) {
+    const employee = await Employee.findOne({ _id: id, companyId });
+    if (!employee) throw new AppError('Employee not found', 404);
+    const user = await User.findById(employee.userId);
+    if (!user) throw new AppError('User not found', 404);
+    if (user.status !== UserStatus.PENDING) {
+      throw new AppError('Employee is not awaiting approval', 400);
+    }
+
+    const company = await this.getCompany(companyId);
+    const settings = parseEmployeeSettings(company.employeeSettings);
+    const resolvedPermissions = sanitizeEmployeePermissions(
+      permissions ?? settings.defaultPermissions
+    );
+
+    user.status = UserStatus.ACTIVE;
+    user.permissions = resolvedPermissions;
+    employee.permissions = resolvedPermissions;
+    await Promise.all([user.save(), employee.save()]);
+
+    return employee.populate('userId', 'firstName lastName email status');
+  },
+
+  async rejectEmployee(companyId: string, id: string) {
+    const employee = await Employee.findOne({ _id: id, companyId });
+    if (!employee) throw new AppError('Employee not found', 404);
+    const user = await User.findById(employee.userId);
+    if (!user) throw new AppError('User not found', 404);
+    if (user.status !== UserStatus.PENDING) {
+      throw new AppError('Employee is not awaiting approval', 400);
+    }
+    await User.findByIdAndDelete(user._id);
+    await employee.deleteOne();
+  },
+
+  async getNotifications(userId: string, companyId: string) {
+    return notificationService.getForUser(userId, companyId);
+  },
+
+  async getUnreadNotificationCount(userId: string, companyId: string) {
+    return notificationService.getUnreadCount(userId, companyId);
+  },
+
+  async markNotificationRead(userId: string, companyId: string, id: string) {
+    return notificationService.markRead(userId, id, companyId);
+  },
+
+  async markAllNotificationsRead(userId: string, companyId: string) {
+    await notificationService.markAllRead(userId, companyId);
+  },
+
+  async notifyCompanyAdmins(
+    companyId: string,
+    data: {
+      title: string;
+      message: string;
+      type?: 'info' | 'success' | 'warning' | 'error';
+      link?: string;
+      metadata?: Record<string, unknown>;
+    }
+  ) {
+    return notificationService.notifyCompanyAdmins(companyId, data);
   },
 
   async getCustomers(companyId: string, query: Record<string, unknown>) {
@@ -200,11 +482,20 @@ export const adminService = {
 
   async getTemplates(companyId: string, query: Record<string, unknown>) {
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
-    const filter = await buildCompanyTemplateListFilter(
-      companyId,
-      query,
-      buildTemplateListFilter
-    );
+    const systemOnly = query.systemOnly === 'true' || query.systemOnly === true;
+    const filter = systemOnly
+      ? buildTemplateListFilter(
+          [
+            { isActive: true },
+            systemTemplateAccessCondition(await getAllowedSystemTemplateIds(companyId)),
+          ],
+          query
+        )
+      : await buildCompanyTemplateListFilter(
+          companyId,
+          query,
+          buildTemplateListFilter
+        );
     const [data, total] = await Promise.all([
       InvoiceTemplate.find(filter).select(templateListProjection).skip(skip).limit(limit).sort({ updatedAt: -1 }),
       InvoiceTemplate.countDocuments(filter),
@@ -213,9 +504,10 @@ export const adminService = {
   },
 
   async getTemplate(companyId: string, id: string) {
+    const companyObjectId = toCompanyObjectId(companyId);
     const template = await InvoiceTemplate.findOne({
       _id: id,
-      $or: [{ isSystem: true }, { companyId }],
+      $or: [{ isSystem: true }, { companyId: companyObjectId, isSystem: false }],
     });
     if (!template) throw new AppError('Template not found', 404);
     if (template.isSystem) {
@@ -225,18 +517,26 @@ export const adminService = {
   },
 
   async updateTemplate(companyId: string, id: string, data: Record<string, unknown>) {
+    const companyObjectId = toCompanyObjectId(companyId);
     const existing = await InvoiceTemplate.findOne({
       _id: id,
-      $or: [{ companyId }, { isSystem: true }],
+      companyId: companyObjectId,
+      isSystem: false,
     });
-    if (!existing) throw new AppError('Template not found', 404);
-    if (existing.isSystem) {
-      await assertSystemTemplateAccess(companyId, id);
+    if (!existing) {
+      const systemTemplate = await InvoiceTemplate.findOne({ _id: id, isSystem: true });
+      if (systemTemplate) {
+        throw new AppError(
+          'System templates cannot be edited directly. Use Add Template to create your own copy.',
+          403
+        );
+      }
+      throw new AppError('Template not found', 404);
     }
 
     const template = await InvoiceTemplate.findOneAndUpdate(
-      { _id: id, $or: [{ companyId }, { isSystem: true }] },
-      { ...data, companyId, isSystem: false },
+      { _id: id, companyId: companyObjectId, isSystem: false },
+      data,
       { new: true, upsert: false }
     );
     if (!template) throw new AppError('Template not found', 404);
@@ -251,16 +551,43 @@ export const adminService = {
     if (!name) throw new AppError('Template name is required', 400);
     if (!category) throw new AppError('Category is required', 400);
 
-    const pages = Array.isArray(data.pages) && data.pages.length > 0
-      ? data.pages
-      : createBlankTemplate(category);
+    const sourceTemplateId =
+      typeof data.sourceTemplateId === 'string' ? data.sourceTemplateId.trim() : '';
+    if (!sourceTemplateId) {
+      throw new AppError('System template selection is required', 400);
+    }
+
+    const pages = await resolveInitialTemplatePages(
+      companyId,
+      category,
+      data.pages,
+      sourceTemplateId
+    );
+
+    const companyObjectId = toCompanyObjectId(companyId);
+    const nameTaken = await InvoiceTemplate.exists({
+      companyId: companyObjectId,
+      isSystem: false,
+      name,
+    });
+    if (nameTaken) {
+      throw new AppError(
+        'A template with this name already exists. Choose a different name to keep both.',
+        409
+      );
+    }
+
+    const sourceObjectId = mongoose.Types.ObjectId.isValid(sourceTemplateId)
+      ? new mongoose.Types.ObjectId(sourceTemplateId)
+      : undefined;
 
     return InvoiceTemplate.create({
       name,
       category,
       description: typeof data.description === 'string' ? data.description.trim() : '',
       pages,
-      companyId,
+      companyId: companyObjectId,
+      sourceSystemTemplateId: sourceObjectId,
       isSystem: false,
       createdBy: userId,
       version: 1,
@@ -269,9 +596,10 @@ export const adminService = {
   },
 
   async deleteTemplate(companyId: string, id: string) {
+    const companyObjectId = toCompanyObjectId(companyId);
     const template = await InvoiceTemplate.findOneAndDelete({
       _id: id,
-      companyId,
+      companyId: companyObjectId,
       isSystem: false,
     });
     if (!template) throw new AppError('Template not found or cannot be deleted', 404);
@@ -281,26 +609,28 @@ export const adminService = {
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
     const filter: Record<string, unknown> = { companyId };
     if (query.status) filter.status = query.status;
+    if (query.customerId) filter.customerId = query.customerId;
     const [data, total] = await Promise.all([
       Invoice.find(filter).skip(skip).limit(limit).populate('customerId', 'name').sort({ createdAt: -1 }),
       Invoice.countDocuments(filter),
     ]);
-    return { data, meta: buildMeta(page, limit, total) };
+    return {
+      data: data.map((invoice) => enrichInvoiceWithTotals(invoice.toObject())),
+      meta: buildMeta(page, limit, total),
+    };
   },
 
   async getInvoice(companyId: string, id: string) {
     const invoice = await Invoice.findOne({ _id: id, companyId }).populate('customerId');
     if (!invoice) throw new AppError('Invoice not found', 404);
-    return invoice;
+    return enrichInvoiceWithTotals(invoice.toObject());
   },
 
   async createInvoice(companyId: string, userId: string, data: Record<string, unknown>) {
     const company = await Company.findById(companyId);
     if (!company) throw new AppError('Company not found', 404);
 
-    const invoiceNumber = `${company.invoiceSettings.prefix}-${String(company.invoiceSettings.nextNumber).padStart(4, '0')}`;
-    company.invoiceSettings.nextNumber += 1;
-    await company.save();
+    const invoiceNumber = await assignNextCompanyInvoiceNumber(company);
 
     let templateSnapshot = Array.isArray(data.templateSnapshot)
       ? (data.templateSnapshot as TemplatePage[])
@@ -317,30 +647,65 @@ export const adminService = {
       }
     }
 
-    return Invoice.create({
+    const invoice = await Invoice.create({
       ...data,
       companyId,
       invoiceNumber,
       createdBy: userId,
       templateSnapshot,
+      totals: resolveInvoiceTotals({
+        totals: data.totals as Record<string, number> | undefined,
+        customerSnapshot: data.customerSnapshot as { placeholders?: Record<string, unknown> },
+      }),
     });
+
+    notificationService.fire(notifyInvoiceCreated(companyId, invoice));
+
+    return invoice;
   },
 
   async updateInvoice(companyId: string, id: string, data: Record<string, unknown>) {
-    const invoice = await Invoice.findOneAndUpdate({ _id: id, companyId }, data, { new: true });
+    const { status: _ignoredStatus, ...rest } = data;
+    if (rest.customerSnapshot || rest.totals) {
+      rest.totals = resolveInvoiceTotals({
+        totals: rest.totals as Record<string, number> | undefined,
+        customerSnapshot: rest.customerSnapshot as { placeholders?: Record<string, unknown> },
+      });
+    }
+    const invoice = await Invoice.findOneAndUpdate({ _id: id, companyId }, rest, { new: true });
     if (!invoice) throw new AppError('Invoice not found', 404);
     return invoice;
+  },
+
+  async updateInvoiceStatus(companyId: string, id: string, status: InvoiceStatus) {
+    const invoice = await Invoice.findOne({ _id: id, companyId });
+    if (!invoice) throw new AppError('Invoice not found', 404);
+
+    const snap = invoice.customerSnapshot as { platformInvoice?: boolean } | undefined;
+    if (snap?.platformInvoice === true) {
+      throw new AppError('Platform subscription invoices cannot be changed here', 400);
+    }
+
+    const previousStatus = invoice.status as InvoiceStatus;
+    await applyForwardInvoiceStatus(invoice, status);
+    if (syncResolvedInvoiceTotals(invoice)) {
+      await invoice.save();
+    }
+    notificationService.fire(
+      notifyInvoiceStatusIfPaid(companyId, invoice, previousStatus, status)
+    );
+    return Invoice.findById(id).populate('customerId', 'name');
   },
 
   async duplicateInvoice(companyId: string, userId: string, id: string) {
     const original = await Invoice.findOne({ _id: id, companyId });
     if (!original) throw new AppError('Invoice not found', 404);
     const company = await Company.findById(companyId);
-    const invoiceNumber = `${company!.invoiceSettings.prefix}-${String(company!.invoiceSettings.nextNumber).padStart(4, '0')}`;
-    company!.invoiceSettings.nextNumber += 1;
-    await company!.save();
+    if (!company) throw new AppError('Company not found', 404);
 
+    const invoiceNumber = await assignNextCompanyInvoiceNumber(company);
     const obj = original.toObject();
+
     return Invoice.create({
       companyId: obj.companyId,
       invoiceNumber,
@@ -361,8 +726,18 @@ export const adminService = {
   },
 
   async deleteInvoice(companyId: string, id: string) {
-    const invoice = await Invoice.findOneAndDelete({ _id: id, companyId });
+    const invoice = await Invoice.findOne({ _id: id, companyId });
     if (!invoice) throw new AppError('Invoice not found', 404);
+
+    const snap = invoice.customerSnapshot as { platformInvoice?: boolean } | undefined;
+    if (snap?.platformInvoice === true) {
+      throw new AppError('Platform subscription invoices cannot be deleted here', 400);
+    }
+    if (invoice.status !== InvoiceStatus.DRAFT) {
+      throw new AppError('Only draft invoices can be deleted', 400);
+    }
+
+    await invoice.deleteOne();
     return { deleted: true };
   },
 
@@ -451,15 +826,21 @@ export const adminService = {
         ? company._id.toString()
         : invoice.get('companyId')?.toString?.() || '';
     const access = companyId ? await getCompanyPlanAccess(companyId) : null;
+    const madeWithImage = await getMadeWithAdvertisingImage();
+    const totals = resolveInvoiceTotals({
+      totals: invoice.totals,
+      customerSnapshot: invoice.customerSnapshot,
+    });
     return {
       invoiceNumber: invoice.invoiceNumber,
       status: invoice.status,
       templateSnapshot: invoice.templateSnapshot,
       customerSnapshot: invoice.customerSnapshot,
-      totals: invoice.totals,
+      totals,
       issueDate: invoice.issueDate,
       companyName: company?.name ?? 'Company',
       showMadeWithInvogen: access?.showMadeWithInvogen === true,
+      madeWithImage,
     };
   },
 
@@ -470,21 +851,15 @@ export const adminService = {
 
     switch (type) {
       case 'sales':
-        return Invoice.aggregate([
-          { $match: match },
-          { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$totals.total' } } },
-        ]);
+        return adminSalesReportService.getSalesReport(companyId, query);
       case 'gst':
-        return Invoice.aggregate([
-          { $match: match },
-          { $group: { _id: null, totalTax: { $sum: '$totals.tax' }, totalSales: { $sum: '$totals.total' } } },
-        ]);
+        return adminGstReportService.getGstReport(companyId, query);
       case 'customers':
-        return Customer.find({ companyId }).select('name email createdAt');
+        return adminCustomersReportService.getCustomersReport(companyId, query);
       case 'products':
-        return Product.find({ companyId }).select('name price stock category');
+        return adminProductsReportService.getProductsReport(companyId, query);
       case 'outstanding':
-        return Invoice.find({ companyId, status: { $in: ['sent', 'overdue', 'partial'] } });
+        return Invoice.find({ companyId, status: InvoiceStatus.SENT });
       default:
         return Invoice.find(match).limit(100);
     }
@@ -507,14 +882,25 @@ export const adminService = {
   },
 
   async getSubscriptionStatus(companyId: string) {
-    const status = await subscriptionService.getStatus(companyId);
-    const access = await getCompanyPlanAccess(companyId);
+    const [status, access, madeWithImage] = await Promise.all([
+      subscriptionService.getStatus(companyId),
+      getCompanyPlanAccess(companyId),
+      getMadeWithAdvertisingImage(),
+    ]);
     return {
       ...status,
       canAddTemplate: access ? access.canAddTemplate : true,
       templateAccessConfigured: access?.templateAccessConfigured === true,
-      allowedTemplateIds: access?.templateAccessConfigured ? access.templateIds : null,
+      allowedTemplateIds:
+        access && (access.templateAccessConfigured || access.templateIds.length > 0)
+          ? access.templateIds.length > 0
+            ? (
+                await resolvePlanTemplateIds(access.templateIds)
+              ).map((id) => String(id))
+            : []
+          : null,
       showMadeWithInvogen: access?.showMadeWithInvogen === true,
+      madeWithImage,
     };
   },
 
@@ -694,6 +1080,8 @@ export const adminService = {
       orderId: data.orderId,
       pricing: discountMeta,
     });
+
+    notificationService.fire(notifySubscriptionRenewed(companyId, plan.name, total));
 
     return { subscription, payment };
   },

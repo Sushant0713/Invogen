@@ -9,8 +9,8 @@ export default function LandingPage() {
       <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <span className="text-2xl font-bold text-primary">Invogen</span>
         <div className="flex gap-3">
-          <Link to="/admin/login">
-            <Button size="sm">Admin Login</Button>
+          <Link to="/login?portal=admin">
+            <Button size="sm">Sign In</Button>
           </Link>
         </div>
       </nav>
@@ -38,10 +38,10 @@ export default function LandingPage() {
           transition={{ delay: 0.2 }}
           className="mt-10 flex flex-wrap justify-center gap-4"
         >
-          <Link to="/admin/login">
+          <Link to="/login?portal=admin">
             <Button size="lg">Sign In</Button>
           </Link>
-          <Link to="/register">
+          <Link to="/register?portal=admin">
             <Button variant="outline" size="lg">Create Account</Button>
           </Link>
         </motion.div>
@@ -72,8 +72,8 @@ export default function LandingPage() {
       <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
         <div className="flex justify-center gap-6 mb-4">
           <Link to="/super-admin/login" className="hover:text-primary">Super Admin</Link>
-          <Link to="/admin/login" className="hover:text-primary">Admin</Link>
-          <Link to="/employee/login" className="hover:text-primary">Employee</Link>
+          <Link to="/login?portal=admin" className="hover:text-primary">Admin</Link>
+          <Link to="/login?portal=employee" className="hover:text-primary">Employee</Link>
         </div>
         © {new Date().getFullYear()} Invogen. All rights reserved.
       </footer>

@@ -797,6 +797,7 @@ export function ElementRenderer({
             isSelected={isSelected}
             cropMode={imageCropElementId === element.id}
             zoom={zoom}
+            previewMode={previewMode}
             onSelect={onSelect}
             onUpdateProps={onUpdateProps}
             onFrameResize={onFrameResize}

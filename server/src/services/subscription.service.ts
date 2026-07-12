@@ -3,6 +3,8 @@ import { SubscriptionStatus, BillingCycle } from '@invogen/shared';
 import { Subscription, Plan, Payment } from '../models';
 import { AppError } from '../utils/AppError';
 import { cashfreeService } from './cashfree.service';
+import { notificationService } from './notification.service';
+import { notifySubscriptionExpired } from '../utils/notification-events';
 
 function computePeriodEnd(billingCycle: BillingCycle): Date {
   const end = new Date();
@@ -18,8 +20,10 @@ function computePeriodEnd(billingCycle: BillingCycle): Date {
 
 export const subscriptionService = {
   async syncExpiry(subscription: {
+    companyId?: mongoose.Types.ObjectId | string;
     status: SubscriptionStatus;
     currentPeriodEnd?: Date | null;
+    planId?: { name?: string } | mongoose.Types.ObjectId;
     save(): Promise<unknown>;
   }) {
     if (
@@ -29,6 +33,16 @@ export const subscriptionService = {
     ) {
       subscription.status = SubscriptionStatus.PAST_DUE;
       await subscription.save();
+      if (subscription.companyId) {
+        const planRef = subscription.planId;
+        const planName =
+          planRef && typeof planRef === 'object' && 'name' in planRef
+            ? String(planRef.name)
+            : undefined;
+        notificationService.fire(
+          notifySubscriptionExpired(String(subscription.companyId), planName)
+        );
+      }
     }
   },
 

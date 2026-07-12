@@ -2,94 +2,123 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api/client';
 import { resolveMediaUrl } from '@/lib/media';
-import type { SubscriptionStatusPayload } from '@/hooks/useAdminSubscription';
+import { useSubscriptionStatus, adminPlanSyncQueryOptions } from '@/hooks/useAdminSubscription';
 
 export type MadeWithInvogenSource = 'admin' | 'employee' | 'none';
 
 type MadeWithInvogenValue = {
+  /** Plan allows advertising and super admin configured an image. */
   show: boolean;
-  name: string;
-  logoUrl?: string;
+  imageUrl?: string;
 };
 
 const DEFAULT_VALUE: MadeWithInvogenValue = {
   show: false,
-  name: 'Invogen',
 };
 
 const MadeWithInvogenContext = createContext<MadeWithInvogenValue>(DEFAULT_VALUE);
 
 type AuthBranding = {
-  name: string;
-  logo: string;
+  madeWithImage?: string;
 };
 
+type EmployeePlanAdvertising = {
+  showMadeWithInvogen?: boolean;
+  madeWithImage?: string;
+};
+
+function resolveMadeWithImageUrl(raw?: string): string | undefined {
+  return resolveMediaUrl(raw);
+}
+
 /**
- * Loads plan "Made with Invogen" advertising flag + platform branding.
- * Use `forcedShow` for public invoice links (no auth subscription endpoint).
+ * Loads plan "Made with" advertising flag + super-admin badge image.
+ * Use `forcedShow` + `forcedImage` for public invoice links.
  */
 export function MadeWithInvogenProvider({
   children,
   source = 'admin',
   forcedShow,
+  forcedImage,
 }: {
   children: ReactNode;
   source?: MadeWithInvogenSource;
   /** When set, skip subscription fetch and use this value (public invoice view). */
   forcedShow?: boolean;
+  forcedImage?: string;
 }) {
-  const useAdminStatus = forcedShow === undefined && source === 'admin';
-  const useEmployeeStatus = forcedShow === undefined && source === 'employee';
+  const isPublicOverride = forcedShow !== undefined;
+  const useAdminStatus = !isPublicOverride && source === 'admin';
+  const useEmployeeStatus = !isPublicOverride && source === 'employee';
 
-  // Reuse AdminLayout's `admin-subscription-status` cache when available.
-  const { data: adminStatus } = useQuery({
-    queryKey: ['admin-subscription-status'],
-    queryFn: async () => {
-      const res = await api.get<{ data: SubscriptionStatusPayload }>(
-        '/admin/subscription/status'
-      );
+  const { data: adminStatus } = useSubscriptionStatus({ enabled: useAdminStatus });
+
+  const { data: employeeAdvertising } = useQuery({
+    queryKey: ['made-with-invogen-plan', 'employee'],
+    queryFn: async (): Promise<EmployeePlanAdvertising> => {
+      const res = await api.get<{ data: EmployeePlanAdvertising }>('/employee/plan-advertising');
       return res.data.data;
     },
-    enabled: useAdminStatus,
-    staleTime: 0,
-  });
-
-  const { data: employeeFlag } = useQuery({
-    queryKey: ['made-with-invogen-plan', 'employee'],
-    queryFn: async (): Promise<boolean> => {
-      const res = await api.get<{ data: { showMadeWithInvogen?: boolean } }>(
-        '/employee/plan-advertising'
-      );
-      return res.data.data?.showMadeWithInvogen === true;
-    },
     enabled: useEmployeeStatus,
-    staleTime: 60_000,
+    ...adminPlanSyncQueryOptions,
   });
-
-  const show =
-    forcedShow ??
-    (useAdminStatus
-      ? adminStatus?.showMadeWithInvogen === true
-      : useEmployeeStatus
-        ? employeeFlag === true
-        : false);
 
   const { data: branding } = useQuery({
     queryKey: ['auth-branding'],
     queryFn: async () =>
       (await api.get<{ data: AuthBranding }>('/auth/branding')).data.data,
-    enabled: show,
-    staleTime: 5 * 60_000,
+    enabled: isPublicOverride || useAdminStatus || useEmployeeStatus,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 
+  const planAllowsAd = isPublicOverride
+    ? forcedShow === true
+    : useAdminStatus
+      ? adminStatus?.showMadeWithInvogen === true
+      : useEmployeeStatus
+        ? employeeAdvertising?.showMadeWithInvogen === true
+        : false;
+
+  const imageUrl = useMemo(() => {
+    if (isPublicOverride) {
+      return (
+        resolveMadeWithImageUrl(forcedImage)
+        || resolveMadeWithImageUrl(branding?.madeWithImage)
+      );
+    }
+    if (useAdminStatus) {
+      return (
+        resolveMadeWithImageUrl(adminStatus?.madeWithImage)
+        || resolveMadeWithImageUrl(branding?.madeWithImage)
+      );
+    }
+    if (useEmployeeStatus) {
+      return (
+        resolveMadeWithImageUrl(employeeAdvertising?.madeWithImage)
+        || resolveMadeWithImageUrl(branding?.madeWithImage)
+      );
+    }
+    return undefined;
+  }, [
+    isPublicOverride,
+    forcedImage,
+    useAdminStatus,
+    useEmployeeStatus,
+    adminStatus?.madeWithImage,
+    employeeAdvertising?.madeWithImage,
+    branding?.madeWithImage,
+  ]);
+
   const value = useMemo<MadeWithInvogenValue>(() => {
-    if (!show) return DEFAULT_VALUE;
+    if (!planAllowsAd || !imageUrl) return DEFAULT_VALUE;
     return {
       show: true,
-      name: branding?.name?.trim() || 'Invogen',
-      logoUrl: resolveMediaUrl(branding?.logo),
+      imageUrl,
     };
-  }, [show, branding?.name, branding?.logo]);
+  }, [planAllowsAd, imageUrl]);
 
   return (
     <MadeWithInvogenContext.Provider value={value}>
