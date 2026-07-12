@@ -1,7 +1,8 @@
 # Production Compose — Invogen (MERN)
 # Usage on VPS:
 #   1. Place a production .env next to this file (never commit secrets).
-#   2. docker compose up -d --build
+#   2. Set MONGODB_URI=mongodb://mongo:27017/invogen in .env
+#   3. docker compose up -d --build
 #
 # Frontend: http://<host>:3000  (nginx → SPA + /api proxy)
 # Backend:  http://<host>:5000  (Express; also used for webhooks)
@@ -9,6 +10,18 @@
 name: invogen
 
 services:
+  mongo:
+    image: mongo:7
+    container_name: invogen-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - invogen-net
+    # Uncomment only for one-time seed/mongosh from the VPS host:
+    # ports:
+    #   - "127.0.0.1:27017:27017"
+
   server:
     build:
       context: .
@@ -16,6 +29,8 @@ services:
     image: invogen-server:latest
     container_name: invogen-server
     restart: unless-stopped
+    depends_on:
+      - mongo
     ports:
       - "5000:5000"
     env_file:
@@ -26,6 +41,7 @@ services:
       # Override common defaults for container networking when not set in .env
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:5000/api/v1}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/invogen}
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/api/v1/health"]
@@ -64,3 +80,6 @@ services:
 networks:
   invogen-net:
     driver: bridge
+
+volumes:
+  mongo_data:
