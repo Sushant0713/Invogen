@@ -1,12 +1,17 @@
-import mongoose from 'mongoose';
+import mongoose, { type FilterQuery } from 'mongoose';
 import { InvoiceStatus } from '@invogen/shared';
+import type { IInvoice } from '../models/Invoice.model';
 
-export const EXCLUDE_PLATFORM_INVOICE_FILTER = {
+export const EXCLUDE_PLATFORM_INVOICE_FILTER: FilterQuery<IInvoice> = {
   $or: [
     { 'customerSnapshot.platformInvoice': { $exists: false } },
     { 'customerSnapshot.platformInvoice': { $ne: true } },
   ],
 };
+
+export function tenantInvoiceFilter(companyId: string): FilterQuery<IInvoice> {
+  return { companyId, ...EXCLUDE_PLATFORM_INVOICE_FILTER };
+}
 
 export function toCompanyObjectId(companyId: string) {
   return new mongoose.Types.ObjectId(companyId);

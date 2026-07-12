@@ -38,7 +38,7 @@ import { assignNextCompanyInvoiceNumber } from '../utils/company-invoice-number'
 import { applyForwardInvoiceStatus } from '../utils/invoice-status';
 import type { IInvoiceShare } from '../models/Invoice.model';
 import { enrichInvoiceWithTotals, getInvoiceAmount, resolveInvoiceTotals, syncResolvedInvoiceTotals } from '../utils/invoice-gst';
-import { EXCLUDE_PLATFORM_INVOICE_FILTER } from '../utils/sales-report';
+import { tenantInvoiceFilter } from '../utils/sales-report';
 import { notificationService } from './notification.service';
 import {
   notifyInvoiceCreated,
@@ -109,17 +109,17 @@ import {
 
 export const adminService = {
   async getDashboard(companyId: string) {
-    const tenantInvoiceFilter = { companyId, ...EXCLUDE_PLATFORM_INVOICE_FILTER };
+    const filter = tenantInvoiceFilter(companyId);
     const invoiceAmountFields = 'totals customerSnapshot status templateSnapshot';
 
     const [customers, products, invoices, paidInvoices, sentInvoices] = await Promise.all([
       Customer.countDocuments({ companyId }),
       Product.countDocuments({ companyId }),
-      Invoice.countDocuments(tenantInvoiceFilter),
-      Invoice.find({ ...tenantInvoiceFilter, status: InvoiceStatus.PAID })
+      Invoice.countDocuments(filter),
+      Invoice.find({ ...filter, status: InvoiceStatus.PAID })
         .select(invoiceAmountFields)
         .lean(),
-      Invoice.find({ ...tenantInvoiceFilter, status: InvoiceStatus.SENT })
+      Invoice.find({ ...filter, status: InvoiceStatus.SENT })
         .select(invoiceAmountFields)
         .lean(),
     ]);
@@ -127,7 +127,7 @@ export const adminService = {
     const actualRevenue = paidInvoices.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
     const expectedRevenue = sentInvoices.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
 
-    const recentInvoices = await Invoice.find(tenantInvoiceFilter)
+    const recentInvoices = await Invoice.find(filter)
       .sort({ createdAt: -1 })
       .limit(5)
       .populate('customerId', 'name');
