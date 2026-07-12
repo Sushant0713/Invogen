@@ -21,7 +21,7 @@ export function normalizeState(value?: string | null): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
-type InvoiceGstSource = {
+export type InvoiceGstSource = {
   totals?: {
     subtotal?: number;
     discount?: number;
@@ -253,10 +253,10 @@ export function resolveInvoiceTotals(invoice: InvoiceGstSource) {
   };
 }
 
-export function enrichInvoiceWithTotals<T extends Record<string, unknown>>(invoice: T): T {
+export function enrichInvoiceWithTotals<T extends InvoiceGstSource>(invoice: T): T {
   return {
     ...invoice,
-    totals: resolveInvoiceTotals(invoice as InvoiceGstSource),
+    totals: resolveInvoiceTotals(invoice),
   };
 }
 

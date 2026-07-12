@@ -10,6 +10,8 @@ export interface IPayment extends Document {
   status: 'pending' | 'captured' | 'failed' | 'refunded';
   invoiceUrl?: string;
   metadata?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const paymentSchema = new Schema<IPayment>(

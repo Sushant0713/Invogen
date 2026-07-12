@@ -6,7 +6,7 @@ export const EXCLUDE_PLATFORM_INVOICE_FILTER = {
     { 'customerSnapshot.platformInvoice': { $exists: false } },
     { 'customerSnapshot.platformInvoice': { $ne: true } },
   ],
-} as const;
+};
 
 export function toCompanyObjectId(companyId: string) {
   return new mongoose.Types.ObjectId(companyId);

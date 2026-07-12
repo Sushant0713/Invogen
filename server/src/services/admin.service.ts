@@ -36,6 +36,7 @@ import { cashfreeService } from './cashfree.service';
 import { ensureCompanyInvoiceCode } from '../utils/company-invoice-code';
 import { assignNextCompanyInvoiceNumber } from '../utils/company-invoice-number';
 import { applyForwardInvoiceStatus } from '../utils/invoice-status';
+import type { IInvoiceShare } from '../models/Invoice.model';
 import { enrichInvoiceWithTotals, getInvoiceAmount, resolveInvoiceTotals, syncResolvedInvoiceTotals } from '../utils/invoice-gst';
 import { EXCLUDE_PLATFORM_INVOICE_FILTER } from '../utils/sales-report';
 import { notificationService } from './notification.service';
@@ -228,7 +229,7 @@ export const adminService = {
     );
 
     const data = employees.map((employee) => {
-      const record = employee.toObject();
+      const record = employee.toObject() as unknown as Record<string, unknown>;
       const user = record.userId as {
         _id?: { toString(): string };
         firstName?: string;
@@ -750,10 +751,10 @@ export const adminService = {
     const invoice = await Invoice.findOne({ _id: id, companyId });
     if (!invoice) throw new AppError('Invoice not found', 404);
 
-    const method =
+    const method: IInvoiceShare['method'] =
       data.method === 'email' || data.method === 'whatsapp' ? data.method : 'link';
     const token = crypto.randomBytes(24).toString('hex');
-    const share = {
+    const share: IInvoiceShare = {
       token,
       recipientName: data.recipientName?.trim() || undefined,
       recipientEmail: data.recipientEmail?.trim() || undefined,
