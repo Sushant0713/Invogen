@@ -1072,15 +1072,18 @@ export const adminService = {
     payment.subscriptionId = subscription._id;
     await payment.save();
 
-    await platformInvoiceService.issueAndEmailSubscriptionInvoice({
-      companyId,
-      userId,
-      paymentId: payment._id.toString(),
-      subscriptionId: subscription._id.toString(),
-      planId: plan._id.toString(),
-      orderId: data.orderId,
-      pricing: discountMeta,
-    });
+    // PDF + email can take 1–3 min (Puppeteer); don't block payment confirmation.
+    notificationService.fire(
+      platformInvoiceService.issueAndEmailSubscriptionInvoice({
+        companyId,
+        userId,
+        paymentId: payment._id.toString(),
+        subscriptionId: subscription._id.toString(),
+        planId: plan._id.toString(),
+        orderId: data.orderId,
+        pricing: discountMeta,
+      })
+    );
 
     notificationService.fire(notifySubscriptionRenewed(companyId, plan.name, total));
 
