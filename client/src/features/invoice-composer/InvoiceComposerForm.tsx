@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/Input';
 import { resolveFieldKind, type FieldKind } from '@/lib/form-fields';
+import { toIsoDateValue } from '@/lib/date-format';
 import {
   isMultilinePlaceholder,
   placeholderFieldLabel,
@@ -178,6 +179,9 @@ export function InvoiceComposerForm({
   showPageManagement = true,
 }: InvoiceComposerFormProps) {
   const formModel = buildComposerFormModel(pages);
+  const invoiceDateFields = formModel.invoiceFields.filter(
+    (key) => key !== 'Date' && key !== 'DueDate'
+  );
 
   const hasEditableContent =
     formModel.cards.length > 0
@@ -277,9 +281,27 @@ export function InvoiceComposerForm({
         </FormSection>
       ) : null}
 
-      {formModel.invoiceFields.length > 0 ? (
+      <FormSection
+        title="Invoice dates"
+        subtitle="Updates the live preview and saved invoice dates."
+      >
+        <Input
+          label="Invoice date"
+          fieldKind="date"
+          value={toIsoDateValue(formContext.Date ?? '')}
+          onChange={(e) => onChange('Date', e.target.value)}
+        />
+        <Input
+          label="Due date"
+          fieldKind="date"
+          value={toIsoDateValue(formContext.DueDate ?? '')}
+          onChange={(e) => onChange('DueDate', e.target.value)}
+        />
+      </FormSection>
+
+      {invoiceDateFields.length > 0 ? (
         <FormSection title="Invoice details">
-          {formModel.invoiceFields.map((key) => {
+          {invoiceDateFields.map((key) => {
             const dataField = formModel.dataFields.find((field) => field.key === key);
             return (
               <FieldInput

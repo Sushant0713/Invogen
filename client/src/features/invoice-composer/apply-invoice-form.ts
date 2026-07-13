@@ -9,7 +9,7 @@ import { buildTermsProps, DEFAULT_TERMS_TITLE } from '@/features/builder/terms-c
 import {
   formatIsoDate,
   isDateFieldComponentType,
-  toDisplayDateValue,
+  toIsoDateValue,
 } from '@/lib/date-format';
 
 const DATA_FIELD_KEYS: Partial<Record<ComponentType, keyof PlaceholderContext | string>> = {
@@ -149,7 +149,14 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
   if (value == null || value === '') return element;
 
   if (isDateFieldComponentType(element.type)) {
-    value = toDisplayDateValue(value);
+    const isoValue = toIsoDateValue(String(value));
+    const nextProps: Record<string, unknown> = {
+      ...(element.props ?? {}),
+      value: isoValue || value,
+      useLiveDate: false,
+    };
+    if ('textRuns' in nextProps) delete nextProps.textRuns;
+    return { ...element, props: nextProps };
   }
 
   const nextProps: Record<string, unknown> = { ...(element.props ?? {}), value };

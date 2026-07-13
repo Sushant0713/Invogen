@@ -65,6 +65,7 @@ router.post('/invoices', requirePermission(PERMISSIONS.INVOICE_CREATE), ctrl.cre
 router.patch('/invoices/:id', requirePermission(PERMISSIONS.INVOICE_EDIT), ctrl.updateInvoice);
 router.patch('/invoices/:id/status', requirePermission(PERMISSIONS.INVOICE_EDIT), ctrl.updateInvoiceStatus);
 router.delete('/invoices/:id', requirePermission(PERMISSIONS.INVOICE_DELETE), ctrl.deleteInvoice);
+router.post('/invoices/delete', requirePermission(PERMISSIONS.INVOICE_DELETE), ctrl.deleteInvoices);
 router.post('/invoices/:id/share', requirePermission(PERMISSIONS.INVOICE_CREATE), ctrl.shareInvoice);
 router.post('/invoices/:id/duplicate', requirePermission(PERMISSIONS.INVOICE_CREATE), ctrl.duplicateInvoice);
 router.get('/reports/:type', requirePermission(PERMISSIONS.REPORTS_VIEW), ctrl.getReports);

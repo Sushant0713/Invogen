@@ -59,3 +59,11 @@ export async function fetchPublicInvoiceView(token: string): Promise<PublicInvoi
 export async function deleteInvoiceApi(invoicesApi: string, invoiceId: string): Promise<void> {
   await api.delete(`${invoicesApi}/${invoiceId}`);
 }
+
+export async function deleteInvoicesApi(
+  invoicesApi: string,
+  ids: string[]
+): Promise<{ deleted: number; skipped: number }> {
+  const res = await api.post(`${invoicesApi}/delete`, { ids });
+  return res.data.data as { deleted: number; skipped: number };
+}

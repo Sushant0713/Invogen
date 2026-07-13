@@ -701,6 +701,12 @@ export const adminService = {
   },
 
   async updateInvoice(companyId: string, id: string, data: Record<string, unknown>) {
+    const existing = await Invoice.findOne({ _id: id, companyId }).select('status');
+    if (!existing) throw new AppError('Invoice not found', 404);
+    if (existing.status === InvoiceStatus.PAID) {
+      throw new AppError('Paid invoices cannot be edited', 400);
+    }
+
     const { status: _ignoredStatus, ...rest } = data;
     if (rest.customerSnapshot || rest.totals) {
       rest.totals = resolveInvoiceTotals({
@@ -775,6 +781,37 @@ export const adminService = {
 
     await invoice.deleteOne();
     return { deleted: true };
+  },
+
+  async deleteInvoices(companyId: string, ids: string[]) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new AppError('No invoices selected', 400);
+    }
+
+    const uniqueIds = [...new Set(ids.map(String))];
+    const invoices = await Invoice.find({ _id: { $in: uniqueIds }, companyId });
+
+    let deleted = 0;
+    let skipped = 0;
+
+    for (const invoice of invoices) {
+      const snap = invoice.customerSnapshot as { platformInvoice?: boolean } | undefined;
+      if (snap?.platformInvoice === true || invoice.status !== InvoiceStatus.DRAFT) {
+        skipped += 1;
+        continue;
+      }
+      await invoice.deleteOne();
+      deleted += 1;
+    }
+
+    if (deleted === 0) {
+      throw new AppError(
+        skipped > 0 ? 'Only draft invoices can be deleted' : 'No matching invoices found',
+        400
+      );
+    }
+
+    return { deleted, skipped };
   },
 
   async shareInvoice(

@@ -1,6 +1,7 @@
 import type { TemplatePage } from '@invogen/shared';
 import api from '@/api/client';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
+import { formatIsoDate, toIsoDateValue } from '@/lib/date-format';
 import { normalizeComposerPages } from './invoice-document';
 
 export interface SavedInvoiceRecord {
@@ -10,6 +11,9 @@ export interface SavedInvoiceRecord {
   templateId?: string;
   templateSnapshot?: TemplatePage[];
   pdfUrl?: string;
+  issueDate?: string;
+  dueDate?: string;
+  createdAt?: string;
   customerId?: string | { _id?: string; name?: string };
   customerSnapshot?: {
     name?: string;
@@ -50,6 +54,12 @@ export function hydrateComposerFromSavedInvoice(invoice: SavedInvoiceRecord): {
     Address: placeholders.Address ?? snap.address ?? '',
     State: placeholders.State ?? snap.state ?? '',
     InvoiceNumber: invoice.invoiceNumber,
+    Date:
+      placeholders.Date
+      ?? (invoice.issueDate ? toIsoDateValue(invoice.issueDate) || formatIsoDate(new Date(invoice.issueDate)) : ''),
+    DueDate:
+      placeholders.DueDate
+      ?? (invoice.dueDate ? toIsoDateValue(invoice.dueDate) || formatIsoDate(new Date(invoice.dueDate)) : ''),
   };
 
   const customerId =

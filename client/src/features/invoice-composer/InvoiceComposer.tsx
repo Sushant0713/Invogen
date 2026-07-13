@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -28,6 +28,7 @@ import {
   type CompanyDefaults,
   type CustomerRecord,
 } from './apply-invoice-form';
+import { parseFlexibleDate } from '@/lib/date-format';
 import { InvoiceComposerForm } from './InvoiceComposerForm';
 import { InvoiceLivePreview } from './InvoiceLivePreview';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
@@ -424,6 +425,8 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     const tableTotals = extractTablePlaceholderTotals(displayPages, taxSettings);
     const placeholders = { ...formContext, ...tableTotals };
     const totals = buildInvoiceTotalsFromPlaceholders(placeholders);
+    const issueDate = parseFlexibleDate(String(formContext.Date ?? '')) ?? new Date();
+    const dueDate = parseFlexibleDate(String(formContext.DueDate ?? ''));
 
     const payload = {
       templateId: loadedTemplateId || templateId || undefined,
@@ -441,6 +444,8 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       lineItems: [{ name: 'Service', quantity: 1, unit: 'pcs', price: 0, discount: 0, tax: 0, total: 0 }],
       totals,
       type: 'tax',
+      issueDate,
+      dueDate: dueDate ?? undefined,
     };
     return savedInvoiceId ? payload : { ...payload, status: 'draft' };
   };
@@ -541,9 +546,9 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
   const handleDeleteInvoice = async () => {
     const label = formContext.InvoiceNumber || 'draft';
-    const ok = await confirmToast(`Delete invoice ${label}?`, {
-      description: 'This cannot be undone.',
-      confirmLabel: 'Delete',
+    const ok = await confirmToast(`Permanently delete invoice ${label}?`, {
+      description: 'This action cannot be undone.',
+      confirmLabel: 'Delete permanently',
       variant: 'danger',
     });
     if (ok) deleteMutation.mutate();
@@ -633,6 +638,9 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
   if (isEditing) {
     if (loadingInvoice || !savedInvoice) return <Loader />;
+    if (savedInvoice.status === 'paid') {
+      return <Navigate to={`${config.invoicesListPath}/${invoiceId}/view`} replace />;
+    }
   } else if (loadingTemplate || !template) {
     return <Loader />;
   }

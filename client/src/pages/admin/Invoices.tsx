@@ -1,26 +1,45 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/api/client';
 import { DataTable } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate, formatCurrency } from '@/lib/utils';
 import { Loader } from '@/components/ui/Loader';
-import { Plus, X } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { InvoiceRowActions } from '@/features/invoice-composer/InvoiceRowActions';
 import { InvoiceListStatusToggle } from '@/features/invoice-composer/InvoiceListStatusToggle';
 import { resolveInvoiceTotal } from '@/features/invoice-composer/invoice-totals';
+import { deleteInvoicesApi } from '@/features/invoice-composer/invoice-share';
+import { confirmToast } from '@/lib/confirm-toast';
+import { toast } from 'sonner';
 
 const PAGE_SIZE = 10;
 
+type InvoiceRow = Record<string, unknown> & {
+  _id: string;
+  invoiceNumber?: string;
+  status?: string;
+  createdAt?: string;
+};
+
+function isDeletableInvoice(row: InvoiceRow): boolean {
+  const snap = row.customerSnapshot as { platformInvoice?: boolean } | undefined;
+  if (snap?.platformInvoice) return false;
+  return String(row.status) === 'draft';
+}
+
 export default function AdminInvoices() {
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const customerId = searchParams.get('customerId') ?? undefined;
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
     setPage(1);
+    setSelectedIds([]);
   }, [customerId]);
 
   const listQueryKey = ['admin-invoices', customerId, page] as const;
@@ -39,9 +58,68 @@ export default function AdminInvoices() {
       ).data,
   });
 
-  if (isLoading) return <Loader />;
-
+  const rows = (data?.data || []) as InvoiceRow[];
   const meta = data?.meta as { page: number; totalPages: number; total: number } | undefined;
+
+  const selectableIds = useMemo(
+    () => rows.filter(isDeletableInvoice).map((row) => String(row._id)),
+    [rows]
+  );
+
+  const allVisibleSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
+
+  useEffect(() => {
+    setSelectedIds((current) => current.filter((id) => selectableIds.includes(id)));
+  }, [selectableIds]);
+
+  const deleteMutation = useMutation({
+    mutationFn: (ids: string[]) => deleteInvoicesApi('/admin/invoices', ids),
+    onSuccess: (result) => {
+      const skippedNote =
+        result.skipped > 0 ? ` (${result.skipped} skipped — only drafts can be deleted)` : '';
+      toast.success(
+        `Permanently deleted ${result.deleted} invoice${result.deleted === 1 ? '' : 's'}${skippedNote}`
+      );
+      setSelectedIds([]);
+      void queryClient.invalidateQueries({ queryKey: ['admin-invoices'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin-invoice-shares'] });
+    },
+    onError: (error: { response?: { data?: { message?: string } } }) => {
+      toast.error(error.response?.data?.message || 'Failed to delete invoices');
+    },
+  });
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedIds((current) => current.filter((id) => !selectableIds.includes(id)));
+      return;
+    }
+    setSelectedIds((current) => [...new Set([...current, ...selectableIds])]);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedIds.length) return;
+    const confirmed = await confirmToast(
+      `Permanently delete ${selectedIds.length} selected invoice${selectedIds.length === 1 ? '' : 's'}?`,
+      {
+        variant: 'danger',
+        confirmLabel: 'Delete permanently',
+        description: 'This action cannot be undone. Only draft invoices will be removed.',
+      }
+    );
+    if (!confirmed) return;
+    deleteMutation.mutate(selectedIds);
+  };
+
+  if (isLoading) return <Loader />;
 
   return (
     <div className="space-y-4">
@@ -73,6 +151,25 @@ export default function AdminInvoices() {
           </button>
         </div>
       ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+          {selectedIds.length > 0 ? (
+            <span>{selectedIds.length} selected</span>
+          ) : (
+            <span>Select draft invoices to delete</span>
+          )}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="danger"
+          disabled={!selectedIds.length || deleteMutation.isPending}
+          onClick={() => void handleDeleteSelected()}
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete selected
+        </Button>
+      </div>
       <DataTable
         columns={[
           { key: 'invoiceNumber', label: 'Invoice' },
@@ -114,7 +211,17 @@ export default function AdminInvoices() {
                 })
               ),
           },
-          { key: 'createdAt', label: 'Date', render: (r) => formatDate(r.createdAt as string) },
+          { key: 'createdAt', label: 'Created', render: (r) => formatDate(r.createdAt as string) },
+          {
+            key: 'issueDate',
+            label: 'Invoice date',
+            render: (r) => formatDate((r.issueDate as string) || (r.createdAt as string)),
+          },
+          {
+            key: 'dueDate',
+            label: 'Due date',
+            render: (r) => (r.dueDate ? formatDate(r.dueDate as string) : '—'),
+          },
           {
             key: 'actions',
             label: 'Actions',
@@ -138,14 +245,24 @@ export default function AdminInvoices() {
             },
           },
         ]}
-        data={data?.data || []}
+        data={rows}
         keyField="_id"
+        selection={{
+          selectedIds,
+          onToggleRow: toggleRow,
+          onToggleAllVisible: toggleSelectAllVisible,
+          isRowSelectable: (row) => isDeletableInvoice(row as InvoiceRow),
+          selectAllLabel: 'Select all draft invoices on page',
+        }}
         pagination={
           meta && meta.totalPages > 1
             ? {
                 page: meta.page,
                 totalPages: meta.totalPages,
-                onPageChange: setPage,
+                onPageChange: (nextPage) => {
+                  setPage(nextPage);
+                  setSelectedIds([]);
+                },
               }
             : undefined
         }

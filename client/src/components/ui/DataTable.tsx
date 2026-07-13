@@ -17,6 +17,13 @@ interface DataTableProps<T> {
     totalPages: number;
     onPageChange: (page: number) => void;
   };
+  selection?: {
+    selectedIds: string[];
+    onToggleRow: (id: string) => void;
+    onToggleAllVisible: () => void;
+    isRowSelectable?: (item: T) => boolean;
+    selectAllLabel?: string;
+  };
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -25,6 +32,7 @@ export function DataTable<T extends Record<string, unknown>>({
   keyField = 'id',
   loading,
   pagination,
+  selection,
 }: DataTableProps<T>) {
   if (loading) {
     return <div className="animate-pulse space-y-3">{[1, 2, 3].map((i) => (
@@ -32,12 +40,37 @@ export function DataTable<T extends Record<string, unknown>>({
     ))}</div>;
   }
 
+  const selectableRows = selection
+    ? data.filter((item) => (selection.isRowSelectable ? selection.isRowSelectable(item) : true))
+    : [];
+  const selectableIds = selectableRows.map((item) => String(item[keyField]));
+  const allVisibleSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selection?.selectedIds.includes(id));
+  const someVisibleSelected = selectableIds.some((id) => selection?.selectedIds.includes(id));
+
   return (
     <div className="rounded-2xl border border-gray-100">
       <div className="overflow-x-auto">
       <table className="w-full min-w-[1080px] text-sm">
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/80">
+            {selection ? (
+              <th className="w-12 px-4 py-3">
+                <label className="inline-flex items-center">
+                  <span className="sr-only">{selection.selectAllLabel || 'Select all on page'}</span>
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300"
+                    checked={allVisibleSelected}
+                    ref={(input) => {
+                      if (input) input.indeterminate = !allVisibleSelected && someVisibleSelected;
+                    }}
+                    onChange={selection.onToggleAllVisible}
+                    disabled={selectableIds.length === 0}
+                  />
+                </label>
+              </th>
+            ) : null}
             {columns.map((col) => (
               <th
                 key={col.key}
@@ -51,23 +84,44 @@ export function DataTable<T extends Record<string, unknown>>({
         <tbody>
           {data.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-500">
+              <td colSpan={columns.length + (selection ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                 No data found
               </td>
             </tr>
           ) : (
-            data.map((item, idx) => (
+            data.map((item, idx) => {
+              const rowId = String(item[keyField] ?? idx);
+              const rowSelectable = selection
+                ? selection.isRowSelectable
+                  ? selection.isRowSelectable(item)
+                  : true
+                : false;
+
+              return (
               <tr
-                key={(item[keyField] as string) || idx}
+                key={rowId || idx}
                 className="group border-b border-gray-50 transition-colors hover:bg-primary-50/30"
               >
+                {selection ? (
+                  <td className="px-4 py-3">
+                    {rowSelectable ? (
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
+                        checked={selection.selectedIds.includes(rowId)}
+                        onChange={() => selection.onToggleRow(rowId)}
+                      />
+                    ) : null}
+                  </td>
+                ) : null}
                 {columns.map((col) => (
                   <td key={col.key} className={`px-4 py-3 text-gray-700 ${col.cellClassName || ''}`}>
                     {col.render ? col.render(item) : String(item[col.key] ?? '')}
                   </td>
                 ))}
               </tr>
-            ))
+              );
+            })
           )}
         </tbody>
       </table>

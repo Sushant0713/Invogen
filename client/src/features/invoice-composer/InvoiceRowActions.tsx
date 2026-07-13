@@ -43,7 +43,8 @@ export function InvoiceRowActions({
 
   const isEmployee = user?.role === UserRole.EMPLOYEE;
   const canView = !isEmployee || permissions.includes(PERMISSIONS.INVOICE_VIEW);
-  const canEdit = !isEmployee || permissions.includes(PERMISSIONS.INVOICE_EDIT);
+  const canEdit =
+    status !== 'paid' && (!isEmployee || permissions.includes(PERMISSIONS.INVOICE_EDIT));
   const canDelete =
     status === 'draft' && (!isEmployee || permissions.includes(PERMISSIONS.INVOICE_DELETE));
   const canShare = !isEmployee || permissions.includes(PERMISSIONS.INVOICE_CREATE);
@@ -69,9 +70,9 @@ export function InvoiceRowActions({
   });
 
   const handleDelete = async () => {
-    const ok = await confirmToast(`Delete invoice ${invoiceNumber}?`, {
-      description: 'This cannot be undone.',
-      confirmLabel: 'Delete',
+    const ok = await confirmToast(`Permanently delete invoice ${invoiceNumber}?`, {
+      description: 'This action cannot be undone.',
+      confirmLabel: 'Delete permanently',
       variant: 'danger',
     });
     if (ok) deleteMutation.mutate();
