@@ -1,5 +1,11 @@
 import type { CSSProperties } from 'react';
 import { ComponentType } from '@invogen/shared';
+import {
+  formatDisplayDate,
+  isDateFieldComponentType,
+  toDisplayDateValue,
+  usesLiveDate,
+} from '@/lib/date-format';
 import { formatAddressValue, parseAddressFromProps } from './address-content';
 import {
   ensureGoogleFontLoaded,
@@ -227,7 +233,7 @@ export function getDataFieldDefaultValue(type: string): string {
     case ComponentType.INVOICE_NUMBER:
       return 'INV-001';
     case ComponentType.DATE:
-      return new Date().toLocaleDateString();
+      return formatDisplayDate();
     case ComponentType.DUE_DATE:
       return '-';
     case ComponentType.GST_NUMBER:
@@ -249,6 +255,16 @@ export function getDataFieldValue(
 ): string {
   if (type === ComponentType.ADDRESS) {
     return formatAddressValue(parseAddressFromProps(props));
+  }
+  if (isDateFieldComponentType(type)) {
+    if (usesLiveDate(props, type)) {
+      return formatDisplayDate(new Date());
+    }
+    const raw = props.value;
+    if (typeof raw === 'string' && raw.trim()) {
+      return toDisplayDateValue(raw);
+    }
+    return getDataFieldDefaultValue(type);
   }
   const raw = props.value;
   if (typeof raw === 'string') return raw;

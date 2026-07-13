@@ -503,7 +503,11 @@ function renderElement(
   const props = (element.props ?? {}) as Record<string, unknown>;
   const rotation = typeof props.rotation === 'number' ? props.rotation : 0;
   const rotationStyle =
-    rotation !== 0 ? `transform:rotate(${rotation}deg);transform-origin:center center;` : '';
+    element.type === ComponentType.DIVIDER
+      ? ''
+      : rotation !== 0
+        ? `transform:rotate(${rotation}deg);transform-origin:center center;`
+        : '';
 
   let inner = '';
 
@@ -544,9 +548,18 @@ function renderElement(
         element.height
       );
       break;
-    case ComponentType.DIVIDER:
-      inner = `<div style="display:flex;align-items:center;width:100%;height:100%;"><hr style="width:100%;border:0;border-top:${(props.thickness as number) || 1}px solid ${(props.color as string) || '#000'};margin:0;" /></div>`;
+    case ComponentType.DIVIDER: {
+      const thickness = (props.thickness as number) || 1;
+      const color = (props.color as string) || '#000';
+      const midY = element.height / 2;
+      const cx = element.width / 2;
+      const transform =
+        rotation !== 0
+          ? ` transform="rotate(${rotation} ${cx} ${midY})"`
+          : '';
+      inner = `<svg width="100%" height="100%" viewBox="0 0 ${element.width} ${element.height}" preserveAspectRatio="none" style="display:block;overflow:visible;" aria-hidden="true"><line x1="0" y1="${midY}" x2="${element.width}" y2="${midY}"${transform} stroke="${escapeHtml(color)}" stroke-width="${thickness}" vector-effect="non-scaling-stroke" /></svg>`;
       break;
+    }
     case ComponentType.PRODUCT_TABLE:
     case ComponentType.TABLE:
     case ComponentType.INVOICE_TABLE:
@@ -575,7 +588,7 @@ function renderElement(
 
   if (!inner) return '';
 
-  return `<div style="width:100%;height:100%;${rotationStyle}">${inner}</div>`;
+  return `<div style="width:100%;height:100%;overflow:visible;${rotationStyle}">${inner}</div>`;
 }
 
 function renderPage(page: TemplatePage, branding: Branding, assetBase: string): string {

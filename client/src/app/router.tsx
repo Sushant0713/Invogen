@@ -28,6 +28,7 @@ const SuperAdminClientDetail = lazy(() => import('@/pages/super-admin/ClientDeta
 const SuperAdminPlanTypes = lazy(() => import('@/pages/super-admin/plans/PlanTypes'));
 const SuperAdminPlanFeatures = lazy(() => import('@/pages/super-admin/plans/PlanFeatures'));
 const SuperAdminPlanDiscounts = lazy(() => import('@/pages/super-admin/plans/PlanDiscounts'));
+const SuperAdminDiscounts = lazy(() => import('@/pages/super-admin/Discounts'));
 const SuperAdminPlanList = lazy(() => import('@/pages/super-admin/plans/PlanList'));
 const SuperAdminTemplates = lazy(() => import('@/pages/super-admin/Templates'));
 const SuperAdminCategoryTemplates = lazy(() => import('@/pages/super-admin/SuperAdminCategoryTemplates'));
@@ -45,6 +46,8 @@ const AdminDashboard = lazy(() => import('@/pages/admin/Dashboard'));
 const AdminEmployees = lazy(() => import('@/pages/admin/Employees'));
 const AdminCustomers = lazy(() => import('@/pages/admin/Customers'));
 const AdminProducts = lazy(() => import('@/pages/admin/Products'));
+const AdminDiscounts = lazy(() => import('@/pages/admin/Discounts'));
+const AdminDiscountRules = lazy(() => import('@/pages/admin/DiscountRules'));
 const AdminInvoices = lazy(() => import('@/pages/admin/Invoices'));
 const AdminInvoiceNew = lazy(() => import('@/pages/admin/InvoiceNew'));
 const AdminInvoiceComposerPage = lazy(() => import('@/pages/admin/InvoiceComposerPage'));
@@ -127,6 +130,7 @@ export const router = createBrowserRouter([
       { path: 'dashboard', element: withSuspense(<SuperAdminDashboard />) },
       { path: 'clients', element: withSuspense(<SuperAdminClients />) },
       { path: 'clients/:id', element: withSuspense(<SuperAdminClientDetail />) },
+      { path: 'discounts', element: withSuspense(<SuperAdminDiscounts />) },
       { path: 'plans', element: <Navigate to="/super-admin/plans/types" replace /> },
       { path: 'plans/types', element: withSuspense(<SuperAdminPlanTypes />) },
       { path: 'plans/features', element: withSuspense(<SuperAdminPlanFeatures />) },
@@ -162,6 +166,8 @@ export const router = createBrowserRouter([
           { path: 'employees/pending', element: withSuspense(<AdminEmployees />) },
           { path: 'customers', element: withSuspense(<AdminCustomers />) },
           { path: 'products', element: withSuspense(<AdminProducts />) },
+          { path: 'discounts', element: withSuspense(<AdminDiscounts />) },
+          { path: 'discounts/rules', element: withSuspense(<AdminDiscountRules />) },
           { path: 'invoices', element: withSuspense(<AdminInvoices />) },
           { path: 'invoices/shared', element: withSuspense(<AdminSharedInvoices />) },
           { path: 'invoices/new', element: withSuspense(<AdminInvoiceNew />) },

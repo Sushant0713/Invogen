@@ -39,6 +39,9 @@ router.post('/plan-discounts', ctrl.createPlanDiscount);
 router.patch('/plan-discounts/:id', ctrl.updatePlanDiscount);
 router.delete('/plan-discounts/:id', ctrl.deletePlanDiscount);
 
+router.get('/discounts/filters', ctrl.getDiscountReportFilters);
+router.get('/discounts/report', ctrl.getDiscountReport);
+
 router.get('/components', ctrl.getComponents);
 router.post('/components', ctrl.createComponent);
 router.patch('/components/:id', ctrl.updateComponent);

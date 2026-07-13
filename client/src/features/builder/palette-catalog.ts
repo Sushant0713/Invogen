@@ -22,6 +22,7 @@ import {
   productTablePropsToRecord as invoice3PropsToRecord,
 } from './invoice-table-3';
 import { normalizeTablePropsForType } from './table-props-normalize';
+import { formatDisplayDate } from '@/lib/date-format';
 
 export type PaletteItem = {
   /** Unique key for sidebar grid, favourites, and recent (supports duplicate types). */
@@ -226,6 +227,30 @@ export const BUILDER_PALETTE: PaletteItem[] = [
     category: 'fields',
     iconKey: 'field_invoice',
     defaultProps: { label: 'Invoice', value: 'INV-001' },
+  },
+  {
+    id: 'field_date',
+    type: ComponentType.DATE,
+    label: 'Date',
+    category: 'fields',
+    iconKey: 'field_date',
+    defaultProps: {
+      label: 'Date',
+      value: formatDisplayDate(),
+      useLiveDate: true,
+    },
+  },
+  {
+    id: 'field_due_date',
+    type: ComponentType.DUE_DATE,
+    label: 'Due date',
+    category: 'fields',
+    iconKey: 'field_due_date',
+    defaultProps: {
+      label: 'Due Date',
+      value: '-',
+      useLiveDate: false,
+    },
   },
 
   // Context

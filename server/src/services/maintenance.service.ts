@@ -10,6 +10,10 @@ export interface MaintenanceStatus {
 let cache: { expires: number; status: MaintenanceStatus } | null = null;
 const CACHE_TTL_MS = 5_000;
 
+function isTruthySetting(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 export const maintenanceService = {
   clearCache() {
     cache = null;
@@ -27,12 +31,13 @@ export const maintenanceService = {
     ]);
 
     const company = (companySetting?.value || {}) as {
-      maintenanceMode?: boolean;
+      maintenanceMode?: unknown;
       name?: string;
     };
     const security = (securitySetting?.value || {}) as { maintenanceMessage?: string };
 
-    const enabled = company.maintenanceMode === true || legacySetting?.value === true;
+    const enabled =
+      isTruthySetting(company.maintenanceMode) || isTruthySetting(legacySetting?.value);
     const status: MaintenanceStatus = {
       enabled,
       message:

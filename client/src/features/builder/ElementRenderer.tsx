@@ -49,6 +49,7 @@ import {
   isStructuredContentType,
 } from './structured-content-layout';
 import { getElementRotation, supportsElementRotation } from './element-rotation';
+import { getDividerLineSvgTransform } from './divider-rotation';
 import { TextWithPlaceholderChips, readContentEditablePlainText } from './TextWithPlaceholderChips';
 import type { CompanyProductOption } from './use-company-products';
 
@@ -803,17 +804,39 @@ export function ElementRenderer({
             onFrameResize={onFrameResize}
           />
         );
-      case ComponentType.DIVIDER:
+      case ComponentType.DIVIDER: {
+        const thickness = (props.thickness as number) || 1;
+        const color = (props.color as string) || '#000000';
+        const rotation = getElementRotation(props);
+        const midY = element.height / 2;
+        const lineTransform = getDividerLineSvgTransform(
+          rotation,
+          element.width,
+          element.height
+        );
         return (
-          <div className="flex h-full w-full items-center justify-center">
-            <hr
-              className="m-0 w-full border-0"
-              style={{
-                borderTop: `${(props.thickness as number) || 1}px solid ${(props.color as string) || '#000000'}`,
-              }}
-            />
+          <div className="h-full w-full" style={{ overflow: 'visible' }}>
+            <svg
+              className="block h-full w-full"
+              viewBox={`0 0 ${element.width} ${element.height}`}
+              preserveAspectRatio="none"
+              style={{ overflow: 'visible' }}
+              aria-hidden
+            >
+              <line
+                x1={0}
+                y1={midY}
+                x2={element.width}
+                y2={midY}
+                transform={lineTransform}
+                stroke={color}
+                strokeWidth={thickness}
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
           </div>
         );
+      }
       case ComponentType.PRODUCT_TABLE:
       case ComponentType.TABLE:
       case ComponentType.INVOICE_TABLE:

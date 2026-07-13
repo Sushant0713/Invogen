@@ -11,6 +11,7 @@ import { store } from '@/store';
 import { setAccessToken, logout as logoutAction } from '@/store/slices/authSlice';
 import { setMaintenanceStatusCache } from '@/lib/maintenance-status-cache';
 import { loginPath } from '@/lib/workspace-portal';
+import { redirectToMaintenancePage, shouldEnforceMaintenance } from '@/lib/maintenance-routes';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -141,6 +142,9 @@ api.interceptors.response.use(
       if (!isExempt) {
         const message = (error.response?.data as { message?: string } | undefined)?.message;
         void setMaintenanceStatusCache(true, message);
+        if (shouldEnforceMaintenance(pathname)) {
+          redirectToMaintenancePage();
+        }
       }
       return Promise.reject(error);
     }

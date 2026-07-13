@@ -14,6 +14,7 @@ export { InvoiceTemplate } from './InvoiceTemplate.model';
 export { Invoice } from './Invoice.model';
 export { Customer } from './Customer.model';
 export { Product } from './Product.model';
+export { ProductDiscount } from './ProductDiscount.model';
 export { Notification } from './Notification.model';
 export { ActivityLog } from './ActivityLog.model';
 export { AuditLog } from './AuditLog.model';

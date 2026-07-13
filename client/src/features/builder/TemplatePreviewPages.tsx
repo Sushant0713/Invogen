@@ -1,5 +1,6 @@
 import { useMemo, type MutableRefObject } from 'react';
 import type { TemplatePage } from '@invogen/shared';
+import { ComponentType } from '@invogen/shared';
 import { ElementRenderer } from '@/features/builder/ElementRenderer';
 import { getPageDimensions } from '@/features/builder/builder-dnd';
 import { sortByLayer, getBaseOpacity, getElementSlotOverflow } from '@/features/builder/element-layers';
@@ -9,6 +10,7 @@ import {
   type PlaceholderContext,
 } from '@/features/template-gallery/placeholder-utils';
 import { applyInvoiceFormToPages } from '@/features/invoice-composer/apply-invoice-form';
+import { formatDisplayDate } from '@/lib/date-format';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
 import { reflowPagesForPreview, applyPreviewPageNumbers } from '@/features/builder/preview-page-reflow';
 import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
@@ -80,10 +82,14 @@ function renderPageElements(
       >
         <div
           className="h-full w-full"
-          style={getElementRotationTransformStyle(
-            element.type,
-            element.props as Record<string, unknown> | undefined
-          )}
+          style={
+            element.type === ComponentType.DIVIDER
+              ? undefined
+              : getElementRotationTransformStyle(
+                  element.type,
+                  element.props as Record<string, unknown> | undefined
+                )
+          }
         >
           <ElementRenderer
             element={element}
@@ -126,7 +132,15 @@ export function TemplatePreviewPages({
   const renderPages = useMemo(() => {
     let resolved = pages;
     if (placeholderContext) resolved = applyInvoiceFormToPages(pages, placeholderContext);
-    else if (useSampleData) resolved = applyPlaceholdersToPages(pages, SAMPLE_PREVIEW_CONTEXT);
+    else if (useSampleData) {
+      const due = new Date();
+      due.setDate(due.getDate() + 15);
+      resolved = applyPlaceholdersToPages(pages, {
+        ...SAMPLE_PREVIEW_CONTEXT,
+        Date: formatDisplayDate(),
+        DueDate: formatDisplayDate(due),
+      });
+    }
 
     const cloned = cloneTemplatePages(resolved);
     const laidOut = autoReflow

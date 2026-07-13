@@ -562,6 +562,12 @@ export const authService = {
       throw new AppError('Your account access has been disabled', 403);
     }
 
+    if (user.role === UserRole.ADMIN) {
+      await maintenanceService.assertPortalAccessible('admin');
+    } else if (user.role === UserRole.EMPLOYEE) {
+      await maintenanceService.assertPortalAccessible('employee');
+    }
+
     await assertEmailVerifiedForSession(user);
 
     let permissions = user.permissions;
@@ -591,6 +597,12 @@ export const authService = {
   async getMe(userId: string) {
     const user = await User.findById(userId);
     if (!user) throw new AppError('User not found', 404);
+
+    if (user.role === UserRole.ADMIN) {
+      await maintenanceService.assertPortalAccessible('admin');
+    } else if (user.role === UserRole.EMPLOYEE) {
+      await maintenanceService.assertPortalAccessible('employee');
+    }
 
     await assertEmailVerifiedForSession(user);
 

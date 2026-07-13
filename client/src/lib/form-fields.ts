@@ -17,7 +17,8 @@ export type FieldKind =
   | 'upi'
   | 'price'
   | 'percentage'
-  | 'port';
+  | 'port'
+  | 'date';
 
 export const FIELD_PATTERNS = {
   email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -155,6 +156,10 @@ const FIELD_KIND_CONFIG: Record<
     max: 65535,
     step: 1,
   },
+  date: {
+    type: 'date',
+    autoComplete: 'off',
+  },
 };
 
 /** Map common form field names to semantic kinds (used by generic CRUD forms). */
@@ -207,6 +212,8 @@ const PLACEHOLDER_KEY_KIND_MAP: Record<string, FieldKind> = {
   GST: 'gstin',
   CompanyGST: 'gstin',
   PAN: 'pan',
+  Date: 'date',
+  DueDate: 'date',
 };
 
 const CARD_PROP_KEY_KIND_MAP: Record<string, FieldKind> = {
@@ -229,6 +236,7 @@ export function cardPropKeyToFieldKind(key: string): FieldKind | undefined {
 
 export function inferFieldKindFromLabel(label: string): FieldKind | undefined {
   const normalized = label.toLowerCase().trim();
+  if (/\b(due\s*date|invoice\s*date|date)\b/.test(normalized)) return 'date';
   if (/\b(e-?mail)\b/.test(normalized)) return 'email';
   if (/\b(phone|mobile|tel)\b/.test(normalized)) return 'phone';
   if (/\b(pin\s*code|pincode|zip|postal)\b/.test(normalized)) return 'pincode';

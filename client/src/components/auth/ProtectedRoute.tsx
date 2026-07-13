@@ -10,6 +10,8 @@ import { Loader } from '@/components/ui/Loader';
 import { getLoginPath } from '@/config/navigation';
 import { loginPath as buildLoginPath } from '@/lib/workspace-portal';
 import { useRehydrateUserPreferences } from '@/lib/use-rehydrate-user-preferences';
+import { useQueryClient } from '@tanstack/react-query';
+import { MAINTENANCE_QUERY_KEY, type MaintenanceStatus } from '@/lib/maintenance-status-cache';
 
 interface MeResponse {
   user: AuthUser;
@@ -23,6 +25,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
   const dispatch = useAppDispatch();
+  const queryClient = useQueryClient();
   const { isAuthenticated, user } = useAppSelector((s) => s.auth);
   const location = useLocation();
   const shouldLiveSync = roles.includes(UserRole.EMPLOYEE);
@@ -57,6 +60,14 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
   }
 
   if (isError) {
+    const maintenance = queryClient.getQueryData<MaintenanceStatus>(MAINTENANCE_QUERY_KEY);
+    if (
+      maintenance?.enabled &&
+      (roles.includes(UserRole.ADMIN) || roles.includes(UserRole.EMPLOYEE))
+    ) {
+      return <Navigate to="/maintenance" replace />;
+    }
+
     const loginPath = roles[0] ? getLoginPath(roles[0]) : '/';
     if (
       roles.includes(UserRole.ADMIN)

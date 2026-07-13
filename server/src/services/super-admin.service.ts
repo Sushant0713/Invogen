@@ -916,7 +916,11 @@ export const superAdminService = {
     const result = await Setting.findOneAndUpdate({ key, scope }, { value }, { upsert: true, new: true });
 
     if (key === 'company_profile' && value && typeof value === 'object') {
-      const maintenanceMode = (value as { maintenanceMode?: boolean }).maintenanceMode === true;
+      const maintenanceMode =
+        (value as { maintenanceMode?: unknown }).maintenanceMode === true ||
+        (value as { maintenanceMode?: unknown }).maintenanceMode === 'true' ||
+        (value as { maintenanceMode?: unknown }).maintenanceMode === 1 ||
+        (value as { maintenanceMode?: unknown }).maintenanceMode === '1';
       await Setting.findOneAndUpdate(
         { key: 'maintenance_mode', scope },
         {

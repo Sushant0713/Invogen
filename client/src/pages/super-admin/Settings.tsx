@@ -342,6 +342,9 @@ export default function SuperAdminSettings() {
             form={companyForm}
             onChange={setCompanyForm}
             onSave={() => saveMutation.mutate({ key: 'company_profile', value: companyForm })}
+            onMaintenanceModeChange={(next) =>
+              saveMutation.mutate({ key: 'company_profile', value: next })
+            }
             saving={saveMutation.isPending}
           />
         ) : section === 'tax' ? (
@@ -446,11 +449,13 @@ function CompanySettingPanel({
   form,
   onChange,
   onSave,
+  onMaintenanceModeChange,
   saving,
 }: {
   form: CompanyProfile;
   onChange: (form: CompanyProfile) => void;
   onSave: () => void;
+  onMaintenanceModeChange: (form: CompanyProfile) => void;
   saving: boolean;
 }) {
   const update = (field: keyof CompanyProfile, value: string | boolean) =>
@@ -517,9 +522,20 @@ function CompanySettingPanel({
       <div className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
         <div>
           <p className="text-sm font-medium text-gray-900">Maintenance mode</p>
-          <p className="text-xs text-gray-500">Temporarily disable access for all clients</p>
+          <p className="text-xs text-gray-500">
+            Immediately blocks admin and employee access across the platform
+          </p>
         </div>
-        <Switch checked={form.maintenanceMode} onChange={(v) => update('maintenanceMode', v)} label="Maintenance mode" />
+        <Switch
+          checked={form.maintenanceMode}
+          onChange={(v) => {
+            const next = { ...form, maintenanceMode: v };
+            onChange(next);
+            onMaintenanceModeChange(next);
+          }}
+          disabled={saving}
+          label="Maintenance mode"
+        />
       </div>
 
       <Button onClick={onSave} disabled={saving}>

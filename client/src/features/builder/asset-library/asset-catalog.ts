@@ -34,6 +34,8 @@ export const ASSET_SEARCH_META: Record<string, { tags?: string[]; aliases?: stri
   field_gst: { tags: ['field', 'tax', 'gstin'], aliases: ['gst number', 'gstin'] },
   field_pan: { tags: ['field', 'tax'], aliases: ['pan card'] },
   field_invoice_no: { tags: ['field', 'invoice'], aliases: ['invoice number', 'inv'] },
+  field_date: { tags: ['field', 'date', 'calendar'], aliases: ['invoice date', 'today'] },
+  field_due_date: { tags: ['field', 'date', 'calendar', 'due'], aliases: ['due date', 'payment date'] },
   context_page_no: { tags: ['context', 'page'], aliases: ['page number'] },
   context_note: { tags: ['context'], aliases: ['notes'] },
   context_footer: { tags: ['context'], aliases: ['footer'] },

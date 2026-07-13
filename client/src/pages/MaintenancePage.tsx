@@ -1,33 +1,49 @@
+import { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import { UserRole } from '@invogen/shared';
-import { useAppSelector } from '@/hooks/useAppDispatch';
+import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import { useMaintenanceStatus } from '@/hooks/useMaintenanceStatus';
+import { clearSession } from '@/lib/auth-session';
+import { logout as logoutAction } from '@/store/slices/authSlice';
+import {
+  isTenantPortalPath,
+  shouldEnforceMaintenance,
+} from '@/lib/maintenance-routes';
 import { cn } from '@/lib/utils';
+import { Loader } from '@/components/ui/Loader';
 
 const linkButtonClass =
   'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200';
 
-const EXEMPT_PREFIXES = ['/super-admin', '/maintenance', '/verify-email', '/forgot-password', '/reset-password', '/register', '/login', '/legal'];
-
-function isMaintenanceExempt(pathname: string) {
-  return EXEMPT_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
+function isTenantUser(role?: UserRole) {
+  return role === UserRole.ADMIN || role === UserRole.EMPLOYEE;
 }
 
 export function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
   const { data: maintenance, isLoading } = useMaintenanceStatus();
+  const enforcePath = shouldEnforceMaintenance(location.pathname);
 
-  if (isLoading) return <>{children}</>;
+  useEffect(() => {
+    if (!maintenance?.enabled || !isTenantUser(user?.role)) return;
+    if (!enforcePath && !isTenantPortalPath(location.pathname)) return;
+
+    clearSession();
+    dispatch(logoutAction());
+  }, [dispatch, enforcePath, location.pathname, maintenance?.enabled, user?.role]);
+
+  if (isLoading && enforcePath) {
+    return <Loader fullScreen />;
+  }
 
   if (!maintenance?.enabled) return <>{children}</>;
-  if (user?.role === UserRole.SUPER_ADMIN) return <>{children}</>;
-  if (isMaintenanceExempt(location.pathname)) return <>{children}</>;
 
-  if (location.pathname !== '/maintenance') {
+  if (user?.role === UserRole.SUPER_ADMIN) return <>{children}</>;
+
+  if (enforcePath && location.pathname !== '/maintenance') {
     return <Navigate to="/maintenance" replace />;
   }
 

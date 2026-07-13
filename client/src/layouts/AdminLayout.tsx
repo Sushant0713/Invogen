@@ -4,7 +4,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
 import { adminNav } from '@/config/navigation';
 import { isSubscriptionCheckoutPath, isSubscriptionNavChildActive } from '@/lib/subscription-routes';
-import { isInvoiceNavChildActive } from '@/lib/invoice-routes';
+import { isInvoiceNavChildActive, isDiscountNavChildActive } from '@/lib/invoice-routes';
 import { isFullHeightWorkspacePath } from '@/lib/builder-routes';
 import api from '@/api/client';
 import { Loader } from '@/components/ui/Loader';
@@ -63,6 +63,7 @@ export default function AdminLayout() {
     if (n.children?.some((c) => {
       if (c.path.includes('/invoices')) return isInvoiceNavChildActive(c.path, location.pathname);
       if (c.path.includes('/subscription')) return isSubscriptionNavChildActive(c.path, location.pathname);
+      if (c.path.includes('/discounts')) return isDiscountNavChildActive(c.path, location.pathname);
       return location.pathname === c.path || location.pathname.startsWith(`${c.path}/`);
     })) return true;
     return location.pathname.startsWith(n.path);
@@ -70,6 +71,7 @@ export default function AdminLayout() {
   const currentChild = current?.children?.find((c) => {
     if (c.path.includes('/invoices')) return isInvoiceNavChildActive(c.path, location.pathname);
     if (c.path.includes('/subscription')) return isSubscriptionNavChildActive(c.path, location.pathname);
+    if (c.path.includes('/discounts')) return isDiscountNavChildActive(c.path, location.pathname);
     return location.pathname === c.path || location.pathname.startsWith(`${c.path}/`);
   });
   const pageTitle = currentChild?.label || current?.label || 'Admin';

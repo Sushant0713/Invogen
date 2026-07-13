@@ -11,8 +11,8 @@ export type { MaintenanceStatus };
 export const maintenanceStatusQueryOptions = queryOptions({
   queryKey: MAINTENANCE_QUERY_KEY,
   queryFn: async () => (await api.get('/auth/maintenance')).data.data as MaintenanceStatus,
-  staleTime: 60_000,
-  refetchInterval: (query) => (query.state.data?.enabled ? 20_000 : 60_000),
+  staleTime: 15_000,
+  refetchInterval: (query) => (query.state.data?.enabled ? 10_000 : 30_000),
   refetchIntervalInBackground: false,
   refetchOnWindowFocus: true,
 });

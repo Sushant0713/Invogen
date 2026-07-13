@@ -15,6 +15,8 @@ import {
   Payment,
 } from '../models';
 import { discountService } from './discount.service';
+import { productDiscountService } from './product-discount.service';
+import { adminDiscountReportService } from './admin-discount-report.service';
 import { subscriptionService } from './subscription.service';
 import { AppError } from '../utils/AppError';
 import { getPagination, buildMeta } from '../utils/response';
@@ -459,8 +461,13 @@ export const adminService = {
         { category: { $regex: search, $options: 'i' } },
       ];
     }
+    const naturalOrder = query.naturalOrder === 'true' || query.naturalOrder === true;
+    const listQuery = Product.find(filter);
+    if (naturalOrder) {
+      listQuery.collation({ locale: 'en', numericOrdering: true });
+    }
     const [data, total] = await Promise.all([
-      Product.find(filter).skip(skip).limit(limit).sort({ name: 1 }),
+      listQuery.sort({ name: 1 }).skip(skip).limit(limit),
       Product.countDocuments(filter),
     ]);
     return { data, meta: buildMeta(page, limit, total) };
@@ -479,6 +486,34 @@ export const adminService = {
   async deleteProduct(companyId: string, id: string) {
     const product = await Product.findOneAndDelete({ _id: id, companyId });
     if (!product) throw new AppError('Product not found', 404);
+  },
+
+  async getProductDiscountProducts(companyId: string) {
+    return productDiscountService.getProductsForCompany(companyId);
+  },
+
+  async getProductDiscounts(companyId: string, query: Record<string, unknown>) {
+    return productDiscountService.list({ ...query, kind: 'direct' }, companyId);
+  },
+
+  async createProductDiscount(companyId: string, data: Record<string, unknown>) {
+    return productDiscountService.create({ ...data, kind: 'direct' }, companyId);
+  },
+
+  async updateProductDiscount(companyId: string, id: string, data: Record<string, unknown>) {
+    return productDiscountService.update(id, data, companyId);
+  },
+
+  async deleteProductDiscount(companyId: string, id: string) {
+    return productDiscountService.remove(id, companyId);
+  },
+
+  async getDiscountReportFilters(companyId: string) {
+    return adminDiscountReportService.getFilters(companyId);
+  },
+
+  async getDiscountReport(companyId: string, query: Record<string, unknown>) {
+    return adminDiscountReportService.getReport(companyId, query);
   },
 
   async getTemplates(companyId: string, query: Record<string, unknown>) {

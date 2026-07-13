@@ -15,6 +15,7 @@ import {
   Receipt,
   Layers,
   Building2,
+  Percent,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -28,6 +29,7 @@ export interface NavItem {
 export const superAdminNav: NavItem[] = [
   { label: 'Dashboard', path: '/super-admin/dashboard', icon: LayoutDashboard },
   { label: 'Clients', path: '/super-admin/clients', icon: Users },
+  { label: 'Discount', path: '/super-admin/discounts', icon: Percent },
   {
     label: 'Plans',
     path: '/super-admin/plans',
@@ -70,6 +72,15 @@ export const adminNav: NavItem[] = [
   },
   { label: 'Customers', path: '/admin/customers', icon: Building2 },
   { label: 'Products', path: '/admin/products', icon: Package },
+  {
+    label: 'Discount',
+    path: '/admin/discounts',
+    icon: Percent,
+    children: [
+      { label: 'Analytics', path: '/admin/discounts' },
+      { label: 'Discount rules', path: '/admin/discounts/rules' },
+    ],
+  },
   {
     label: 'Invoices',
     path: '/admin/invoices',

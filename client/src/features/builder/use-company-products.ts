@@ -12,6 +12,7 @@ export type CompanyProductOption = {
   name: string;
   sku?: string;
   price?: number;
+  discount?: number;
   category?: string;
 };
 
@@ -29,6 +30,7 @@ function extractProducts(payload: unknown): CompanyProductOption[] {
           name,
           sku: typeof row.sku === 'string' ? row.sku : undefined,
           price: typeof row.price === 'number' ? row.price : undefined,
+          discount: typeof row.discount === 'number' ? row.discount : undefined,
           category: typeof row.category === 'string' ? row.category : undefined,
         } satisfies CompanyProductOption;
       })
@@ -58,6 +60,7 @@ export function useCompanyProducts(options?: {
       const res = await api.get(productsApi, {
         params: {
           limit: 100,
+          naturalOrder: 'true',
           ...(search ? { search } : {}),
         },
       });

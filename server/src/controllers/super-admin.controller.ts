@@ -1,6 +1,7 @@
 import { UserStatus, SubscriptionStatus, InvoiceStatus } from '@invogen/shared';
 import { superAdminService } from '../services/super-admin.service';
 import { planManagementService } from '../services/plan-management.service';
+import { superAdminDiscountReportService } from '../services/super-admin-discount-report.service';
 import { cashfreeService } from '../services/cashfree.service';
 import { wrap, param } from '../utils/controller';
 
@@ -51,6 +52,9 @@ export const updatePlanDiscount = wrap((req) => planManagementService.updateDisc
 export const deletePlanDiscount = wrap(async (req) => {
   await planManagementService.deleteDiscount(param(req.params.id));
 });
+
+export const getDiscountReport = wrap((req) => superAdminDiscountReportService.getReport(req.query));
+export const getDiscountReportFilters = wrap(() => superAdminDiscountReportService.getFilters());
 
 export const getComponents = wrap(() => superAdminService.getComponents());
 export const createComponent = wrap((req) => superAdminService.createComponent(req.body));

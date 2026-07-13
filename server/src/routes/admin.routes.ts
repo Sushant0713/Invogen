@@ -46,6 +46,13 @@ router.get('/products', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.getP
 router.post('/products', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.createProduct);
 router.patch('/products/:id', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.updateProduct);
 router.delete('/products/:id', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.deleteProduct);
+router.get('/product-discounts/products', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.getAdminProductDiscountProducts);
+router.get('/product-discounts', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.getAdminProductDiscounts);
+router.post('/product-discounts', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.createAdminProductDiscount);
+router.patch('/product-discounts/:id', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.updateAdminProductDiscount);
+router.delete('/product-discounts/:id', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.deleteAdminProductDiscount);
+router.get('/discounts/filters', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.getAdminDiscountReportFilters);
+router.get('/discounts/report', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.getAdminDiscountReport);
 router.get('/templates', ctrl.getTemplates);
 router.get('/templates/:id', ctrl.getTemplate);
 router.post('/templates', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.createTemplate);

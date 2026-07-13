@@ -103,6 +103,7 @@ export function getDefaultElementSize(type: string) {
   ) {
     return { width: 120, height: 80 };
   }
+  if (type === ComponentType.DIVIDER) return { width: 200, height: 12 };
   return { width: 200, height: 40 };
 }
 

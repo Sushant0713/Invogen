@@ -19,6 +19,13 @@ import { mergeTablePaginationProps, resolvePaginationTableId, isTableContinuatio
 import { ImageProperties } from './ImageProperties';
 import { ComponentType } from '@invogen/shared';
 import { getEditableTextKey, isDataFieldType } from './text-styles';
+import {
+  formatDisplayDate,
+  formatIsoDate,
+  getDatePickerValue,
+  isDateFieldComponentType,
+  usesLiveDate,
+} from '@/lib/date-format';
 import { isCardComponentType, estimateCardBlockHeight, type CardCustomField } from './card-components';
 import { isImageComponentType } from './image-components';
 import { isShapeComponentType } from './shape-components';
@@ -190,6 +197,17 @@ export function PropertiesPanel() {
     dispatch(updateElement({
       id: element.id,
       changes: { props: nextProps },
+      recordHistory,
+    }));
+  };
+
+  const updateDateProps = (
+    changes: { value?: string; useLiveDate?: boolean },
+    recordHistory = false
+  ) => {
+    dispatch(updateElement({
+      id: element.id,
+      changes: { props: { ...props, ...changes } },
       recordHistory,
     }));
   };
@@ -446,7 +464,52 @@ export function PropertiesPanel() {
               </div>
             );
           })()}
-          {isDataFieldType(element.type) && (
+          {isDateFieldComponentType(element.type) && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500">Pick date</label>
+                <input
+                  type="date"
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  value={getDatePickerValue(props, element.type)}
+                  onChange={(e) => {
+                    const picked = e.target.value;
+                    if (!picked) return;
+                    updateDateProps({ value: picked, useLiveDate: false }, true);
+                  }}
+                />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Choose a sample date, or enable live date below to always show today.
+                </p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300"
+                  checked={usesLiveDate(props, element.type)}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    if (enabled) {
+                      updateDateProps({ useLiveDate: true, value: formatIsoDate() }, true);
+                    } else {
+                      updateDateProps({ useLiveDate: false }, true);
+                    }
+                  }}
+                />
+                Use live date (always today)
+              </label>
+              {usesLiveDate(props, element.type) ? (
+                <p className="text-[11px] text-primary/80">
+                  Preview shows today: {formatDisplayDate()} — pick a date above to use a fixed date instead.
+                </p>
+              ) : (
+                <p className="text-[11px] text-gray-400">
+                  Preview uses your selected date: {formatDisplayDate(new Date(`${getDatePickerValue(props, element.type)}T12:00:00`))}
+                </p>
+              )}
+            </div>
+          )}
+          {isDataFieldType(element.type) && !isDateFieldComponentType(element.type) && (
             <div>
               <label className="text-xs text-gray-500">Value</label>
               <p className="mt-0.5 text-[11px] text-gray-400">

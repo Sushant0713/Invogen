@@ -50,6 +50,27 @@ export const updateProduct = wrap((req) =>
 export const deleteProduct = wrap(async (req) => {
   await adminService.deleteProduct(req.companyId!, param(req.params.id));
 });
+export const getAdminProductDiscountProducts = wrap((req) =>
+  adminService.getProductDiscountProducts(req.companyId!)
+);
+export const getAdminProductDiscounts = wrap((req) =>
+  adminService.getProductDiscounts(req.companyId!, req.query)
+);
+export const createAdminProductDiscount = wrap((req) =>
+  adminService.createProductDiscount(req.companyId!, req.body)
+);
+export const updateAdminProductDiscount = wrap((req) =>
+  adminService.updateProductDiscount(req.companyId!, param(req.params.id), req.body)
+);
+export const deleteAdminProductDiscount = wrap(async (req) => {
+  await adminService.deleteProductDiscount(req.companyId!, param(req.params.id));
+});
+export const getAdminDiscountReportFilters = wrap((req) =>
+  adminService.getDiscountReportFilters(req.companyId!)
+);
+export const getAdminDiscountReport = wrap((req) =>
+  adminService.getDiscountReport(req.companyId!, req.query)
+);
 export const getTemplates = wrap((req) => adminService.getTemplates(req.companyId!, req.query));
 export const getTemplate = wrap((req) => adminService.getTemplate(req.companyId!, param(req.params.id)));
 export const createTemplate = wrap((req) =>

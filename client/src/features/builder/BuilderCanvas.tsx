@@ -5,6 +5,7 @@ import { addElement, updateElement, selectElement, toggleElementInSelection, set
 import { ElementRenderer } from './ElementRenderer';
 import { SmartGuides } from './image-editor/SmartGuides';
 import { ElementRotationOverlay } from './ElementRotationOverlay';
+import { DividerRotationOverlay } from './DividerRotationOverlay';
 import { useBuilderKeyboard } from './image-editor/hooks/useBuilderKeyboard';
 import { snapElementBounds } from './image-editor/snappingUtils';
 import { constrainAspectResize } from './image-editor/transformUtils';
@@ -53,6 +54,12 @@ import {
   getElementRotationTransformStyle,
   supportsElementRotation,
 } from './element-rotation';
+import {
+  clampDividerBounds,
+  finalizeDividerAnchoredResize,
+  computeDividerAnchoredResize,
+  isDividerElementType,
+} from './divider-resize';
 import type { SnapGuide } from './image-editor/types';
 import {
   sortByLayer,
@@ -508,6 +515,25 @@ export function BuilderCanvas() {
       const element = page.elements.find((el) => el.id === id);
       if (!session || session.id !== id || !element) return;
 
+      if (isDividerElementType(element.type)) {
+        const dividerBounds = finalizeDividerAnchoredResize(
+          session,
+          direction,
+          position,
+          size,
+          margins,
+          snapToGrid,
+          GRID_SIZE
+        );
+        dispatch(updateElement({
+          id,
+          changes: dividerBounds,
+          recordHistory: true,
+          skipDocumentLayout: true,
+        }));
+        return;
+      }
+
       const raw = computeAnchoredResize(
         session,
         direction,
@@ -849,7 +875,10 @@ export function BuilderCanvas() {
               });
               const isTable = isTableElementType(element.type);
               const elementRotation = getElementRotation(elementProps);
-              const rotationStyle = getElementRotationTransformStyle(element.type, elementProps);
+              const isDivider = isDividerElementType(element.type);
+              const rotationStyle = isDivider
+                ? undefined
+                : getElementRotationTransformStyle(element.type, elementProps);
               const isRotatable = supportsElementRotation(element.type);
               // Canva-style: elements may extend outside margins while editing,
               // but anything outside the content area is visually clipped.
@@ -862,12 +891,15 @@ export function BuilderCanvas() {
               const clipRight = Math.max(0, element.x + element.width - contentRight);
               const clipBottom = Math.max(0, element.y + element.height - contentBottom);
               const clipStyle =
-                clipLeft > 0 || clipTop > 0 || clipRight > 0 || clipBottom > 0
+                !isDivider
+                && (clipLeft > 0 || clipTop > 0 || clipRight > 0 || clipBottom > 0)
                   ? ({
                       clipPath: `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px)`,
                     } as React.CSSProperties)
                   : undefined;
-              const resizeProps = getElementResizeProps(
+              const resizeProps = isDivider
+                ? { enableResizing: false as const }
+                : getElementResizeProps(
                 isSelected,
                 !!element.locked,
                 isDragging,
@@ -1065,6 +1097,22 @@ export function BuilderCanvas() {
                       return;
                     }
 
+                    if (isDivider) {
+                      const dividerBounds = computeDividerAnchoredResize(
+                        session,
+                        dir as string,
+                        position,
+                        { width: ref.offsetWidth, height: ref.offsetHeight }
+                      );
+                      dispatch(updateElement({
+                        id: element.id,
+                        changes: dividerBounds,
+                        recordHistory: false,
+                        skipDocumentLayout: true,
+                      }));
+                      return;
+                    }
+
                     dispatch(updateElement({
                       id: element.id,
                       changes: bounds,
@@ -1098,6 +1146,7 @@ export function BuilderCanvas() {
                           isTable ? 'builder-rnd-table-selected' : 'builder-rnd-selected',
                           isShapeCropMode ? 'builder-crop-active' : '',
                           isRotatable && !isTable ? 'builder-rnd-rotatable' : '',
+                          isDivider ? 'builder-rnd-divider' : '',
                           elementRotation !== 0 ? 'builder-rnd-rotated' : '',
                           isTable && isDragging ? 'builder-rnd-table-dragging' : '',
                         ].filter(Boolean).join(' ')
@@ -1113,11 +1162,13 @@ export function BuilderCanvas() {
                       selectedTableCell?.elementId === element.id
                       && selectedTableCells.length === 1,
                   }),
-                  overflow: getElementSlotOverflow(element, {
-                    isSelected,
-                    isEditing,
-                    isShapeCropMode,
-                  }),
+                  overflow: isDivider
+                    ? 'visible'
+                    : getElementSlotOverflow(element, {
+                        isSelected,
+                        isEditing,
+                        isShapeCropMode,
+                      }),
                   pointerEvents: getElementPointerEvents(element, {
                     isSelected,
                     isReferenceBg,
@@ -1290,7 +1341,42 @@ export function BuilderCanvas() {
             isSingleSelection &&
             supportsElementRotation(selectedElement.type) &&
             shapeCropElementId !== selectedElement.id &&
-            editingElementId !== selectedElement.id && (
+            editingElementId !== selectedElement.id &&
+            (isDividerElementType(selectedElement.type) ? (
+              <DividerRotationOverlay
+                x={selectedElement.x}
+                y={selectedElement.y}
+                width={selectedElement.width}
+                height={selectedElement.height}
+                rotation={getElementRotation(selectedElement.props as Record<string, unknown>)}
+                zoom={zoom}
+                overlayRef={overlayRef}
+                onRotate={(nextRotation, recordHistory) => {
+                  const p = (selectedElement.props ?? {}) as Record<string, unknown>;
+                  dispatch(
+                    updateElement({
+                      id: selectedElement.id,
+                      changes: { props: { ...p, rotation: nextRotation } },
+                      recordHistory: !!recordHistory,
+                    })
+                  );
+                }}
+                onBoundsChange={(bounds, recordHistory) => {
+                  dispatch(
+                    updateElement({
+                      id: selectedElement.id,
+                      changes: {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: bounds.height,
+                      },
+                      recordHistory: !!recordHistory,
+                    })
+                  );
+                }}
+              />
+            ) : (
               <ElementRotationOverlay
                 x={selectedElement.x}
                 y={selectedElement.y}
@@ -1329,7 +1415,7 @@ export function BuilderCanvas() {
                   );
                 }}
               />
-            )}
+            ))}
           </div>
         </div>
       </div>

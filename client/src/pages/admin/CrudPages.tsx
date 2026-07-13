@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/api/client';
@@ -17,6 +17,10 @@ function CrudPage({
   fields,
   title,
   extraRowActions,
+  listQueryParams,
+  sortRows,
+  paginated = false,
+  pageSize = 10,
 }: {
   endpoint: string;
   queryKey: string;
@@ -24,18 +28,42 @@ function CrudPage({
   fields: { name: string; label: string; type?: string; fieldKind?: FieldKind; suggest?: boolean }[];
   title: string;
   extraRowActions?: (row: Record<string, unknown>) => ReactNode;
+  listQueryParams?: Record<string, string | number>;
+  sortRows?: (rows: Record<string, unknown>[]) => Record<string, unknown>[];
+  paginated?: boolean;
+  pageSize?: number;
 }) {
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
 
+  const queryParams = useMemo(() => {
+    if (!paginated && !listQueryParams) return undefined;
+    return {
+      ...listQueryParams,
+      ...(paginated ? { page, limit: pageSize } : {}),
+    };
+  }, [listQueryParams, paginated, page, pageSize]);
+
   const { data, isLoading } = useQuery({
-    queryKey: [queryKey],
-    queryFn: async () => (await api.get(endpoint)).data,
+    queryKey: [queryKey, queryParams],
+    queryFn: async () => (await api.get(endpoint, { params: queryParams })).data,
   });
 
-  const rows: Record<string, unknown>[] = data?.data || [];
+  const meta = data?.meta as { page: number; totalPages: number } | undefined;
+
+  useEffect(() => {
+    if (paginated && meta && page > meta.totalPages && meta.totalPages > 0) {
+      setPage(meta.totalPages);
+    }
+  }, [paginated, meta, page]);
+
+  const rows: Record<string, unknown>[] = useMemo(() => {
+    const raw: Record<string, unknown>[] = data?.data || [];
+    return sortRows ? sortRows(raw) : raw;
+  }, [data, sortRows]);
 
   const suggestionsFor = (name: string): string[] =>
     Array.from(
@@ -183,6 +211,11 @@ function CrudPage({
         ]}
         data={rows}
         keyField="_id"
+        pagination={
+          paginated && meta && meta.totalPages > 1
+            ? { page, totalPages: meta.totalPages, onPageChange: setPage }
+            : undefined
+        }
       />
     </div>
   );
@@ -270,6 +303,9 @@ export function ProductsCrud({
     <CrudPage
       endpoint={endpoint}
       queryKey={queryKey}
+      paginated
+      pageSize={10}
+      listQueryParams={{ naturalOrder: 'true' }}
       title="Product"
       fields={[
         { name: 'name', label: 'Name' },

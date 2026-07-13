@@ -6,6 +6,11 @@ import {
 } from '@/features/template-gallery/placeholder-utils';
 import { parseAddressFromProps, buildAddressProps } from '@/features/builder/address-content';
 import { buildTermsProps, DEFAULT_TERMS_TITLE } from '@/features/builder/terms-content';
+import {
+  formatIsoDate,
+  isDateFieldComponentType,
+  toDisplayDateValue,
+} from '@/lib/date-format';
 
 const DATA_FIELD_KEYS: Partial<Record<ComponentType, keyof PlaceholderContext | string>> = {
   [ComponentType.INVOICE_NUMBER]: 'InvoiceNumber',
@@ -143,6 +148,10 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
   }
   if (value == null || value === '') return element;
 
+  if (isDateFieldComponentType(element.type)) {
+    value = toDisplayDateValue(value);
+  }
+
   const nextProps: Record<string, unknown> = { ...(element.props ?? {}), value };
   // Drop stale rich-text runs so preview can't stack old + new date strings.
   if ('textRuns' in nextProps) delete nextProps.textRuns;
@@ -200,18 +209,10 @@ export function buildInitialFormContext(
   placeholderKeys: string[],
   company?: CompanyDefaults
 ): PlaceholderContext {
-  const today = new Date().toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const today = formatIsoDate();
   const due = new Date();
   due.setDate(due.getDate() + 15);
-  const dueDate = due.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const dueDate = formatIsoDate(due);
 
   const companyAddress = formatCompanyAddress(company?.address);
 

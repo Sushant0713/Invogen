@@ -372,7 +372,7 @@ export function getElementSlotOverflow(
 ): 'visible' | 'hidden' {
   const { isSelected = false, isEditing = false, isShapeCropMode = false } = options;
   const elementProps = (element.props ?? {}) as Record<string, unknown>;
-  const elementRotation = getElementRotation(element.type, elementProps);
+  const elementRotation = getElementRotation(elementProps);
   const isTable = isTableElementType(element.type);
   const isImage = isImageComponentType(element.type);
 

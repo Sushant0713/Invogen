@@ -8,24 +8,31 @@ import {
 import {
   isInvoiceTable1Type,
   INVOICE_COL_RATE,
+  INVOICE_COL_DISCOUNT,
+  isInvoiceColumnVisible,
   updateInvoiceCell,
   type InvoiceTableProps,
+  type InvoiceDiscountMode,
 } from './invoice-table';
 import {
   isInvoiceTable2Type,
   resolveInvoice2RateColumnId,
   applyInvoice2CellEdits,
+  INVOICE2_COL_DISCOUNT,
+  isInvoice2ColumnVisible,
   type InvoiceTable2Props,
 } from './invoice-table-2';
 import {
   isInvoiceTable3Type,
   INVOICE3_COL_RATE,
+  INVOICE3_COL_DISCOUNT,
+  isInvoice3ColumnVisible,
   updateInvoice3Cell,
   type InvoiceTable3Props,
 } from './invoice-table-3';
 import { EMPTY_TAX_SETTINGS, type TaxSettings } from './tax-settings';
 
-export type ProductPick = Pick<CompanyProductOption, 'name' | 'sku' | 'price'>;
+export type ProductPick = Pick<CompanyProductOption, 'name' | 'sku' | 'price' | 'discount'>;
 
 /** Display value stored in the product column when SKU toggle is on. */
 export function formatProductCellValue(
@@ -42,6 +49,42 @@ export function formatProductPrice(price?: number): string {
   if (price == null || !Number.isFinite(price)) return '';
   const rounded = Math.round(price * 100) / 100;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+function resolveTableDiscountMode(table: ProductTableProps): InvoiceDiscountMode {
+  const mode = (table as { discountMode?: string }).discountMode;
+  return mode === 'percent' ? 'percent' : 'amount';
+}
+
+export function formatProductDiscount(
+  product: Pick<ProductPick, 'discount' | 'price'>,
+  discountMode: InvoiceDiscountMode
+): string {
+  const percent = product.discount ?? 0;
+  if (!percent || percent <= 0) return '0';
+  if (discountMode === 'percent') {
+    return String(percent);
+  }
+  const price = product.price ?? 0;
+  if (!price) return '0';
+  const amount = Math.round((price * percent) / 100 * 100) / 100;
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+export function resolveTableDiscountColumnId(
+  tableType: string,
+  columns: ProductTableColumn[]
+): string | null {
+  if (isInvoiceTable1Type(tableType)) {
+    return isInvoiceColumnVisible(columns, INVOICE_COL_DISCOUNT) ? INVOICE_COL_DISCOUNT : null;
+  }
+  if (isInvoiceTable2Type(tableType)) {
+    return isInvoice2ColumnVisible(columns, INVOICE2_COL_DISCOUNT) ? INVOICE2_COL_DISCOUNT : null;
+  }
+  if (isInvoiceTable3Type(tableType)) {
+    return isInvoice3ColumnVisible(columns, INVOICE3_COL_DISCOUNT) ? INVOICE3_COL_DISCOUNT : null;
+  }
+  return null;
 }
 
 export function tableHasProductColumn(
@@ -85,11 +128,17 @@ export function applyProductPickToTable(
   const productValue = formatProductCellValue(product, showSku);
   const rateColId = resolveTableRateColumnId(tableType, table.columns, row?.cells);
   const rateValue = formatProductPrice(product.price);
+  const discountColId = resolveTableDiscountColumnId(tableType, table.columns);
+  const discountMode = resolveTableDiscountMode(table);
+  const discountValue = discountColId ? formatProductDiscount(product, discountMode) : null;
 
   if (isInvoiceTable2Type(tableType)) {
     const edits = [{ rowId, columnId: productColumnId, value: productValue }];
     if (rateColId && rateValue) {
       edits.push({ rowId, columnId: rateColId, value: rateValue });
+    }
+    if (discountColId && discountValue != null) {
+      edits.push({ rowId, columnId: discountColId, value: discountValue });
     }
     return applyInvoice2CellEdits(table as InvoiceTable2Props, edits, tax);
   }
@@ -105,6 +154,9 @@ export function applyProductPickToTable(
     if (rateColId && rateValue) {
       next = updateInvoiceCell(next, rowId, rateColId, rateValue, tax);
     }
+    if (discountColId && discountValue != null) {
+      next = updateInvoiceCell(next, rowId, discountColId, discountValue, tax);
+    }
     return next;
   }
 
@@ -118,6 +170,9 @@ export function applyProductPickToTable(
     );
     if (rateColId && rateValue) {
       next = updateInvoice3Cell(next, rowId, rateColId, rateValue, tax);
+    }
+    if (discountColId && discountValue != null) {
+      next = updateInvoice3Cell(next, rowId, discountColId, discountValue, tax);
     }
     return next;
   }

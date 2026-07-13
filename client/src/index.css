@@ -59,6 +59,14 @@
   outline: none;
 }
 
+.builder-canvas .builder-rnd-selected.builder-rnd-divider {
+  overflow: visible;
+}
+
+.builder-canvas .builder-rnd-selected.builder-rnd-divider .builder-element-rotate {
+  overflow: visible;
+}
+
 .builder-canvas .builder-rnd-selected.builder-rnd-rotated {
   outline: none;
 }
