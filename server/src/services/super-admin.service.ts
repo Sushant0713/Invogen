@@ -45,6 +45,7 @@ import { superAdminGstReportService } from './super-admin-gst-report.service';
 import { superAdminClientsReportService } from './super-admin-clients-report.service';
 import { superAdminPlansReportService } from './super-admin-plans-report.service';
 import { superAdminOutstandingReportService } from './super-admin-outstanding-report.service';
+import { superAdminAdminReportService } from './super-admin-admin-report.service';
 
 export const SUPER_ADMIN_TEMPLATE_CATEGORY = 'Super Admin';
 const LEGACY_SUPER_ADMIN_TEMPLATE_CATEGORY = '__super_admin__';
@@ -982,6 +983,8 @@ export const superAdminService = {
         return superAdminPlansReportService.getPlansReport(query);
       case 'outstanding':
         return superAdminOutstandingReportService.getOutstandingReport(query);
+      case 'admin':
+        return superAdminAdminReportService.getAdminInvoicesReport(query);
       default:
         throw new AppError('Report type not found', 404);
     }

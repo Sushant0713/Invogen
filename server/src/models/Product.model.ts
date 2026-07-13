@@ -13,6 +13,7 @@ export interface IProduct extends Document {
   barcode?: string;
   price: number;
   discount: number;
+  discountType: 'percentage' | 'fixed';
   tax: number;
   stock: number;
   images: string[];
@@ -33,6 +34,7 @@ const productSchema = new Schema<IProduct>(
     barcode: String,
     price: { type: Number, required: true },
     discount: { type: Number, default: 0 },
+    discountType: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
     tax: { type: Number, default: 18 },
     stock: { type: Number, default: 0 },
     images: [String],

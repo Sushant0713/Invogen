@@ -35,6 +35,15 @@ const isAuthEndpoint = (url?: string) =>
     url.includes('/auth/agreements') ||
     url.includes('/auth/branding'));
 
+/** Public share links — must work without a logged-in session. */
+const isPublicEndpoint = (url?: string) => !!url && url.includes('/public/');
+
+const isPublicAppPath = () => {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname;
+  return path.startsWith('/view/invoice') || path.startsWith('/platform-invoice');
+};
+
 const isAppAuthFailure = (error: AxiosError) => {
   const message = String(
     (error.response?.data as { message?: string } | undefined)?.message || ''
@@ -119,7 +128,9 @@ api.interceptors.request.use(async (config) => {
     }
   }
 
-  if (isAuthEndpoint(config.url)) return config;
+  if (isAuthEndpoint(config.url) || isPublicEndpoint(config.url)) return config;
+
+  if (isPublicAppPath()) return config;
 
   try {
     const token = await ensureValidAccessToken();
@@ -179,8 +190,13 @@ api.interceptors.response.use(
       !originalRequest ||
       originalRequest._retry ||
       isAuthEndpoint(originalRequest.url) ||
+      isPublicEndpoint(originalRequest.url) ||
       !isAppAuthFailure(error)
     ) {
+      return Promise.reject(error);
+    }
+
+    if (isPublicAppPath()) {
       return Promise.reject(error);
     }
 

@@ -15,6 +15,7 @@ import { formatDiscountDate } from '@invogen/shared';
 import {
   type ProductDiscountRecord,
   type ApplyScope,
+  type DiscountType,
   selectClass,
   getStatusSnapshot,
   LifecycleStatusBadge,
@@ -33,11 +34,13 @@ interface ProductOption {
   price?: number;
   category?: string;
   discount?: number;
+  discountType?: DiscountType;
 }
 
 const emptyForm = () => ({
   name: '',
   description: '',
+  discountType: 'percentage' as DiscountType,
   value: '',
   applyScope: 'all' as ApplyScope,
   productIds: [] as string[],
@@ -147,6 +150,7 @@ export default function AdminDiscountRulesPage() {
     setForm({
       name: discount.name,
       description: discount.description || '',
+      discountType: discount.discountType || 'percentage',
       value: String(discount.value),
       applyScope: discount.applyScope,
       productIds,
@@ -165,7 +169,7 @@ export default function AdminDiscountRulesPage() {
     saveMutation.mutate({
       name: form.name.trim(),
       description: form.description.trim() || undefined,
-      discountType: 'percentage',
+      discountType: form.discountType,
       value: Number(form.value),
       applyScope: form.applyScope,
       productIds: form.applyScope === 'products' ? form.productIds : [],
@@ -232,12 +236,32 @@ export default function AdminDiscountRulesPage() {
         <Card>
           <h3 className="font-semibold mb-1">{editingId ? 'Edit discount' : 'New direct discount'}</h3>
           <p className="text-sm text-gray-500 mb-4">
-            The discount percentage is saved on each matching product in your catalog.
+            The discount is saved on each matching product in your catalog and applied when picked on invoices.
           </p>
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid md:grid-cols-2 gap-4">
               <Input label="Discount name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-              <Input label="Discount percentage (%)" type="number" min="0" max="100" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} required />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Discount type</label>
+                <select
+                  className={selectClass}
+                  value={form.discountType}
+                  onChange={(e) => setForm({ ...form, discountType: e.target.value as DiscountType })}
+                >
+                  <option value="percentage">Percentage (%)</option>
+                  <option value="fixed">Fixed amount (₹)</option>
+                </select>
+              </div>
+              <Input
+                label={form.discountType === 'percentage' ? 'Discount percentage (%)' : 'Discount amount (₹)'}
+                type="number"
+                min="0"
+                max={form.discountType === 'percentage' ? '100' : undefined}
+                step={form.discountType === 'percentage' ? '0.01' : '0.01'}
+                value={form.value}
+                onChange={(e) => setForm({ ...form, value: e.target.value })}
+                required
+              />
               <Input label="Description" className="md:col-span-2" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Apply to</label>

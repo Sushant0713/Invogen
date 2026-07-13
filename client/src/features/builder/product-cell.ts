@@ -32,7 +32,7 @@ import {
 } from './invoice-table-3';
 import { EMPTY_TAX_SETTINGS, type TaxSettings } from './tax-settings';
 
-export type ProductPick = Pick<CompanyProductOption, 'name' | 'sku' | 'price' | 'discount'>;
+export type ProductPick = Pick<CompanyProductOption, 'name' | 'sku' | 'price' | 'discount' | 'discountType'>;
 
 /** Display value stored in the product column when SKU toggle is on. */
 export function formatProductCellValue(
@@ -57,17 +57,30 @@ function resolveTableDiscountMode(table: ProductTableProps): InvoiceDiscountMode
 }
 
 export function formatProductDiscount(
-  product: Pick<ProductPick, 'discount' | 'price'>,
+  product: Pick<ProductPick, 'discount' | 'price' | 'discountType'>,
   discountMode: InvoiceDiscountMode
 ): string {
-  const percent = product.discount ?? 0;
-  if (!percent || percent <= 0) return '0';
+  const value = product.discount ?? 0;
+  if (!value || value <= 0) return '0';
+
+  const catalogType = product.discountType === 'fixed' ? 'fixed' : 'percentage';
+
   if (discountMode === 'percent') {
-    return String(percent);
+    if (catalogType === 'percentage') return String(value);
+    const price = product.price ?? 0;
+    if (!price) return '0';
+    const percent = Math.round((value / price) * 100 * 100) / 100;
+    return Number.isInteger(percent) ? String(percent) : percent.toFixed(2);
   }
+
+  if (catalogType === 'fixed') {
+    const amount = Math.round(value * 100) / 100;
+    return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  }
+
   const price = product.price ?? 0;
   if (!price) return '0';
-  const amount = Math.round((price * percent) / 100 * 100) / 100;
+  const amount = Math.round((price * value) / 100 * 100) / 100;
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
 

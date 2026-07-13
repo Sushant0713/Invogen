@@ -1,4 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api/client';
 import { DataTable } from '@/components/ui/DataTable';
@@ -11,17 +12,36 @@ import { InvoiceRowActions } from '@/features/invoice-composer/InvoiceRowActions
 import { InvoiceListStatusToggle } from '@/features/invoice-composer/InvoiceListStatusToggle';
 import { resolveInvoiceTotal } from '@/features/invoice-composer/invoice-totals';
 
+const PAGE_SIZE = 10;
+
 export default function AdminInvoices() {
   const [searchParams, setSearchParams] = useSearchParams();
   const customerId = searchParams.get('customerId') ?? undefined;
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [customerId]);
+
+  const listQueryKey = ['admin-invoices', customerId, page] as const;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-invoices', customerId],
+    queryKey: listQueryKey,
     queryFn: async () =>
-      (await api.get('/admin/invoices', { params: customerId ? { customerId } : undefined })).data,
+      (
+        await api.get('/admin/invoices', {
+          params: {
+            page,
+            limit: PAGE_SIZE,
+            ...(customerId ? { customerId } : {}),
+          },
+        })
+      ).data,
   });
+
   if (isLoading) return <Loader />;
-  const listQueryKey = ['admin-invoices', customerId] as const;
+
+  const meta = data?.meta as { page: number; totalPages: number; total: number } | undefined;
 
   return (
     <div className="space-y-4">
@@ -120,6 +140,15 @@ export default function AdminInvoices() {
         ]}
         data={data?.data || []}
         keyField="_id"
+        pagination={
+          meta && meta.totalPages > 1
+            ? {
+                page: meta.page,
+                totalPages: meta.totalPages,
+                onPageChange: setPage,
+              }
+            : undefined
+        }
       />
     </div>
   );

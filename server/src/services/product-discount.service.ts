@@ -64,7 +64,7 @@ async function syncDirectDiscountToProducts(
   if (resetIds.length) {
     await Product.updateMany(
       { companyId, _id: { $in: resetIds } },
-      { $set: { discount: 0 } }
+      { $set: { discount: 0, discountType: 'percentage' } }
     );
   }
 
@@ -76,12 +76,17 @@ async function syncDirectDiscountToProducts(
     discount.category
   );
 
-  if (!live || discount.discountType !== 'percentage') {
-    await Product.updateMany(filter, { $set: { discount: 0 } });
+  if (!live) {
+    await Product.updateMany(filter, { $set: { discount: 0, discountType: 'percentage' } });
     return;
   }
 
-  await Product.updateMany(filter, { $set: { discount: discount.value } });
+  await Product.updateMany(filter, {
+    $set: {
+      discount: discount.value,
+      discountType: discount.discountType === 'fixed' ? 'fixed' : 'percentage',
+    },
+  });
 }
 
 function attachStatus<T extends DiscountStatusInput>(discount: T) {
@@ -109,10 +114,6 @@ function validatePayload(data: Record<string, unknown>, kind: ProductDiscountKin
   if (kind === 'direct' && data.applyScope === 'category' && !data.category) {
     throw new AppError('Category is required for category-based discount', 400);
   }
-
-  if (kind === 'direct' && data.discountType === 'fixed') {
-    throw new AppError('Direct product discounts support percentage only (synced to product catalog)', 400);
-  }
 }
 
 function normalizePayload(data: Record<string, unknown>, kind: ProductDiscountKind) {
@@ -124,7 +125,7 @@ function normalizePayload(data: Record<string, unknown>, kind: ProductDiscountKi
   }
 
   if (kind === 'direct') {
-    payload.discountType = 'percentage';
+    payload.discountType = data.discountType === 'fixed' ? 'fixed' : 'percentage';
     payload.applyScope = data.applyScope || 'all';
     payload.productIds = Array.isArray(data.productIds)
       ? data.productIds.filter(Boolean)
@@ -205,7 +206,7 @@ export const productDiscountService = {
   async getProductsForCompany(companyId: string) {
     if (!companyId) throw new AppError('Company is required', 400);
     return Product.find({ companyId })
-      .select('name sku price category discount')
+      .select('name sku price category discount discountType')
       .collation({ locale: 'en', numericOrdering: true })
       .sort({ name: 1 })
       .limit(500)

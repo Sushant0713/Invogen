@@ -6,12 +6,10 @@ import {
   Calendar,
   FileText,
   IndianRupee,
-  Printer,
   ShieldCheck,
 } from 'lucide-react';
 import type { TemplatePage } from '@invogen/shared';
 import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
 import { fetchPublicInvoiceView } from '@/features/invoice-composer/invoice-share';
 import { InvoiceViewer } from '@/features/invoice-composer/InvoiceViewer';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -138,10 +136,6 @@ export default function PublicInvoiceViewPage() {
                 <Badge variant={statusVariant(data.status)} className="px-3 py-1 text-xs">
                   {formatStatusLabel(data.status)}
                 </Badge>
-                <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
-                  <Printer className="h-4 w-4" />
-                  Print / Save PDF
-                </Button>
               </div>
             </div>
           </div>
@@ -201,7 +195,7 @@ export default function PublicInvoiceViewPage() {
       </section>
 
       <footer className="mt-6 text-center text-xs text-gray-500 print:hidden">
-        <p>Shared securely · Open on any device · Use Print to save as PDF</p>
+        <p>Shared securely · Open on any device</p>
       </footer>
     </PublicViewShell>
   );

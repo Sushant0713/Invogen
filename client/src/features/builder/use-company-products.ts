@@ -13,6 +13,7 @@ export type CompanyProductOption = {
   sku?: string;
   price?: number;
   discount?: number;
+  discountType?: 'percentage' | 'fixed';
   category?: string;
 };
 
@@ -31,6 +32,10 @@ function extractProducts(payload: unknown): CompanyProductOption[] {
           sku: typeof row.sku === 'string' ? row.sku : undefined,
           price: typeof row.price === 'number' ? row.price : undefined,
           discount: typeof row.discount === 'number' ? row.discount : undefined,
+          discountType:
+            row.discountType === 'fixed' || row.discountType === 'percentage'
+              ? row.discountType
+              : undefined,
           category: typeof row.category === 'string' ? row.category : undefined,
         } satisfies CompanyProductOption;
       })

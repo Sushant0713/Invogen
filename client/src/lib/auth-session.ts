@@ -28,6 +28,13 @@ export function isAccessTokenExpired(token: string, bufferSeconds = 30): boolean
 }
 
 export function redirectToLogin(expired = false) {
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname;
+    if (path.startsWith('/view/invoice') || path.startsWith('/platform-invoice')) {
+      return;
+    }
+  }
+
   const loginPath = getLoginPathForPathname(window.location.pathname);
   const returnTo = encodeURIComponent(
     window.location.pathname + window.location.search + window.location.hash

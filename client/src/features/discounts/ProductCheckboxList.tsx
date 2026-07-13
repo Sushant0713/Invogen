@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Button } from '@/components/ui/Button';
+import { formatCurrency } from '@/lib/utils';
 
 export interface ProductCheckboxItem {
   _id: string;
@@ -7,6 +8,15 @@ export interface ProductCheckboxItem {
   sku?: string;
   price?: number;
   discount?: number;
+  discountType?: 'percentage' | 'fixed';
+}
+
+function formatCatalogDiscount(product: ProductCheckboxItem): string | null {
+  if (!product.discount || product.discount <= 0) return null;
+  if (product.discountType === 'fixed') {
+    return `${formatCurrency(product.discount)} off`;
+  }
+  return `${product.discount}% off`;
 }
 
 function sortProductsNaturally(products: ProductCheckboxItem[]) {
@@ -67,6 +77,7 @@ export function ProductCheckboxList({
         ) : (
           sorted.map((product) => {
             const checked = selectedSet.has(product._id);
+            const discountLabel = formatCatalogDiscount(product);
             return (
               <label
                 key={product._id}
@@ -86,8 +97,8 @@ export function ProductCheckboxList({
                     <span className="text-gray-500"> ({product.sku})</span>
                   ) : null}
                   <span className="text-gray-500"> — ₹{product.price ?? 0}</span>
-                  {product.discount ? (
-                    <span className="ml-1 text-xs text-green-700">· {product.discount}% off</span>
+                  {discountLabel ? (
+                    <span className="ml-1 text-xs text-green-700">· {discountLabel}</span>
                   ) : null}
                 </span>
               </label>
