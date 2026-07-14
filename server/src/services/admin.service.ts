@@ -506,7 +506,13 @@ export const adminService = {
       typeof (row as { toObject?: () => Record<string, unknown> }).toObject === 'function'
         ? (row as { toObject: () => Record<string, unknown> }).toObject()
         : (row as unknown as Record<string, unknown>)
-    );
+    ) as Array<{
+      _id: unknown;
+      category?: string | null;
+      discount?: number;
+      discountType?: string;
+      [key: string]: unknown;
+    }>;
     const data = await productDiscountService.applyLiveDirectDiscountsToProducts(companyId, plain);
     return { data, meta: buildMeta(page, limit, total) };
   },
