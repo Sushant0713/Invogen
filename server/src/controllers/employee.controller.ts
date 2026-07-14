@@ -16,6 +16,9 @@ export const getTemplates = wrap((req) => employeeService.getTemplates(req.compa
 export const createTemplate = wrap((req) =>
   employeeService.createTemplate(req.companyId!, req.user!.userId, req.body)
 );
+export const duplicateTemplate = wrap((req) =>
+  employeeService.duplicateTemplate(req.companyId!, req.user!.userId, param(req.params.id), req.body)
+);
 export const updateTemplate = wrap((req) =>
   employeeService.updateTemplate(req.companyId!, param(req.params.id), req.body)
 );

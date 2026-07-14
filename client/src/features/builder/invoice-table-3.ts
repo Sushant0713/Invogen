@@ -32,7 +32,7 @@ import {
   allowsEmptyPaginationSegmentRows,
 } from './product-table';
 import { type InvoiceDiscountMode } from './invoice-table';
-import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate } from './tax-settings';
+import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate, resolveLineTaxSettings } from './tax-settings';
 import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceTable3Props = ProductTableProps & {
@@ -185,6 +185,25 @@ function normalizeColumns(
 
   if (flexible.length === 0) {
     flexible.push(...DEFAULT_FLEX_COLUMNS.map((col, index) => migrateColumn(col, index)));
+  } else {
+    for (const def of DEFAULT_FLEX_COLUMNS) {
+      if (flexible.some((col) => col.id === def.id)) continue;
+      if (def.id === INVOICE3_COL_RATE) {
+        const hasRateLabel = flexible.some((col) => {
+          const norm = (col.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return /^rate$|unitprice|price|mrp/.test(norm) || norm.includes('rate');
+        });
+        if (hasRateLabel) continue;
+      }
+      if (def.id === INVOICE3_COL_QTY) {
+        const hasQtyLabel = flexible.some((col) => {
+          const norm = (col.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return /quant|qty|quantity/.test(norm);
+        });
+        if (hasQtyLabel) continue;
+      }
+      flexible.push(migrateColumn(def, flexible.length));
+    }
   }
 
   const fixed = getFixedColumnDefs(discountMode, tax).map((def) => {
@@ -287,14 +306,15 @@ export function calculateInvoice3LineAmounts(
   const subtotal = qty * rate;
   const discountAmount = computeDiscountAmount(subtotal, discountInput, discountMode, columns);
   const taxable = Math.max(0, roundAmount(subtotal - discountAmount));
+  const lineTax = resolveLineTaxSettings(cells, tax);
 
   let gst = 0;
   let igst = 0;
-  if (tax.isEnabled && isInvoice3ColumnVisible(columns, INVOICE3_COL_GST)) {
-    if (tax.taxDisplayMode === 'igst') {
-      igst = roundAmount((taxable * getIgstRate(tax)) / 100);
+  if (lineTax.isEnabled && isInvoice3ColumnVisible(columns, INVOICE3_COL_GST)) {
+    if (lineTax.taxDisplayMode === 'igst') {
+      igst = roundAmount((taxable * getIgstRate(lineTax)) / 100);
     } else {
-      gst = roundAmount((taxable * getCombinedGstRate(tax)) / 100);
+      gst = roundAmount((taxable * getCombinedGstRate(lineTax)) / 100);
     }
   }
 
@@ -399,6 +419,10 @@ function normalizeRows(
   const emptyCells = buildEmptyRowCells(columns);
   const normalized = source.map((row, index) => {
     const cells: Record<string, string> = { ...emptyCells };
+    // Keep product-pick metadata (e.g. __productGstRate) so GST survives normalize.
+    Object.entries(row.cells ?? {}).forEach(([key, value]) => {
+      if (key.startsWith('__')) cells[key] = String(value ?? '');
+    });
     columns.forEach((col) => {
       const raw = row.cells?.[col.id];
       if (raw !== undefined && raw !== null) {

@@ -160,7 +160,60 @@ export interface ProductCouponContext {
   category?: string;
 }
 
+function ruleAppliesToProduct(
+  rule: Pick<IProductDiscount, 'applyScope' | 'productIds' | 'category'>,
+  product: { _id: unknown; category?: string | null }
+): boolean {
+  if (rule.applyScope === 'all') return true;
+  if (rule.applyScope === 'category') {
+    const productCategory = typeof product.category === 'string' ? product.category.trim().toLowerCase() : '';
+    const ruleCategory = typeof rule.category === 'string' ? rule.category.trim().toLowerCase() : '';
+    return !!productCategory && !!ruleCategory && productCategory === ruleCategory;
+  }
+  if (rule.applyScope === 'products') {
+    const productId = String(product._id);
+    return (rule.productIds || []).some((id) => String(id) === productId);
+  }
+  return false;
+}
+
 export const productDiscountService = {
+  /**
+   * Overlay live direct discount rules onto catalog products.
+   * Source of truth for invoice pick is active rules (not only denormalized product.discount).
+   */
+  async applyLiveDirectDiscountsToProducts<
+    T extends { _id: unknown; category?: string | null; discount?: number; discountType?: string }
+  >(companyId: string, products: T[]): Promise<T[]> {
+    if (!companyId || products.length === 0) return products;
+
+    const rules = await ProductDiscount.find({
+      companyId: new mongoose.Types.ObjectId(companyId),
+      kind: 'direct',
+      isActive: true,
+    })
+      .sort({ priority: -1, updatedAt: -1 })
+      .lean();
+
+    const live = rules.filter((rule) => isDiscountLive(rule));
+
+    return products.map((product) => {
+      const winning = live.find((rule) => ruleAppliesToProduct(rule, product));
+      if (!winning) {
+        return {
+          ...product,
+          discount: 0,
+          discountType: 'percentage',
+        };
+      }
+      return {
+        ...product,
+        discount: winning.value,
+        discountType: winning.discountType === 'fixed' ? 'fixed' : 'percentage',
+      };
+    });
+  },
+
   async list(query: Record<string, unknown>, companyId?: string) {
     const kind = query.kind as ProductDiscountKind | undefined;
     const { page, limit, skip } = getPagination(query.page as number, query.limit as number);
@@ -205,12 +258,13 @@ export const productDiscountService = {
 
   async getProductsForCompany(companyId: string) {
     if (!companyId) throw new AppError('Company is required', 400);
-    return Product.find({ companyId })
+    const products = await Product.find({ companyId })
       .select('name sku price category discount discountType')
       .collation({ locale: 'en', numericOrdering: true })
       .sort({ name: 1 })
       .limit(500)
       .lean();
+    return productDiscountService.applyLiveDirectDiscountsToProducts(companyId, products);
   },
 
   async create(data: Record<string, unknown>, companyId?: string) {

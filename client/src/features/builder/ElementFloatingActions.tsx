@@ -1,6 +1,7 @@
 import { useId, useState, type MouseEvent, type ReactNode } from 'react';
-import { CopyPlus, Crop, Lock, LockOpen, Move, TextCursor, Trash2 } from 'lucide-react';
+import { CopyPlus, Copy, Crop, Lock, LockOpen, Move, TextCursor, Trash2 } from 'lucide-react';
 import type { CanvasElement } from '@invogen/shared';
+import { toast } from 'sonner';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import {
   duplicateElement,
@@ -10,6 +11,7 @@ import {
   setImageCropMode,
   setShapeCropMode,
 } from '@/store/slices/builderSlice';
+import { writeBuilderClipboard } from './builder-clipboard';
 import { isShapeComponentType } from './shape-components';
 import { isTableElementType } from './product-table';
 import { isImageComponentType } from './image-components';
@@ -157,7 +159,17 @@ export function ElementFloatingActions({
           )}
 
           <FloatingIconButton
-            title="Duplicate"
+            title="Copy (Ctrl+C) — paste in another template with Ctrl+V"
+            onClick={() => {
+              writeBuilderClipboard([element]);
+              toast.success('Component copied');
+            }}
+          >
+            <Copy className="h-4 w-4" />
+          </FloatingIconButton>
+
+          <FloatingIconButton
+            title="Duplicate on this page"
             onClick={() => dispatch(duplicateElement(element.id))}
           >
             <CopyPlus className="h-4 w-4" />

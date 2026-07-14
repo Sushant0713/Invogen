@@ -3,12 +3,13 @@ import type { CSSProperties } from 'react';
 import type { TextRunProps } from '@/features/builder/text-styles';
 import { getRunStyle } from '@/features/builder/text-styles';
 import { parseRunsFromEditor, runMetaJson, runsToPlainContent } from '@/features/builder/rich-text-utils';
+import { applyStylePatchToActiveSelection, getActiveSelectionStylePreview } from '@/features/builder/rich-text-formatting';
 
 interface RichTextRunsEditorProps {
   runs: TextRunProps[];
   baseStyle: CSSProperties;
   pendingEditChar?: string | null;
-  onChange?: (plain: string) => void;
+  onChange?: (plain: string, textRuns: TextRunProps[]) => void;
   onCommit?: (payload: { content: string; text: string; textRuns: TextRunProps[] }) => void;
   onPendingEditCharConsumed?: () => void;
 }
@@ -31,7 +32,7 @@ export function RichTextRunsEditor({
     const root = editorRef.current;
     root.innerHTML = '';
 
-    const initialRuns = runs;
+    const initialRuns = runs.length > 0 ? runs : [{ text: '' }];
     for (let i = 0; i < initialRuns.length; i += 1) {
       const run = initialRuns[i];
       const text =
@@ -60,7 +61,9 @@ export function RichTextRunsEditor({
     }
 
     if (pendingEditChar) {
-      onChange?.(runsToPlainContent(initialRuns) + pendingEditChar);
+      const plain = runsToPlainContent(initialRuns) + pendingEditChar;
+      const nextRuns = parseRunsFromEditor(root, initialRuns);
+      onChange?.(plain, nextRuns);
       onPendingEditCharConsumed?.();
     }
 
@@ -76,9 +79,11 @@ export function RichTextRunsEditor({
 
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-  const handleInput = () => {
+  const emitChange = () => {
     if (!editorRef.current) return;
-    onChange?.(editorRef.current.textContent ?? '');
+    const textRuns = parseRunsFromEditor(editorRef.current, runs);
+    const content = runsToPlainContent(textRuns);
+    onChange?.(content, textRuns);
   };
 
   const handleBlur = () => {
@@ -91,7 +96,7 @@ export function RichTextRunsEditor({
   return (
     <div
       ref={editorRef}
-      className="builder-text-editor h-full w-full"
+      className="builder-text-editor w-full"
       contentEditable
       suppressContentEditableWarning
       style={{
@@ -102,17 +107,36 @@ export function RichTextRunsEditor({
         minHeight: '1em',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
+        overflow: 'visible',
       }}
       onMouseDown={stop}
       onPointerDown={stop}
       onClick={stop}
-      onInput={handleInput}
+      onInput={emitChange}
       onBlur={handleBlur}
       onKeyDown={(e) => {
         e.stopPropagation();
         if (e.key === 'Escape') {
           e.preventDefault();
           e.currentTarget.blur();
+          return;
+        }
+        const mod = e.ctrlKey || e.metaKey;
+        if (!mod) return;
+        const key = e.key.toLowerCase();
+        if (key === 'b' || key === 'i' || key === 'u') {
+          e.preventDefault();
+          if (!window.getSelection()?.toString()) return;
+          const current = getActiveSelectionStylePreview() ?? {};
+          if (key === 'b') {
+            const isBold = (current.fontWeight ?? 400) >= 600;
+            applyStylePatchToActiveSelection({ fontWeight: isBold ? 400 : 700 });
+          } else if (key === 'i') {
+            applyStylePatchToActiveSelection({ italic: !current.italic });
+          } else {
+            applyStylePatchToActiveSelection({ underline: !current.underline });
+          }
+          emitChange();
         }
       }}
     />

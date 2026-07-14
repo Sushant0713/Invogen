@@ -12,7 +12,11 @@ import {
   resolvePaginationTableId,
   isTableContinuationSegment,
   collectConnectedTableElementIds,
+  PREVIEW_PAGINATION_ROWS_KEY,
 } from '@/features/builder/product-table';
+import {
+  sanitizeClipboardElementForPaste,
+} from '@/features/builder/builder-clipboard';
 import {
   clampTableElementToPage,
   fitTableHeightsPreservingWidths,
@@ -32,6 +36,10 @@ import {
   syncSharedFooterAcrossPages,
 } from '@/features/builder/document-footer';
 import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
+import {
+  estimateTextBlockHeight,
+  isAutoHeightTextType,
+} from '@/features/builder/structured-content-layout';
 
 export interface SelectedTableCell {
   elementId: string;
@@ -213,6 +221,27 @@ function remapSelectionAfterDocumentLayout(
     (oldElement.props ?? {}) as Record<string, unknown>,
     oldElement.id
   );
+
+  // Prefer the same table on the page the user was already viewing (page-2 delete
+  // recreates the continuation with a new id — do not jump to page 1).
+  const preferredPageIndex = Math.max(
+    0,
+    Math.min(state.activePageIndex, nextPages.length - 1)
+  );
+  const preferredMatch = nextPages[preferredPageIndex]?.elements.find(
+    (element) =>
+      isTableElementType(element.type)
+      && resolvePaginationTableId(
+        (element.props ?? {}) as Record<string, unknown>,
+        element.id
+      ) === tableId
+  );
+  if (preferredMatch) {
+    state.selectedElementIds = [preferredMatch.id];
+    state.activePageIndex = preferredPageIndex;
+    return;
+  }
+
   const anchor = nextPages[0]?.elements.find(
     (element) =>
       isTableElementType(element.type)
@@ -355,18 +384,17 @@ const builderSlice = createSlice({
         const flowTables = (page.elements ?? []).filter(
           (el) => el.visible !== false && isTableElementType(el.type)
         );
+        // Only auto table-continuation tabs — never treat letter/image-only pages as spill.
         const looksLikeAutoContinuation =
           pageIndex > 0
-          && (
-            flowTables.length === 0
-            || flowTables.every((el) =>
-              isTableContinuationSegment((el.props ?? {}) as Record<string, unknown>)
-            )
+          && flowTables.length > 0
+          && flowTables.every((el) =>
+            isTableContinuationSegment((el.props ?? {}) as Record<string, unknown>)
           );
         return {
           ...page,
-          // Only keep explicit user pages; clear stale flags on auto-spilled pages.
-          userAuthored: page.userAuthored === true && !looksLikeAutoContinuation,
+          // Keep authored multi-page templates; clear the flag only on pure spill tabs.
+          userAuthored: looksLikeAutoContinuation ? false : page.userAuthored === true || pageIndex > 0,
           elements: normalizeElementLayers(normalized),
         };
       });
@@ -553,11 +581,34 @@ const builderSlice = createSlice({
                   tableId,
                   editedTable.rows
                 ) as TemplatePage[];
-                state.pages = applyContinuationTableStructuralEdit(
-                  plain,
-                  action.payload.id,
-                  propsWithFit
+                const prevAllRows = currentProps[PREVIEW_PAGINATION_ROWS_KEY];
+                const prevRowCount = Array.isArray(prevAllRows)
+                  ? prevAllRows.length
+                  : Array.isArray(currentProps.rows)
+                    ? (currentProps.rows as unknown[]).length
+                    : 0;
+                const isRowShrink = editedTable.rows.length < prevRowCount;
+                const hasAnchorOnPage1 = (plain[0]?.elements ?? []).some(
+                  (el) =>
+                    isTableElementType(el.type)
+                    && el.visible !== false
+                    && resolvePaginationTableId(
+                      (el.props ?? {}) as Record<string, unknown>,
+                      el.id
+                    ) === tableId
                 );
+                // On row delete for a split table: use the same Word-style
+                // consolidate → restack → paginate path as page-1 edits.
+                // (Frozen page-1 ranges must not block pull-back after shrink.)
+                if (isRowShrink && hasAnchorOnPage1) {
+                  commitDocumentLayout(state, plain);
+                } else {
+                  state.pages = applyContinuationTableStructuralEdit(
+                    plain,
+                    action.payload.id,
+                    propsWithFit
+                  );
+                }
                 remapSelectionAfterDocumentLayout(state, previousPages, state.pages);
               } else {
                 let plain = syncPaginatedTableRowsAcrossSegments(
@@ -608,17 +659,38 @@ const builderSlice = createSlice({
             });
           }
         } else {
-          const shouldLayout = shouldTriggerDocumentLayout(restChanges, skipLayout);
+          let next = merged;
+          // Grow free-text frames as content grows (typing / prop edits) without
+          // waiting for a DOM measure. Full reflow runs on committed edits below.
+          if (propsPatch !== undefined && isAutoHeightTextType(merged.type)) {
+            const fitted = estimateTextBlockHeight(
+              merged.type,
+              (merged.props ?? {}) as Record<string, unknown>,
+              merged.width,
+              merged.height
+            );
+            if (fitted > merged.height) {
+              next = { ...merged, height: fitted };
+            }
+          }
+
+          // Prop-only live typing must not reflow the whole document every key.
+          // Committed prop edits (recordHistory) and geometry still reflow.
+          const layoutChanges =
+            propsPatch !== undefined && action.payload.recordHistory === true
+              ? { ...restChanges, props: propsPatch }
+              : restChanges;
+          const shouldLayout = shouldTriggerDocumentLayout(layoutChanges, skipLayout);
           if (shouldLayout) {
             const plain = clonePages(state.pages);
-            const pageIdx = state.activePageIndex;
+            const pageIdx = targetPageIndex;
             const elIdx = plain[pageIdx]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
             if (elIdx >= 0) {
-              plain[pageIdx].elements[elIdx] = merged;
+              plain[pageIdx].elements[elIdx] = next;
             }
             commitDocumentLayout(state, plain);
           } else {
-            applyManualElementUpdate(elements, idx, merged);
+            applyManualElementUpdate(elements, idx, next);
           }
         }
 
@@ -720,6 +792,109 @@ const builderSlice = createSlice({
       state.selectedElementIds = [dup.id];
       state.isDirty = true;
       pushHistory(state);
+    },
+    pasteElements: (state, action: PayloadAction<CanvasElement[]>) => {
+      const sources = action.payload;
+      if (!Array.isArray(sources) || sources.length === 0) return;
+
+      const pageIndex = state.activePageIndex;
+      const page = state.pages[pageIndex];
+      const offset = 24;
+      const pastedIds: string[] = [];
+      let nextZ = getNextZIndex(page.elements);
+
+      const footers = sources.filter((el) => isDocumentFooterElement(el));
+      const others = sources.filter((el) => !isDocumentFooterElement(el));
+
+      for (const source of others) {
+        const cleaned = sanitizeClipboardElementForPaste(source);
+        let dup: CanvasElement = {
+          ...cleaned,
+          id: uuidv4(),
+          x: cleaned.x + offset,
+          y: cleaned.y + offset,
+          locked: false,
+          zIndex: nextZ,
+        };
+        nextZ += 1;
+
+        if (isTableElementType(dup.type)) {
+          const table = normalizeTablePropsForType(
+            dup.type,
+            (dup.props ?? {}) as Record<string, unknown>
+          );
+          const clamped = clampTableElementToPage(
+            dup.x,
+            dup.y,
+            table,
+            PAGE_WIDTH,
+            PAGE_HEIGHT,
+            page.margins,
+            dup.type
+          );
+          dup = {
+            ...dup,
+            x: clamped.x,
+            y: clamped.y,
+            width: clamped.width,
+            height: clamped.height,
+            props: productTablePropsToRecord(clamped.table),
+          };
+        } else {
+          dup = {
+            ...dup,
+            x: Math.max(
+              page.margins.left,
+              Math.min(dup.x, PAGE_WIDTH - page.margins.right - dup.width)
+            ),
+            y: Math.max(
+              page.margins.top,
+              Math.min(dup.y, PAGE_HEIGHT - page.margins.bottom - dup.height)
+            ),
+          };
+        }
+
+        page.elements.push(touchLogicalFlowY(dup));
+        pastedIds.push(dup.id);
+      }
+
+      if (others.length > 0) {
+        page.elements = normalizeElementLayers(page.elements);
+      }
+
+      for (const source of footers) {
+        const cleaned = sanitizeClipboardElementForPaste(source);
+        const footer = prepareNewFooterElement(
+          {
+            ...cleaned,
+            id: uuidv4(),
+            locked: false,
+            zIndex: nextZ,
+          },
+          state.pages[pageIndex]
+        );
+        nextZ += 1;
+        const plain = clonePages(state.pages);
+        plain[pageIndex] = {
+          ...plain[pageIndex],
+          elements: normalizeElementLayers([...plain[pageIndex].elements, footer]),
+        };
+        state.pages = syncSharedFooterAcrossPages(plain, footer);
+        pastedIds.push(footer.id);
+      }
+
+      state.selectedElementIds = pastedIds;
+      state.selectedTableCell = null;
+      state.selectedTableCells = [];
+      state.isDirty = true;
+      pushHistory(state);
+    },
+    selectAllElementsOnActivePage: (state) => {
+      const activePage = state.pages[state.activePageIndex];
+      if (!activePage) return;
+      state.selectedElementIds = activePage.elements.map((el) => el.id);
+      state.selectedTableCell = null;
+      state.selectedTableCells = [];
     },
     toggleElementLock: (state, action: PayloadAction<string>) => {
       const elements = state.pages[state.activePageIndex].elements;
@@ -998,6 +1173,8 @@ export const {
   deleteElement,
   deleteSelectedElements,
   duplicateElement,
+  pasteElements,
+  selectAllElementsOnActivePage,
   toggleElementLock,
   toggleElementVisible,
   setElementsLocked,

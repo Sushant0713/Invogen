@@ -32,6 +32,7 @@ import {
 } from '../utils/plan-template-access';
 import { getMadeWithAdvertisingImage } from '../utils/made-with-advertising';
 import { resolveInitialTemplatePages } from '../utils/resolve-initial-template-pages';
+import { cloneTemplatePagesExact } from '../utils/clone-template-pages';
 import { InvoiceStatus, SubscriptionStatus } from '@invogen/shared';
 import type { TemplatePage } from '@invogen/shared';
 import { cashfreeService } from './cashfree.service';
@@ -497,19 +498,33 @@ export const adminService = {
     if (naturalOrder) {
       listQuery.collation({ locale: 'en', numericOrdering: true });
     }
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       listQuery.sort({ name: 1 }).skip(skip).limit(limit),
       Product.countDocuments(filter),
     ]);
+    const plain = rows.map((row) =>
+      typeof (row as { toObject?: () => Record<string, unknown> }).toObject === 'function'
+        ? (row as { toObject: () => Record<string, unknown> }).toObject()
+        : (row as unknown as Record<string, unknown>)
+    );
+    const data = await productDiscountService.applyLiveDirectDiscountsToProducts(companyId, plain);
     return { data, meta: buildMeta(page, limit, total) };
   },
 
   async createProduct(companyId: string, data: Record<string, unknown>) {
-    return Product.create({ ...data, companyId });
+    const payload = { ...data };
+    if (typeof payload.gst === 'number' && Number.isFinite(payload.gst) && payload.tax == null) {
+      payload.tax = payload.gst;
+    }
+    return Product.create({ ...payload, companyId });
   },
 
   async updateProduct(companyId: string, id: string, data: Record<string, unknown>) {
-    const product = await Product.findOneAndUpdate({ _id: id, companyId }, data, { new: true });
+    const payload = { ...data };
+    if (typeof payload.gst === 'number' && Number.isFinite(payload.gst) && payload.tax == null) {
+      payload.tax = payload.gst;
+    }
+    const product = await Product.findOneAndUpdate({ _id: id, companyId }, payload, { new: true });
     if (!product) throw new AppError('Product not found', 404);
     return product;
   },
@@ -608,6 +623,59 @@ export const adminService = {
     );
     if (!template) throw new AppError('Template not found', 404);
     return template;
+  },
+
+  async duplicateTemplate(
+    companyId: string,
+    userId: string,
+    id: string,
+    data: Record<string, unknown>
+  ) {
+    await assertCanAddTemplate(companyId);
+
+    const companyObjectId = toCompanyObjectId(companyId);
+    const source = await InvoiceTemplate.findOne({
+      _id: id,
+      companyId: companyObjectId,
+      isSystem: false,
+    });
+    if (!source) throw new AppError('Template not found', 404);
+
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    if (!name) throw new AppError('Template name is required', 400);
+
+    const nameTaken = await InvoiceTemplate.exists({
+      companyId: companyObjectId,
+      isSystem: false,
+      name,
+    });
+    if (nameTaken) {
+      throw new AppError(
+        'A template with this name already exists. Choose a different name to keep both.',
+        409
+      );
+    }
+
+    const pages =
+      Array.isArray(data.pages) && data.pages.length > 0
+        ? (JSON.parse(JSON.stringify(data.pages)) as TemplatePage[])
+        : cloneTemplatePagesExact((source.pages ?? []) as TemplatePage[]);
+
+    return InvoiceTemplate.create({
+      name,
+      category: source.category,
+      description:
+        typeof data.description === 'string'
+          ? data.description.trim()
+          : (source.description ?? ''),
+      pages,
+      companyId: companyObjectId,
+      sourceSystemTemplateId: source.sourceSystemTemplateId,
+      isSystem: false,
+      createdBy: userId,
+      version: 1,
+      isActive: true,
+    });
   },
 
   async createTemplate(companyId: string, userId: string, data: Record<string, unknown>) {

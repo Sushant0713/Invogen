@@ -82,6 +82,7 @@ import {
   type PageRect,
 } from './marquee-selection';
 import {
+  isAutoHeightTextType,
   isStructuredContentType,
 } from './structured-content-layout';
 
@@ -1276,6 +1277,24 @@ export function BuilderCanvas() {
                         }
                       : undefined
                   }
+                  onRichChange={
+                    inlineEditKey
+                      ? (payload) => {
+                          dispatch(updateElement({
+                            id: element.id,
+                            changes: {
+                              props: {
+                                ...elementProps,
+                                content: payload.content,
+                                text: payload.content,
+                                textRuns: payload.textRuns,
+                              },
+                            },
+                            recordHistory: false,
+                          }));
+                        }
+                      : undefined
+                  }
                   onUpdateProps={(patch, recordHistory) => {
                     dispatch(updateElement({
                       id: element.id,
@@ -1302,13 +1321,16 @@ export function BuilderCanvas() {
                   }}
                   zoom={zoom}
                   onStructuredContentHeight={
-                    isStructuredContentType(element.type)
+                    isStructuredContentType(element.type) || isAutoHeightTextType(element.type)
                       ? (height) => {
                           if (Math.abs(height - element.height) <= 1) return;
                           dispatch(updateElement({
                             id: element.id,
                             changes: { height },
                             recordHistory: false,
+                            // Text boxes: grow the frame while typing without a full
+                            // document reflow (siblings catch up on commit).
+                            skipDocumentLayout: isAutoHeightTextType(element.type),
                           }));
                         }
                       : undefined

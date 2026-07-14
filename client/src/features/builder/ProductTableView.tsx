@@ -1181,9 +1181,13 @@ export function ProductTableView({
           next.rows.length === paginationAllRows.length
           || (segmentLen == null || next.rows.length !== segmentLen);
         if (isFullListEdit) {
-          const record = productTablePropsToRecord(persisted) as Record<string, unknown>;
-          record.rows = next.rows;
-          record[PREVIEW_PAGINATION_ROWS_KEY] = next.rows;
+          // Keep pagination range / table id from current props; only replace row lists.
+          const record = {
+            ...(props as Record<string, unknown>),
+            ...productTablePropsToRecord(persisted),
+          } as Record<string, unknown>;
+          record.rows = persisted.rows;
+          record[PREVIEW_PAGINATION_ROWS_KEY] = persisted.rows;
           dispatch(
             updateElement({
               id: elementId,
@@ -1215,6 +1219,7 @@ export function ProductTableView({
       paginationAllRows,
       paginationStart,
       paginationEnd,
+      props,
     ]
   );
 
@@ -1271,7 +1276,8 @@ export function ProductTableView({
         return;
       }
 
-      let baseTable = table;
+      // Full row list when paginated — same as cell commits (segment-only misses other rows).
+      let baseTable = tableForEdit;
       if (isInvoiceTable2 && Object.keys(pendingEditsRef.current).length > 0) {
         const base = normalizeTablePropsForType(
           resolveTableElementType(elementType ?? '', props),
@@ -1288,7 +1294,7 @@ export function ProductTableView({
         (isInvoiceTable1 || isInvoiceTable3)
         && Object.keys(pendingEditsRef.current).length > 0
       ) {
-        baseTable = applyPendingCellEdits(table, pendingEditsRef.current);
+        baseTable = applyPendingCellEdits(tableForEdit, pendingEditsRef.current);
         pendingEditsRef.current = {};
         setPendingCellEdits({});
       }
@@ -1313,7 +1319,7 @@ export function ProductTableView({
       onTableProductPick,
       props,
       resolvedElementType,
-      table,
+      tableForEdit,
       taxSettings,
       showProductSku,
     ]

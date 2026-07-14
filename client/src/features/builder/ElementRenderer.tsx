@@ -43,11 +43,13 @@ import {
   OUTLINE_NUMBER_COLUMN,
   getOutlineTextIndent,
 } from './text-styles';
+import { runsFromPlainProps } from './rich-text-formatting';
 import { findPrimaryInvoiceDateIso, resolveDueDateDisplayIso } from './invoice-date-order';
 import { StructuredContentSizer } from './StructuredContentSizer';
 import {
   structuredMeasureKey,
   isStructuredContentType,
+  isAutoHeightTextType,
 } from './structured-content-layout';
 import { getElementRotation, supportsElementRotation } from './element-rotation';
 import { getDividerLineSvgTransform } from './divider-rotation';
@@ -83,6 +85,10 @@ interface Props {
     text: string;
     textRuns: import('./text-styles').TextRunProps[];
   }) => void;
+  onRichChange?: (payload: {
+    content: string;
+    textRuns: import('./text-styles').TextRunProps[];
+  }) => void;
   pendingEditChar?: string | null;
   onPendingEditCharConsumed?: () => void;
   onUpdateProps?: (patch: Record<string, unknown>, recordHistory?: boolean) => void;
@@ -105,6 +111,7 @@ function EditableText({
   onUpdateContent,
   onCommitContent,
   onCommitRichContent,
+  onRichChange,
   onUpdateProps,
   pendingEditChar,
   onPendingEditCharConsumed,
@@ -124,6 +131,10 @@ function EditableText({
     text: string;
     textRuns: import('./text-styles').TextRunProps[];
   }) => void;
+  onRichChange?: (payload: {
+    content: string;
+    textRuns: import('./text-styles').TextRunProps[];
+  }) => void;
   onUpdateProps?: (patch: Record<string, unknown>, recordHistory?: boolean) => void;
   pendingEditChar?: string | null;
   onPendingEditCharConsumed?: () => void;
@@ -140,10 +151,33 @@ function EditableText({
   const isOutlineList = listStyle === 'outline';
   const textRuns = getTextRuns(props);
   const hasRichRuns = textRuns && textRuns.length > 0 && listStyle === 'none';
+  const canUseRichEditor =
+    !isOutlineList
+    && Boolean(onCommitRichContent)
+    && getEditableTextKey(element.type) === 'content'
+    && isAutoHeightTextType(element.type);
+  const autoGrowHeight = isAutoHeightTextType(element.type);
+  const surfaceFillClass = autoGrowHeight
+    ? 'builder-text-surface w-full'
+    : 'builder-text-surface h-full w-full';
+
+  const withAutoGrow = (node: React.ReactNode) => {
+    if (!autoGrowHeight) return node;
+    return (
+      <StructuredContentSizer
+        elementHeight={element.height}
+        measureKey={`${structuredMeasureKey(element.type, props)}:${element.width}`}
+        onHeightChange={onStructuredContentHeight}
+        disabled={previewMode}
+      >
+        {node}
+      </StructuredContentSizer>
+    );
+  };
 
   // Seed plain textarea once when entering edit mode — never reset while typing.
   useEffect(() => {
-    if (!isEditing || hasRichRuns || isOutlineList) {
+    if (!isEditing || canUseRichEditor || isOutlineList) {
       if (!isEditing) initRef.current = false;
       return;
     }
@@ -166,7 +200,7 @@ function EditableText({
     pendingEditChar,
     onPendingEditCharConsumed,
     onUpdateContent,
-    hasRichRuns,
+    canUseRichEditor,
     isOutlineList,
   ]);
 
@@ -220,7 +254,7 @@ function EditableText({
     }
 
     if (isOutlineList && getEditableTextKey(element.type) === 'content') {
-      return (
+      return withAutoGrow(
         <OutlineListEditor
           value={editValue}
           textStyle={textStyle}
@@ -230,13 +264,19 @@ function EditableText({
       );
     }
 
-    if (hasRichRuns && textRuns && onCommitRichContent) {
-      return (
+    if (canUseRichEditor && onCommitRichContent) {
+      const editorRuns =
+        hasRichRuns && textRuns
+          ? textRuns
+          : runsFromPlainProps(editValue, props);
+      return withAutoGrow(
         <RichTextRunsEditor
-          runs={textRuns}
+          runs={editorRuns}
           baseStyle={textStyle}
           pendingEditChar={pendingEditChar}
-          onChange={(plain) => onUpdateContent?.(plain)}
+          onChange={(plain, nextRuns) => {
+            onRichChange?.({ content: plain, textRuns: nextRuns });
+          }}
           onCommit={onCommitRichContent}
           onPendingEditCharConsumed={onPendingEditCharConsumed}
         />
@@ -245,10 +285,10 @@ function EditableText({
 
     // Use textarea (not contentEditable) so `<your name>` stays literal text
     // instead of being parsed as HTML — which previously doubled the string on blur.
-    return (
+    return withAutoGrow(
       <textarea
         ref={editorRef as React.RefObject<HTMLTextAreaElement>}
-        className="builder-text-editor h-full w-full resize-none border-0 bg-transparent p-0"
+        className={`builder-text-editor w-full resize-none border-0 bg-transparent p-0${autoGrowHeight ? '' : ' h-full'}`}
         style={{
           ...textStyle,
           outline: 'none',
@@ -257,7 +297,7 @@ function EditableText({
           minHeight: '1em',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          overflow: 'hidden',
+          overflow: autoGrowHeight ? 'visible' : 'hidden',
         }}
         defaultValue={pendingEditChar ? `${editValue}${pendingEditChar}` : editValue}
         onMouseDown={stopTextEdit}
@@ -277,7 +317,7 @@ function EditableText({
   }
 
   const surfaceProps = {
-    className: 'builder-text-surface h-full w-full',
+    className: surfaceFillClass,
     // Preserve multiple spaces in display mode too (not just while editing).
     style: { ...textStyle, whiteSpace: 'break-spaces', wordBreak: 'break-word' } as React.CSSProperties,
     onPointerDown: handleSurfacePointerDown,
@@ -321,7 +361,7 @@ function EditableText({
     const { tag, listStyleType } = getListRenderConfig(listStyle);
     if (tag === 'outline') {
       const items = parseOutlineLines(displayValue).filter((item) => item.text);
-      return (
+      return withAutoGrow(
         <ul
           {...surfaceProps}
           style={{ ...textStyle, margin: 0, padding: 0, listStyle: 'none' }}
@@ -348,7 +388,7 @@ function EditableText({
     if (tag) {
       const ListTag = tag;
       const lines = splitListLines(displayValue);
-      return (
+      return withAutoGrow(
         <ListTag
           {...surfaceProps}
           style={{ ...textStyle, margin: 0, paddingLeft: '1.25em', listStyleType }}
@@ -362,7 +402,7 @@ function EditableText({
   }
 
   if (textRuns && textRuns.length > 0) {
-    return (
+    return withAutoGrow(
       <div {...surfaceProps} style={{ ...textStyle, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
         {textRuns.map((run, index) => {
           const runStyle = getRunStyle(run, textStyle);
@@ -391,7 +431,7 @@ function EditableText({
     );
   }
 
-  return (
+  return withAutoGrow(
     <div
       {...surfaceProps}
       onPointerDown={surfaceProps.onPointerDown}
@@ -683,6 +723,7 @@ export function ElementRenderer({
   onUpdateContent,
   onCommitContent,
   onCommitRichContent,
+  onRichChange,
   pendingEditChar,
   onPendingEditCharConsumed,
   onUpdateProps,
@@ -692,6 +733,7 @@ export function ElementRenderer({
 }: Props) {
   const isDataField = isDataFieldType(element.type);
   const isStructured = isStructuredContentType(element.type);
+  const isAutoHeightText = isAutoHeightTextType(element.type);
   const isCard = isCardComponentType(element.type);
   const isImage = isImageComponentType(element.type);
   const isTableCellEditing = useAppSelector(
@@ -754,10 +796,10 @@ export function ElementRenderer({
         : 'hidden',
     boxSizing: 'border-box',
     userSelect: isEditing || isTableCellEditing ? 'text' : 'none',
-    display: isStructured ? 'flex' : undefined,
-    flexDirection: isStructured ? 'column' : undefined,
-    justifyContent: isStructured ? 'flex-start' : undefined,
-    alignItems: isStructured ? 'stretch' : undefined,
+    display: isStructured || isAutoHeightText ? 'flex' : undefined,
+    flexDirection: isStructured || isAutoHeightText ? 'column' : undefined,
+    justifyContent: isStructured || isAutoHeightText ? 'flex-start' : undefined,
+    alignItems: isStructured || isAutoHeightText ? 'stretch' : undefined,
   };
 
   const textEditor = (
@@ -771,6 +813,7 @@ export function ElementRenderer({
       onUpdateContent={onUpdateContent}
       onCommitContent={onCommitContent}
       onCommitRichContent={onCommitRichContent}
+      onRichChange={onRichChange}
       onUpdateProps={onUpdateProps}
       pendingEditChar={pendingEditChar}
       onPendingEditCharConsumed={onPendingEditCharConsumed}

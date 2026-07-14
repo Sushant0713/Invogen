@@ -40,6 +40,7 @@ import { TermsProperties } from './TermsProperties';
 import { AddressProperties } from './AddressProperties';
 import { RotationControlsPanel } from './RotationControlsPanel';
 import { resolveSelectedElementLocation } from './builder-selection';
+import { writeBuilderClipboard } from './builder-clipboard';
 import { estimateStructuredBlockHeight } from './structured-content-layout';
 import {
   extractPlaceholderKeysFromText,
@@ -73,6 +74,21 @@ export function PropertiesPanel() {
           </p>
         )}
         <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => {
+              writeBuilderClipboard(selectedElements);
+              toast.success(
+                selectedElements.length === 1
+                  ? 'Component copied'
+                  : `${selectedElements.length} components copied`
+              );
+            }}
+          >
+            Copy selection
+          </Button>
           {lockedCount > 0 && (
             <Button
               variant="outline"
@@ -120,7 +136,8 @@ export function PropertiesPanel() {
           </Button>
         </div>
         <p className="text-[11px] text-gray-400">
-          Shift+click or Ctrl+click to add or remove from selection. Click again on overlapping components to cycle through layers.
+          Shift+click or Ctrl+click to add or remove from selection. Ctrl+C copies; open another
+          template and press Ctrl+V to paste. Ctrl+A selects all on this page.
         </p>
       </div>
     );

@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ArrowUpToLine,
   Copy,
+  CopyPlus,
   Eye,
   EyeOff,
   Group,
@@ -28,6 +29,7 @@ interface Props {
   menu: LayerContextMenuState | null;
   onClose: () => void;
   onRename: (element: CanvasElement) => void;
+  onCopy: (element: CanvasElement) => void;
   onDuplicate: (id: string) => void;
   onToggleVisible: (id: string) => void;
   onToggleLock: (id: string) => void;
@@ -41,6 +43,7 @@ export function LayerContextMenu({
   menu,
   onClose,
   onRename,
+  onCopy,
   onDuplicate,
   onToggleVisible,
   onToggleLock,
@@ -98,7 +101,8 @@ export function LayerContextMenu({
           style={{ left: menu.x, top: menu.y }}
         >
           {item('Rename', <Pencil className="h-3.5 w-3.5" />, () => onRename(menu.element))}
-          {item('Duplicate', <Copy className="h-3.5 w-3.5" />, () => onDuplicate(menu.element.id))}
+          {item('Copy', <Copy className="h-3.5 w-3.5" />, () => onCopy(menu.element))}
+          {item('Duplicate', <CopyPlus className="h-3.5 w-3.5" />, () => onDuplicate(menu.element.id))}
           {item('Group', <Group className="h-3.5 w-3.5" />, () => toast.message('Grouping coming soon'), true)}
           {item('Ungroup', <Ungroup className="h-3.5 w-3.5" />, () => toast.message('Ungrouping coming soon'), true)}
           <div className="my-1 h-px bg-gray-100" />

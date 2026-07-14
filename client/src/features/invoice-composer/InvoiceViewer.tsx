@@ -47,7 +47,7 @@ export function InvoiceViewer({
         pages={renderPages}
         useSampleData={false}
         trustTableProps
-        autoReflow
+        autoReflow={false}
         previewMaxWidth={previewMaxWidth}
       />
     </div>

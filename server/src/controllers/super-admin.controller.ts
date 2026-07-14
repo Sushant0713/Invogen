@@ -67,6 +67,9 @@ export const getTemplate = wrap((req) => superAdminService.getTemplate(param(req
 export const createTemplate = wrap((req) =>
   superAdminService.createTemplate(req.user!.userId, req.body)
 );
+export const duplicateTemplate = wrap((req) =>
+  superAdminService.duplicateTemplate(req.user!.userId, param(req.params.id), req.body)
+);
 export const updateTemplate = wrap((req) =>
   superAdminService.updateTemplate(param(req.params.id), req.body)
 );

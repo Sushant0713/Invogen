@@ -56,6 +56,11 @@ router.get('/discounts/report', requirePermission(PERMISSIONS.PRODUCT_MANAGE), c
 router.get('/templates', ctrl.getTemplates);
 router.get('/templates/:id', ctrl.getTemplate);
 router.post('/templates', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.createTemplate);
+router.post(
+  '/templates/:id/duplicate',
+  requirePermission(PERMISSIONS.TEMPLATE_CREATE),
+  ctrl.duplicateTemplate
+);
 router.patch('/templates/:id', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.updateTemplate);
 router.delete('/templates/:id', requirePermission(PERMISSIONS.TEMPLATE_EDIT), ctrl.deleteTemplate);
 router.get('/invoices', ctrl.getInvoices);

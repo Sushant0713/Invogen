@@ -13,16 +13,18 @@ function fontSizeFromProps(props: Record<string, unknown>, type: string): number
 
 /** Rough wrapped line count for a fixed container width. */
 export function estimateWrappedLineCount(text: string, fontSize: number, width: number): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
+  if (!text) return 0;
 
   const avgCharWidth = fontSize * 0.52;
   const charsPerLine = Math.max(8, Math.floor(width / avgCharWidth));
   let lines = 0;
 
-  for (const paragraph of trimmed.split('\n')) {
-    const len = paragraph.trim().length;
-    if (!len) continue;
+  for (const paragraph of text.split('\n')) {
+    const len = paragraph.length;
+    if (!len) {
+      lines += 1;
+      continue;
+    }
     lines += Math.ceil(len / charsPerLine);
   }
 
@@ -108,6 +110,16 @@ export function isStructuredContentType(type: string): boolean {
   return type === ComponentType.ADDRESS || type === ComponentType.TERMS;
 }
 
+/** Free-text blocks that should grow in height as content wraps/wraps more lines. */
+export function isAutoHeightTextType(type: string): boolean {
+  return (
+    type === ComponentType.TEXT
+    || type === ComponentType.HEADING
+    || type === ComponentType.NOTES
+    || type === ComponentType.FOOTER
+  );
+}
+
 export function structuredMeasureKey(type: string, props: Record<string, unknown>): string {
   if (type === ComponentType.ADDRESS) {
     const data = parseAddressFromProps(props);
@@ -126,6 +138,20 @@ export function structuredMeasureKey(type: string, props: Record<string, unknown
   if (type === ComponentType.TERMS) {
     const { title, items } = parseTermsFromProps(props);
     return [title, ...items, props.fontSize, props.fontFamily].join('\0');
+  }
+
+  if (isAutoHeightTextType(type)) {
+    const runs = Array.isArray(props.textRuns) ? JSON.stringify(props.textRuns) : '';
+    return [
+      resolveTextBlockContent(props),
+      runs,
+      props.fontSize,
+      props.fontFamily,
+      props.lineHeight,
+      props.listStyle,
+      props.paddingLeft,
+      props.textIndent,
+    ].join('\0');
   }
 
   return '';

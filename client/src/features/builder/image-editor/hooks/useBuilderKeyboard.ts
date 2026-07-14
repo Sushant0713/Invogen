@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
+import { toast } from 'sonner';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import {
   deleteSelectedElements,
   duplicateElement,
+  pasteElements,
   redo,
+  selectAllElementsOnActivePage,
   setImageCropMode,
   setShapeCropMode,
   toggleSelectedElementsLock,
@@ -11,6 +14,7 @@ import {
   updateElement,
 } from '@/store/slices/builderSlice';
 import { getPrimarySelectedId } from '@/features/builder/builder-selection';
+import { readBuilderClipboard, writeBuilderClipboard } from '@/features/builder/builder-clipboard';
 
 interface Options {
   enabled?: boolean;
@@ -24,7 +28,7 @@ export function useBuilderKeyboard({ enabled = true }: Options = {}) {
   const page = pages[activePageIndex];
   const primarySelectedId = getPrimarySelectedId(selectedElementIds);
   const selected = primarySelectedId
-    ? page.elements.find((el) => el.id === primarySelectedId)
+    ? page?.elements.find((el) => el.id === primarySelectedId)
     : null;
   const hasSelection = selectedElementIds.length > 0;
 
@@ -43,6 +47,7 @@ export function useBuilderKeyboard({ enabled = true }: Options = {}) {
       }
 
       const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
 
       if (e.key === 'Escape' && imageCropElementId) {
         e.preventDefault();
@@ -56,45 +61,62 @@ export function useBuilderKeyboard({ enabled = true }: Options = {}) {
         return;
       }
 
-      if (mod && e.key.toLowerCase() === 'z') {
+      if (mod && key === 'z') {
         e.preventDefault();
         if (e.shiftKey) dispatch(redo());
         else dispatch(undo());
         return;
       }
 
-      if (!hasSelection || imageCropElementId || shapeCropElementId) return;
+      if (mod && key === 'a') {
+        e.preventDefault();
+        dispatch(selectAllElementsOnActivePage());
+        return;
+      }
 
-      if (mod && e.shiftKey && e.key.toLowerCase() === 'l') {
+      // Paste works even with no selection (needed when switching templates).
+      if (mod && key === 'v' && !imageCropElementId && !shapeCropElementId) {
+        e.preventDefault();
+        const clipped = readBuilderClipboard();
+        if (clipped.length === 0) {
+          toast.message('Nothing to paste — copy components first (Ctrl+C)');
+          return;
+        }
+        dispatch(pasteElements(clipped));
+        toast.success(
+          clipped.length === 1
+            ? 'Component pasted'
+            : `${clipped.length} components pasted`
+        );
+        return;
+      }
+
+      if (!hasSelection || imageCropElementId || shapeCropElementId || !page) return;
+
+      if (mod && e.shiftKey && key === 'l') {
         e.preventDefault();
         dispatch(toggleSelectedElementsLock());
         return;
       }
 
+      if (mod && key === 'c') {
+        e.preventDefault();
+        const selectedSet = new Set(selectedElementIds);
+        const toCopy = page.elements.filter((el) => selectedSet.has(el.id));
+        if (toCopy.length === 0) return;
+        writeBuilderClipboard(toCopy);
+        toast.success(
+          toCopy.length === 1
+            ? 'Component copied'
+            : `${toCopy.length} components copied`
+        );
+        return;
+      }
+
       if (selectedElementIds.length === 1 && selected && !selected.locked) {
-        if (mod && e.key.toLowerCase() === 'd') {
+        if (mod && key === 'd') {
           e.preventDefault();
           dispatch(duplicateElement(selected.id));
-          return;
-        }
-
-        if (mod && e.key.toLowerCase() === 'c') {
-          e.preventDefault();
-          sessionStorage.setItem('builder-clipboard-element', JSON.stringify(selected));
-          return;
-        }
-
-        if (mod && e.key.toLowerCase() === 'v') {
-          e.preventDefault();
-          const raw = sessionStorage.getItem('builder-clipboard-element');
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw) as { id?: string };
-              if (parsed?.id) dispatch(duplicateElement(parsed.id));
-            } catch {
-              /* ignore */
-            }
-          }
           return;
         }
 
@@ -127,7 +149,8 @@ export function useBuilderKeyboard({ enabled = true }: Options = {}) {
     dispatch,
     selected,
     hasSelection,
-    selectedElementIds.length,
+    selectedElementIds,
+    page,
     imageCropElementId,
     shapeCropElementId,
   ]);

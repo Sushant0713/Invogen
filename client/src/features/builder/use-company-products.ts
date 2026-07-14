@@ -14,8 +14,34 @@ export type CompanyProductOption = {
   price?: number;
   discount?: number;
   discountType?: 'percentage' | 'fixed';
+  /** Product GST % (catalog). Used for invoice table line tax when set. */
+  gst?: number;
+  /** Legacy alias for gst % on some product records. */
+  tax?: number;
   category?: string;
 };
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  // Mongo Decimal128 / BSON number wrappers
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.$numberDecimal === 'string') {
+      return toOptionalNumber(record.$numberDecimal);
+    }
+    if (typeof (value as { toString?: () => string }).toString === 'function') {
+      const asString = String(value);
+      if (asString && asString !== '[object Object]') {
+        return toOptionalNumber(asString);
+      }
+    }
+  }
+  return undefined;
+}
 
 function extractProducts(payload: unknown): CompanyProductOption[] {
   if (Array.isArray(payload)) {
@@ -26,16 +52,23 @@ function extractProducts(payload: unknown): CompanyProductOption[] {
         const id = row._id != null ? String(row._id) : '';
         const name = typeof row.name === 'string' ? row.name.trim() : '';
         if (!id || !name) return null;
+        const price =
+          toOptionalNumber(row.price)
+          ?? toOptionalNumber(row.unitPrice)
+          ?? toOptionalNumber(row.rate)
+          ?? toOptionalNumber(row.sellingPrice);
         return {
           _id: id,
           name,
           sku: typeof row.sku === 'string' ? row.sku : undefined,
-          price: typeof row.price === 'number' ? row.price : undefined,
-          discount: typeof row.discount === 'number' ? row.discount : undefined,
+          price,
+          discount: toOptionalNumber(row.discount),
           discountType:
             row.discountType === 'fixed' || row.discountType === 'percentage'
               ? row.discountType
               : undefined,
+          gst: toOptionalNumber(row.gst),
+          tax: toOptionalNumber(row.tax),
           category: typeof row.category === 'string' ? row.category : undefined,
         } satisfies CompanyProductOption;
       })
@@ -73,7 +106,8 @@ export function useCompanyProducts(options?: {
       return extractProducts(res.data?.data);
     },
     enabled,
-    staleTime: 15_000,
+    staleTime: 5_000,
+    refetchOnMount: 'always',
     retry: 1,
   });
 }

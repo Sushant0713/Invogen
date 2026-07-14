@@ -35,6 +35,30 @@ export function getIgstRate(tax: TaxSettings): number {
   return getCombinedGstRate(tax);
 }
 
+/** Stored on an invoice row when a catalog product is picked — drives line GST %. */
+export const PRODUCT_GST_RATE_KEY = '__productGstRate';
+
+/** Prefer product GST % on the row; otherwise company tax settings. */
+export function resolveLineTaxSettings(
+  cells: Record<string, string>,
+  tax: TaxSettings
+): TaxSettings {
+  if (!(PRODUCT_GST_RATE_KEY in cells)) return tax;
+  const raw = cells[PRODUCT_GST_RATE_KEY];
+  if (raw == null || raw === '') return tax;
+  const rate = Number(String(raw).replace(/,/g, '').trim());
+  if (!Number.isFinite(rate) || rate < 0) return tax;
+  const half = Math.round((rate / 2) * 1000) / 1000;
+  return {
+    ...tax,
+    isEnabled: true,
+    cgstRate: half,
+    sgstRate: half,
+    gstRate: rate,
+    igstRate: rate,
+  };
+}
+
 export function normalizeTaxDisplayMode(value: unknown): TaxDisplayMode {
   if (value === 'combined' || value === 'igst' || value === 'split') return value;
   return EMPTY_TAX_SETTINGS.taxDisplayMode;

@@ -82,8 +82,13 @@ function CrudPage({
   };
 
   const buildPayload = (body: Record<string, string>, isUpdate = false) => {
-    const parsed = { ...body };
-    if (parsed.price) parsed.price = String(Number(parsed.price));
+    const parsed: Record<string, unknown> = { ...body };
+    if (parsed.price !== undefined && parsed.price !== '') {
+      parsed.price = Number(parsed.price);
+    }
+    if (parsed.gst !== undefined && parsed.gst !== '') {
+      parsed.gst = Number(parsed.gst);
+    }
     if (isUpdate) {
       // On edit, drop untouched empty fields so we never clobber values (e.g. password).
       Object.keys(parsed).forEach((key) => {
@@ -97,6 +102,9 @@ function CrudPage({
     mutationFn: (body: Record<string, string>) => api.post(endpoint, buildPayload(body)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [queryKey] });
+      if (queryKey === 'admin-products' || queryKey === 'employee-products') {
+        queryClient.invalidateQueries({ queryKey: ['builder-company-products'] });
+      }
       closeForm();
       toast.success(`${title} created`);
     },
@@ -108,6 +116,9 @@ function CrudPage({
       api.patch(`${endpoint}/${id}`, buildPayload(body, true)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [queryKey] });
+      if (queryKey === 'admin-products' || queryKey === 'employee-products') {
+        queryClient.invalidateQueries({ queryKey: ['builder-company-products'] });
+      }
       closeForm();
       toast.success(`${title} updated`);
     },
@@ -118,6 +129,9 @@ function CrudPage({
     mutationFn: (id: string) => api.delete(`${endpoint}/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [queryKey] });
+      if (queryKey === 'admin-products' || queryKey === 'employee-products') {
+        queryClient.invalidateQueries({ queryKey: ['builder-company-products'] });
+      }
       toast.success(`${title} deleted`);
     },
   });
@@ -311,6 +325,7 @@ export function ProductsCrud({
         { name: 'name', label: 'Name' },
         { name: 'sku', label: 'SKU' },
         { name: 'price', label: 'Price', fieldKind: 'price' },
+        { name: 'gst', label: 'GST %', type: 'number' },
         { name: 'hsn', label: 'HSN', fieldKind: 'hsn' },
         { name: 'category', label: 'Category', suggest: true },
       ]}
@@ -318,6 +333,7 @@ export function ProductsCrud({
         { key: 'name', label: 'Name' },
         { key: 'sku', label: 'SKU' },
         { key: 'price', label: 'Price' },
+        { key: 'gst', label: 'GST %' },
         { key: 'category', label: 'Category' },
       ]}
     />

@@ -84,6 +84,15 @@ export const employeeService = {
     return adminService.createTemplate(companyId, userId, data);
   },
 
+  async duplicateTemplate(
+    companyId: string,
+    userId: string,
+    id: string,
+    data: Record<string, unknown>
+  ) {
+    return adminService.duplicateTemplate(companyId, userId, id, data);
+  },
+
   async updateTemplate(companyId: string, id: string, data: Record<string, unknown>) {
     return adminService.updateTemplate(companyId, id, data);
   },

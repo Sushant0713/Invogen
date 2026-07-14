@@ -19,6 +19,8 @@ export interface TemplateEditPageProps {
   templatesListPath: string;
   queryKey: string;
   canForkSystemTemplates: boolean;
+  /** Duplicate requires add-template authority (and plan access). */
+  allowDuplicate?: boolean;
   planSyncOptions?: {
     staleTime?: number;
     refetchOnWindowFocus?: boolean;
@@ -33,6 +35,7 @@ export function TemplateEditPage({
   templatesListPath,
   queryKey,
   canForkSystemTemplates,
+  allowDuplicate = false,
   planSyncOptions,
 }: TemplateEditPageProps) {
   const { id } = useParams<{ id: string }>();
@@ -76,9 +79,7 @@ export function TemplateEditPage({
 
     if (!canForkSystemTemplates) {
       toast.error(
-        planCanAddTemplate
-          ? 'You do not have permission to edit templates'
-          : 'Creating custom templates is not available on your company plan'
+        'You do not have permission to create a custom copy of this system template'
       );
       navigate(templatesListPath, { replace: true });
       return;
@@ -144,7 +145,9 @@ export function TemplateEditPage({
       templateId={id}
       apiBase={apiBase}
       backTo={templatesListPath}
+      templatesListPath={templatesListPath}
       allowRename
+      allowDuplicate={allowDuplicate}
     />
   );
 }

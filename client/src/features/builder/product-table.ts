@@ -340,8 +340,19 @@ export function mergeTablePaginationProps(
     if (isFullListStructuralEdit) {
       merged[PREVIEW_PAGINATION_ROWS_KEY] = displayRows;
     } else if (sourceAll && targetAll) {
-      merged[PREVIEW_PAGINATION_ROWS_KEY] =
-        sourceAll.length >= targetAll.length ? sourceAll : targetAll;
+      // Same length: keep incoming rows (product pick / cell edit). Old code kept
+      // source and discarded picks when the full list was rewritten in place.
+      if (targetAll.length === sourceAll.length) {
+        merged[PREVIEW_PAGINATION_ROWS_KEY] = targetAll;
+      } else if (
+        targetAll.length < sourceAll.length
+        && segmentLen != null
+        && targetAll.length === segmentLen
+      ) {
+        merged[PREVIEW_PAGINATION_ROWS_KEY] = sourceAll;
+      } else {
+        merged[PREVIEW_PAGINATION_ROWS_KEY] = targetAll;
+      }
     } else if (sourceAll) {
       merged[PREVIEW_PAGINATION_ROWS_KEY] = sourceAll;
     } else if (targetAll) {
@@ -1503,10 +1514,11 @@ export function updateCell(
   columnId: string,
   value: string
 ): ProductTableProps {
+  const targetId = String(rowId);
   return {
     ...props,
     rows: props.rows.map((row) =>
-      row.id === rowId ? { ...row, cells: { ...row.cells, [columnId]: value } } : row
+      String(row.id) === targetId ? { ...row, cells: { ...row.cells, [columnId]: value } } : row
     ),
   };
 }

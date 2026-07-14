@@ -50,6 +50,12 @@ import {
 } from './product-table';
 import { normalizeTablePropsForType } from './table-props-normalize';
 import { resolveSelectedElementLocation } from './builder-selection';
+import {
+  applyStylePatchToActiveSelection,
+  getActiveSelectionStylePreview,
+  selectionHasActiveBuilderEditor,
+  type TextStylePatch,
+} from './rich-text-formatting';
 
 const TOOLBAR_SLOT_CLASS =
   'w-full shrink-0 border-b border-gray-200 bg-[#ececf0] min-h-[52px]';
@@ -60,11 +66,19 @@ export function ElementToolbar() {
     (s) => s.builder
   );
   const [styleCopied, setStyleCopied] = useState(false);
+  const [selectionTick, setSelectionTick] = useState(0);
   const page = pages[activePageIndex];
   const selectedLocation = resolveSelectedElementLocation(pages, selectedElementIds);
   const element = selectedLocation?.element;
   const elementPageIndex = selectedLocation?.pageIndex ?? activePageIndex;
   const elementPage = pages[elementPageIndex] ?? page;
+
+  useEffect(() => {
+    const onSelectionChange = () => setSelectionTick((n) => n + 1);
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, []);
+  void selectionTick;
 
   if (!element || selectedElementIds.length !== 1) {
     return <div className={TOOLBAR_SLOT_CLASS} aria-hidden />;
@@ -257,14 +271,33 @@ export function ElementToolbar() {
 
   const fontSize = (props.fontSize as number) || (element.type === ComponentType.HEADING ? 24 : 14);
   const fontWeight = (props.fontWeight as number) || 400;
-  const isBold = fontWeight >= 600;
-  const isItalic = !!props.italic;
-  const isUnderline = !!props.underline;
-  const isStrikethrough = !!props.strikethrough;
+  const selectionStyle = selectionHasActiveBuilderEditor()
+    ? getActiveSelectionStylePreview()
+    : null;
+  const isBold = ((selectionStyle?.fontWeight ?? fontWeight) >= 600);
+  const isItalic = selectionStyle ? !!selectionStyle.italic : !!props.italic;
+  const isUnderline = selectionStyle ? !!selectionStyle.underline : !!props.underline;
+  const isStrikethrough = selectionStyle
+    ? !!selectionStyle.strikethrough
+    : !!props.strikethrough;
   const textAlign = (props.textAlign as string) || 'left';
   const letterSpacing = (props.letterSpacing as number) || 0;
-  const fontFamily = (props.fontFamily as string) || 'Inter';
+  const fontFamily =
+    (selectionStyle?.fontFamily as string | undefined)
+    || (props.fontFamily as string)
+    || 'Inter';
+  const activeColor =
+    (selectionStyle?.color as string | undefined)
+    || (props.color as string)
+    || '#000000';
+  const activeFontSize =
+    (typeof selectionStyle?.fontSize === 'number' ? selectionStyle.fontSize : fontSize);
   const listStyle = normalizeListStyle(props.listStyle);
+
+  const applyTextFormat = (patch: TextStylePatch, wholeElement: Record<string, unknown>) => {
+    if (applyStylePatchToActiveSelection(patch)) return;
+    updateProps(wholeElement, true);
+  };
 
   const cycleCase = () => {
     const order = ['none', 'uppercase', 'lowercase', 'capitalize'] as const;
@@ -291,37 +324,78 @@ export function ElementToolbar() {
       <div className="builder-context-toolbar-scroll flex min-h-[52px] items-center overflow-x-auto py-2.5 px-2">
         <div
           className="pointer-events-auto mx-auto flex w-max max-w-full items-center gap-0.5 rounded-full border border-gray-200/80 bg-white px-2 py-1 shadow-md"
-          onMouseDown={stopBubble}
+          onMouseDown={stopToolbarPointer}
           onClick={stopBubble}
         >
         <FontFamilyPicker
           value={fontFamily}
-          onChange={(family) => updateProp('fontFamily', family)}
+          onChange={(family) =>
+            applyTextFormat({ fontFamily: family }, { fontFamily: family })
+          }
         />
 
         <FontSizeStepper
-          value={fontSize}
-          onChange={(size) => updateProp('fontSize', size, false)}
-          onCommit={(size) => updateProp('fontSize', size, true)}
+          value={activeFontSize}
+          onChange={(size) => {
+            if (!applyStylePatchToActiveSelection({ fontSize: size })) {
+              updateProp('fontSize', size, false);
+            }
+          }}
+          onCommit={(size) =>
+            applyTextFormat({ fontSize: size }, { fontSize: size })
+          }
         />
 
         <ColorPicker
-          value={(props.color as string) || '#000000'}
-          onChange={(color) => updateProp('color', color, true)}
+          value={activeColor}
+          onChange={(color) => applyTextFormat({ color }, { color })}
         />
 
         <div className="mx-0.5 h-6 w-px bg-gray-200" />
 
-        <ToolbarIconButton title="Bold" active={isBold} onClick={() => updateProp('fontWeight', isBold ? 400 : 700)}>
+        <ToolbarIconButton
+          title="Bold (select text first, or apply to whole box)"
+          active={isBold}
+          onClick={() =>
+            applyTextFormat(
+              { fontWeight: isBold ? 400 : 700 },
+              { fontWeight: isBold ? 400 : 700 }
+            )
+          }
+        >
           <Bold className="h-4 w-4" />
         </ToolbarIconButton>
-        <ToolbarIconButton title="Italic" active={isItalic} onClick={() => updateProp('italic', !isItalic)}>
+        <ToolbarIconButton
+          title="Italic"
+          active={isItalic}
+          onClick={() =>
+            applyTextFormat({ italic: !isItalic }, { italic: !isItalic })
+          }
+        >
           <Italic className="h-4 w-4" />
         </ToolbarIconButton>
-        <ToolbarIconButton title="Underline" active={isUnderline} onClick={() => updateProp('underline', !isUnderline)}>
+        <ToolbarIconButton
+          title="Underline"
+          active={isUnderline}
+          onClick={() =>
+            applyTextFormat(
+              { underline: !isUnderline },
+              { underline: !isUnderline }
+            )
+          }
+        >
           <Underline className="h-4 w-4" />
         </ToolbarIconButton>
-        <ToolbarIconButton title="Strikethrough" active={isStrikethrough} onClick={() => updateProp('strikethrough', !isStrikethrough)}>
+        <ToolbarIconButton
+          title="Strikethrough"
+          active={isStrikethrough}
+          onClick={() =>
+            applyTextFormat(
+              { strikethrough: !isStrikethrough },
+              { strikethrough: !isStrikethrough }
+            )
+          }
+        >
           <Strikethrough className="h-4 w-4" />
         </ToolbarIconButton>
         <ToolbarIconButton title="Change case" onClick={cycleCase}>

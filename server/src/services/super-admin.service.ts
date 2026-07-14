@@ -28,6 +28,7 @@ import { buildTemplateListFilter, templateListProjection } from '../utils/templa
 import { ACTIVITY_USER_POPULATE, buildActivityLogSearchFilter } from './activity.service';
 import { subscriptionService } from './subscription.service';
 import { createBlankTemplate } from '../seeds/data/templates';
+import { cloneTemplatePagesExact } from '../utils/clone-template-pages';
 import { ensureCompanyInvoiceCode } from '../utils/company-invoice-code';
 import {
   buildDailyRevenueSeriesForCurrentWeek,
@@ -653,6 +654,51 @@ export const superAdminService = {
       name,
       category,
       description: typeof data.description === 'string' ? data.description.trim() : '',
+      pages,
+      isSystem: true,
+      createdBy: userId,
+      version: 1,
+      isActive: true,
+    });
+  },
+
+  async duplicateTemplate(userId: string, id: string, data: Record<string, unknown>) {
+    const source = await InvoiceTemplate.findOne({ _id: id, isSystem: true });
+    if (!source) throw new AppError('Template not found', 404);
+
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    if (!name) throw new AppError('Template name is required', 400);
+
+    const nameTaken = await InvoiceTemplate.exists({
+      isSystem: true,
+      name,
+      _id: { $ne: id },
+    });
+    if (nameTaken) {
+      throw new AppError(
+        'A template with this name already exists. Choose a different name to keep both.',
+        409
+      );
+    }
+
+    let category = normalizeTemplateCategory(source.category);
+    // Business categories allow only one system template — put copies under Super Admin.
+    if (!isSuperAdminTemplateCategory(category)) {
+      category = SUPER_ADMIN_TEMPLATE_CATEGORY;
+    }
+
+    const pages =
+      Array.isArray(data.pages) && data.pages.length > 0
+        ? (JSON.parse(JSON.stringify(data.pages)) as typeof source.pages)
+        : cloneTemplatePagesExact((source.pages ?? []) as never[]);
+
+    return InvoiceTemplate.create({
+      name,
+      category,
+      description:
+        typeof data.description === 'string'
+          ? data.description.trim()
+          : (source.description ?? ''),
       pages,
       isSystem: true,
       createdBy: userId,

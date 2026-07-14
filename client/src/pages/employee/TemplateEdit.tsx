@@ -13,6 +13,8 @@ export default function EmployeeTemplateEdit() {
   }
 
   const planCanAddTemplate = planAccess ? planAccess.canAddTemplate !== false : true;
+  const canCreateTemplates =
+    planCanAddTemplate && permissions.includes(PERMISSIONS.TEMPLATE_CREATE);
   const canForkSystemTemplates =
     planCanAddTemplate && permissions.includes(PERMISSIONS.TEMPLATE_EDIT);
 
@@ -22,6 +24,7 @@ export default function EmployeeTemplateEdit() {
       templatesListPath="/employee/templates"
       queryKey="employee-templates"
       canForkSystemTemplates={canForkSystemTemplates}
+      allowDuplicate={canCreateTemplates}
       planSyncOptions={employeePlanSyncQueryOptions}
     />
   );

@@ -13,6 +13,7 @@ export default function AdminTemplateEdit() {
       templatesListPath="/admin/templates"
       queryKey="admin-templates"
       canForkSystemTemplates={planCanAddTemplate}
+      allowDuplicate={planCanAddTemplate}
       planSyncOptions={adminPlanSyncQueryOptions}
     />
   );

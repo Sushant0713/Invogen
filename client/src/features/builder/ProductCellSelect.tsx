@@ -44,12 +44,21 @@ export function ProductCellSelect({
   const startValueRef = useRef(value);
   // Always mirrors the latest draft so delayed commits (blur timer) never use a stale value.
   const draftRef = useRef(draft);
+  /** Catalog pick already applied via onProductSelect — blur must not re-commit the old name. */
+  const skipNextDraftCommitRef = useRef(false);
 
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
 
   useEffect(() => {
+    // After a catalog pick, value is briefly stale — do not clobber the picked label.
+    if (skipNextDraftCommitRef.current) {
+      if (value.trim() === startValueRef.current.trim()) {
+        skipNextDraftCommitRef.current = false;
+      }
+      return;
+    }
     if (!open && document.activeElement !== inputRef.current) {
       setDraft(value);
     }
@@ -141,7 +150,9 @@ export function ProductCellSelect({
   };
 
   const closePanel = (saveDraft: boolean) => {
-    if (saveDraft) commitDraft(draftRef.current);
+    if (saveDraft && !skipNextDraftCommitRef.current) {
+      commitDraft(draftRef.current);
+    }
     setOpen(false);
     setListFilter('');
     setCategoryFilter(null);
@@ -153,8 +164,10 @@ export function ProductCellSelect({
     setDraft(display);
     startValueRef.current = display;
     setListFilter('');
+    setCategoryFilter(null);
+    // Apply pick first; never blur→commit the previous name (that undid pick/replace).
+    skipNextDraftCommitRef.current = true;
     setOpen(false);
-    inputRef.current?.blur();
     if (onProductSelect) {
       onProductSelect(product);
     } else {
@@ -163,6 +176,7 @@ export function ProductCellSelect({
   };
 
   const pickCustomName = (name: string) => {
+    skipNextDraftCommitRef.current = false;
     setDraft(name);
     commitDraft(name);
     setListFilter('');
@@ -173,6 +187,7 @@ export function ProductCellSelect({
   const typedQuery = () => listFilter.trim() || draft.trim();
 
   const openPanel = (options?: { focusSearch?: boolean }) => {
+    skipNextDraftCommitRef.current = false;
     startValueRef.current = value;
     setDraft(value);
     setListFilter('');
@@ -461,6 +476,7 @@ export function ProductCellSelect({
           placeholder="Type or select product"
           className="min-w-0 flex-1 bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400"
           onFocus={() => {
+            skipNextDraftCommitRef.current = false;
             startValueRef.current = value;
             setDraft(value);
             if (!open) {
@@ -472,6 +488,7 @@ export function ProductCellSelect({
             }
           }}
           onChange={(e) => {
+            skipNextDraftCommitRef.current = false;
             const next = e.target.value;
             setDraft(next);
             if (!open) {
@@ -496,6 +513,7 @@ export function ProductCellSelect({
             e.stopPropagation();
             if (e.key === 'Enter') {
               e.preventDefault();
+              skipNextDraftCommitRef.current = false;
               commitDraft(draft);
               setOpen(false);
               setListFilter('');
@@ -503,6 +521,7 @@ export function ProductCellSelect({
             }
             if (e.key === 'Escape') {
               e.preventDefault();
+              skipNextDraftCommitRef.current = false;
               setDraft(startValueRef.current);
               setOpen(false);
               setListFilter('');

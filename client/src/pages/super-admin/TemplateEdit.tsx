@@ -1,5 +1,6 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import type { TemplateDocument } from '@invogen/shared';
 import api from '@/api/client';
 import { InvoiceBuilder } from '@/features/builder/InvoiceBuilder';
 import { useHydrateTemplateBuilder } from '@/features/builder/use-hydrate-template-builder';
@@ -8,19 +9,22 @@ import { isSuperAdminTemplateCategory } from '@/pages/super-admin/template-categ
 
 export default function SuperAdminTemplateEdit() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const freshTemplate = (location.state as { freshTemplate?: TemplateDocument } | null)?.freshTemplate;
 
   const { data, isLoading } = useQuery({
     queryKey: ['super-admin-template', id],
     queryFn: async () => (await api.get(`/super-admin/templates/${id}`)).data.data,
-    enabled: !!id,
+    enabled: !!id && !freshTemplate,
     refetchOnWindowFocus: false,
   });
 
-  const { isReady } = useHydrateTemplateBuilder(data, id);
+  const resolved = freshTemplate?._id === id ? freshTemplate : data;
+  const { isReady } = useHydrateTemplateBuilder(resolved, id);
 
-  if (isLoading || !id || !data || !isReady) return <Loader fullScreen />;
+  if ((!freshTemplate && isLoading) || !id || !resolved || !isReady) return <Loader fullScreen />;
 
-  const backTo = isSuperAdminTemplateCategory(data.category ?? '')
+  const backTo = isSuperAdminTemplateCategory(resolved.category ?? '')
     ? '/super-admin/templates/super-admin'
     : '/super-admin/templates';
 
@@ -29,6 +33,8 @@ export default function SuperAdminTemplateEdit() {
       templateId={id}
       apiBase="/super-admin/templates"
       backTo={backTo}
+      templatesListPath="/super-admin/templates"
+      allowDuplicate
     />
   );
 }

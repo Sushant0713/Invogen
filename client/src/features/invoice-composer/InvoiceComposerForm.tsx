@@ -32,7 +32,15 @@ interface InvoiceComposerFormProps {
     elementId: string,
     rowId: string,
     columnId: string,
-    product: { name: string; sku?: string; price?: number }
+    product: {
+      name: string;
+      sku?: string;
+      price?: number;
+      discount?: number;
+      discountType?: 'percentage' | 'fixed';
+      gst?: number;
+      tax?: number;
+    }
   ) => void;
   onAddTableRow?: (pageId: string, elementId: string) => void;
   onDeleteTableRow?: (pageId: string, elementId: string, rowId: string) => void;
@@ -148,7 +156,7 @@ function FieldInput({
 }
 
 export function InvoiceComposerForm({
-  pages,
+  pages: _pages,
   pageList,
   formContext,
   onChange,
@@ -178,7 +186,10 @@ export function InvoiceComposerForm({
   onSelectCustomer,
   showPageManagement = true,
 }: InvoiceComposerFormProps) {
-  const formModel = buildComposerFormModel(pages);
+  // Scan tables from working pages (pageList) — same document edits/pick write to.
+  // `pages` is recalculated display output and can remint row ids after add-row,
+  // which makes rate/discount picks miss the target row (name still looks filled locally).
+  const formModel = buildComposerFormModel(pageList);
   const hasInvoiceDate = formModel.invoiceFields.includes('Date');
   const hasDueDate = formModel.invoiceFields.includes('DueDate');
   const invoiceOtherFields = formModel.invoiceFields.filter(

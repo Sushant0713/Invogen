@@ -196,6 +196,25 @@ function normalizeColumns(
 
   if (flexible.length === 0) {
     flexible.push(...DEFAULT_FLEX_COLUMNS.map((col, index) => migrateColumn(col, index)));
+  } else {
+    for (const def of DEFAULT_FLEX_COLUMNS) {
+      if (flexible.some((col) => col.id === def.id)) continue;
+      if (def.id === INVOICE2_COL_RATE) {
+        const hasRateLabel = flexible.some((col) => {
+          const norm = normalizeColumnLabel(col.label || '');
+          return /^rate$|unitprice|price|mrp/.test(norm) || norm.includes('rate');
+        });
+        if (hasRateLabel) continue;
+      }
+      if (def.id === INVOICE2_COL_QTY) {
+        const hasQtyLabel = flexible.some((col) => {
+          const norm = normalizeColumnLabel(col.label || '');
+          return /quant|qty|quantity/.test(norm);
+        });
+        if (hasQtyLabel) continue;
+      }
+      flexible.push(migrateColumn(def, flexible.length));
+    }
   }
 
   const fixed = getFixedColumnDefs(discountMode).map((def) => {

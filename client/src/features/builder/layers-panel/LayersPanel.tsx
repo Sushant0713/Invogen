@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import type { CanvasElement } from '@invogen/shared';
+import { toast } from 'sonner';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import {
   deleteElement,
@@ -28,6 +29,7 @@ import {
   toggleElementVisible,
   updateElement,
 } from '@/store/slices/builderSlice';
+import { writeBuilderClipboard } from '@/features/builder/builder-clipboard';
 import {
   filterOverlappingLayers,
   getLayerIndex,
@@ -232,6 +234,10 @@ export function LayersPanel() {
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
         onRename={startRename}
+        onCopy={(element) => {
+          writeBuilderClipboard([element]);
+          toast.success('Component copied');
+        }}
         onDuplicate={(id) => dispatch(duplicateElement(id))}
         onToggleVisible={(id) => dispatch(toggleElementVisible(id))}
         onToggleLock={(id) => dispatch(toggleElementLock(id))}

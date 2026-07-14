@@ -1,9 +1,9 @@
 import { useEffect, useCallback, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TemplateDocument, TemplateSummary } from '@invogen/shared';
 import {
-  Undo2, Redo2, ZoomIn, ZoomOut, Grid3X3, Plus, Trash2, Save, ArrowLeft, Layers, Eye, PencilLine,
+  Undo2, Redo2, ZoomIn, ZoomOut, Grid3X3, Plus, Trash2, Save, ArrowLeft, Layers, Eye, PencilLine, Copy,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import {
@@ -25,28 +25,38 @@ import api from '@/api/client';
 import { toast } from 'sonner';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 import { TemplateRenameDialog } from './TemplateRenameDialog';
+import { TemplateDuplicateDialog } from './TemplateDuplicateDialog';
+import { suggestTemplateName } from '@/features/template-gallery/CustomizeTemplateDialog';
 import {
   invalidateTemplateCache,
   publishSavedTemplateDocument,
+  primeTemplateCache,
 } from '@/features/template-gallery/template-loader';
 
 interface InvoiceBuilderProps {
   templateId: string;
   apiBase?: string;
   backTo?: string;
+  /** Base path for opening a duplicated template (`{base}/{id}/edit`). Defaults to `backTo`. */
+  templatesListPath?: string;
   onSave?: () => void;
   /** Show rename control for company custom templates (admin). */
   allowRename?: boolean;
+  /** Show duplicate control when the user may create/add templates. */
+  allowDuplicate?: boolean;
 }
 
 export function InvoiceBuilder({
   templateId,
   apiBase = '/admin/templates',
   backTo = '/admin/templates',
+  templatesListPath,
   onSave,
   allowRename = false,
+  allowDuplicate = false,
 }: InvoiceBuilderProps) {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { pages, activePageIndex, zoom, snapToGrid, isDirty, templateName, historyIndex, history } =
     useAppSelector((s) => s.builder);
@@ -55,15 +65,18 @@ export function InvoiceBuilder({
   const canDeletePage = pages.length > 1 && activePageIndex > 0;
   const selectedPageName = pages[activePageIndex]?.name ?? 'selected page';
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [positionOpen, setPositionOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
 
+  const listNamesEnabled = allowRename || allowDuplicate;
   const { data: companyTemplates = [] } = useQuery({
     queryKey: [apiBase, 'rename', templateId],
     queryFn: async () =>
       (await api.get(apiBase, { params: { limit: 200 } })).data.data as TemplateSummary[],
-    enabled: allowRename,
+    enabled: listNamesEnabled,
     staleTime: 0,
   });
 
@@ -71,10 +84,18 @@ export function InvoiceBuilder({
     () =>
       new Set(
         companyTemplates
-          .filter((template) => !template.isSystem && template._id !== templateId)
+          .filter((template) => {
+            if (apiBase.includes('super-admin')) return template._id !== templateId;
+            return !template.isSystem && template._id !== templateId;
+          })
           .map((template) => template.name)
       ),
-    [companyTemplates, templateId]
+    [companyTemplates, templateId, apiBase]
+  );
+
+  const suggestedDuplicateName = useMemo(
+    () => suggestTemplateName(`${templateName} Copy`, takenTemplateNames),
+    [templateName, takenTemplateNames]
   );
 
   const handleDeletePage = () => {
@@ -137,6 +158,53 @@ export function InvoiceBuilder({
       setSaving(false);
     }
   }, [apiBase, templateId, pages, templateName, dispatch, onSave, saving, queryClient]);
+
+  const duplicateTemplate = useCallback(
+    async (payload: { name: string; description: string }) => {
+      if (duplicating) return;
+      setDuplicating(true);
+      try {
+        const res = await api.post(`${apiBase}/${templateId}/duplicate`, {
+          name: payload.name,
+          description: payload.description,
+          pages: JSON.parse(JSON.stringify(pages)) as typeof pages,
+        });
+        const created = res.data?.data as TemplateDocument | undefined;
+        if (!created?._id) {
+          throw new Error('Missing duplicated template id');
+        }
+        if (created.pages?.length) {
+          primeTemplateCache(created);
+        }
+        await queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey;
+            return (
+              typeof key[0] === 'string'
+              && (String(key[0]).includes('template') || key[0] === apiBase)
+            );
+          },
+        });
+        setDuplicateOpen(false);
+        toast.success(`Template "${created.name}" created`);
+        const listBase = templatesListPath ?? backTo;
+        navigate(`${listBase}/${created._id}/edit`, {
+          replace: false,
+          state: { freshTemplate: created },
+        });
+      } catch (error) {
+        const message =
+          error
+          && typeof error === 'object'
+          && 'response' in error
+          && (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+        toast.error(message || 'Failed to duplicate template');
+      } finally {
+        setDuplicating(false);
+      }
+    },
+    [apiBase, templateId, pages, duplicating, queryClient, navigate, backTo, templatesListPath]
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -286,6 +354,18 @@ export function InvoiceBuilder({
             Rename
           </Button>
         ) : null}
+        {allowDuplicate ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDuplicateOpen(true)}
+            title="Duplicate template"
+            disabled={duplicating}
+          >
+            <Copy className="h-4 w-4" />
+            Duplicate
+          </Button>
+        ) : null}
         <Button size="sm" onClick={() => void saveTemplate()} loading={saving} disabled={saving}>
           <Save className="h-4 w-4" />
           Save
@@ -322,6 +402,14 @@ export function InvoiceBuilder({
         setRenameOpen(false);
         toast.success('Template renamed — click Save to keep changes');
       }}
+    />
+    <TemplateDuplicateDialog
+      open={duplicateOpen}
+      defaultName={suggestedDuplicateName}
+      takenNames={takenTemplateNames}
+      loading={duplicating}
+      onClose={() => setDuplicateOpen(false)}
+      onConfirm={(payload) => void duplicateTemplate(payload)}
     />
     </CompanyBrandingProvider>
   );

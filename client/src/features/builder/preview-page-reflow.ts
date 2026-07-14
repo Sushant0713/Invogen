@@ -69,15 +69,23 @@ function cloneElements(elements: CanvasElement[]): CanvasElement[] {
 
 /**
  * Background / fixed layers — do not participate in Word-like document flow.
- * Images, stamps, logos, dates, text, etc. all flow with the document.
- * Only watermarks, footers, and explicitly fixed elements stay put.
+ * Keep watermarks, footers, and media (image/logo/signature) at authored canvas Y
+ * so Live Preview matches the builder (Word-flow was packing logos upward).
+ * Text/dates still flow with the document; set fixedInFlow to pin other elements.
  */
 export function isPinnedPreviewElement(element: CanvasElement): boolean {
   if (element.visible === false) return false;
   if (element.type === ComponentType.WATERMARK) return true;
   if (isDocumentFooterElement(element)) return true;
+  if (
+    element.type === ComponentType.IMAGE
+    || element.type === ComponentType.LOGO
+    || element.type === ComponentType.SIGNATURE
+  ) {
+    return true;
+  }
   const props = (element.props ?? {}) as Record<string, unknown>;
-  // Opt-in: template authors can pin a media/asset with fixedInFlow.
+  // Opt-in: template authors can pin other elements with fixedInFlow.
   if (props.fixedInFlow === true) return true;
   return false;
 }
@@ -2898,12 +2906,14 @@ function reflowPagesWordStyle(
   const master = source[0];
   if (!master) return pages;
 
-  // Page 1 + auto continuation pages participate in one flow.
-  // Keep user-authored later pages (intentional letter/content) intact.
+  // Page 1 + pure auto table-continuation pages participate in one flow.
+  // Keep every authored later page (letter/content/independent tables) intact
+  // so Live Preview page count matches the template builder — do not require
+  // `userAuthored` (older templates and no-table pages often lack the flag).
   const flowSourcePages: TemplatePage[] = [master];
   const preservedTail: TemplatePage[] = [];
   for (const page of source.slice(1)) {
-    if (page.userAuthored === true && !pageIsPureAutoContinuation(page)) {
+    if (!pageIsPureAutoContinuation(page)) {
       preservedTail.push(page);
     } else {
       flowSourcePages.push(page);
@@ -3082,7 +3092,18 @@ function reflowPagesWordStyle(
     }
   }
 
-  const combined = [...result, ...preservedTail.map((page) => ({ ...page }))];
+  const combined = [
+    ...result,
+    ...preservedTail.map((page) => ({
+      ...page,
+      // Drop any stale cross-page flow stamps so media keeps builder page-local Y.
+      elements: page.elements.map((element) => {
+        const props = { ...(element.props ?? {}) } as Record<string, unknown>;
+        if (LOGICAL_FLOW_Y_KEY in props) delete props[LOGICAL_FLOW_Y_KEY];
+        return { ...element, props };
+      }),
+    })),
+  ];
   return applyPreviewPageNumbers(
     dropEmptyTrailingPages(normalizeDocumentFooters(combined))
   );

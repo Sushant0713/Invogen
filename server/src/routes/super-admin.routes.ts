@@ -48,6 +48,7 @@ router.patch('/components/:id', ctrl.updateComponent);
 router.delete('/components/:id', ctrl.deleteComponent);
 router.get('/templates', ctrl.getTemplates);
 router.post('/templates', ctrl.createTemplate);
+router.post('/templates/:id/duplicate', ctrl.duplicateTemplate);
 router.get('/templates/:id', ctrl.getTemplate);
 router.patch('/templates/:id', ctrl.updateTemplate);
 router.delete('/templates/:id', ctrl.deleteTemplate);

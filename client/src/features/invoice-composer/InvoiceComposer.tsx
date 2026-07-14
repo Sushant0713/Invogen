@@ -289,7 +289,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       elementId: string,
       rowId: string,
       columnId: string,
-      product: { name: string; sku?: string; price?: number }
+      product: { name: string; sku?: string; price?: number; discount?: number; discountType?: 'percentage' | 'fixed'; gst?: number; tax?: number }
     ) => {
       setWorkingPages((prev) =>
         updateComposerProductPick(
@@ -853,7 +853,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
                 useSampleData={false}
                 pageRefs={exportPageRefs}
                 trustTableProps
-                autoReflow
+                autoReflow={false}
               />
             </ProductSettingsProvider>
           </TaxSettingsProvider>

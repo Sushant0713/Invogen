@@ -76,6 +76,9 @@ export const getTemplate = wrap((req) => adminService.getTemplate(req.companyId!
 export const createTemplate = wrap((req) =>
   adminService.createTemplate(req.companyId!, req.user!.userId, req.body)
 );
+export const duplicateTemplate = wrap((req) =>
+  adminService.duplicateTemplate(req.companyId!, req.user!.userId, param(req.params.id), req.body)
+);
 export const updateTemplate = wrap((req) =>
   adminService.updateTemplate(req.companyId!, param(req.params.id), req.body)
 );

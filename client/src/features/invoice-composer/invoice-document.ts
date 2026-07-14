@@ -152,6 +152,29 @@ function updateElementOnPage(
   });
 }
 
+/** Normalize table structure (fixed rate/discount cols) but keep existing row ids for form picks. */
+function normalizeComposerTableForEdit(
+  elementType: string,
+  raw: Record<string, unknown>
+): ProductTableProps {
+  const sourceRows = Array.isArray(raw.rows) ? (raw.rows as Array<{ id?: unknown }>) : [];
+  const previousIds = sourceRows.map((row) => {
+    const id = row?.id != null ? String(row.id).trim() : '';
+    return id;
+  });
+  const normalized = normalizeTablePropsForType(elementType, raw);
+  if (previousIds.length === 0) return normalized;
+
+  // Prefer preserving ids by index. If normalize changes row count, keep surviving ids.
+  return {
+    ...normalized,
+    rows: normalized.rows.map((row, index) => ({
+      ...row,
+      id: previousIds[index] || String(row.id),
+    })),
+  };
+}
+
 function updateTableProps(
   type: string,
   props: ProductTableProps,
@@ -609,7 +632,8 @@ export function updateComposerProductPick(
     if (!isTableElementType(element.type)) return element;
     const raw = (element.props ?? {}) as Record<string, unknown>;
     const resolvedType = resolveTableElementType(element.type, raw);
-    const table = normalizeTablePropsForType(element.type, raw);
+    // Normalize so Rate + Discount columns exist; keep existing row ids for pick/replace.
+    const table = normalizeComposerTableForEdit(element.type, raw);
     const withEdit = applyProductPickToTable(
       resolvedType,
       table,
@@ -1301,7 +1325,7 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
       if (element.visible === false || !isTableElementType(element.type)) return;
       const raw = (element.props ?? {}) as Record<string, unknown>;
       const resolvedType = resolveTableElementType(element.type, raw);
-      const table = normalizeTablePropsForType(element.type, raw);
+      const table = normalizeComposerTableForEdit(element.type, raw);
       if (isSummaryOnlyTable(table)) return;
       const supportsDiscountMode = tableSupportsDiscountMode(resolvedType, table.columns);
       tables.push({
