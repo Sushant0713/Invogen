@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDown,
@@ -33,10 +33,8 @@ import {
 import { useReportCompany } from '@/features/reports/use-report-company';
 import { ReportStateFilter } from '@/features/reports/ReportStateFilter';
 import { ReportInvoiceStatusToggle } from '@/features/reports/ReportInvoiceStatusToggle';
-import {
-  ReportDateBasisToggle,
-  type ReportDateBasis,
-} from '@/features/reports/ReportDateBasisToggle';
+import { getSalesDateBasis } from '@/lib/sales-date-basis';
+import { useAppSelector } from '@/hooks/useAppDispatch';
 
 type SalesReportResponse = {
   companyName: string;
@@ -166,15 +164,23 @@ function exportCustomersCsv(rows: SalesReportResponse['customers'], companyName:
 }
 
 export function SalesReportTab() {
+  const companyId = useAppSelector((s) => s.auth.user?.companyId);
   const [datePreset, setDatePreset] = useState<ReportDatePreset>('this_month');
   const [status, setStatus] = useState('all');
-  const [dateBasis, setDateBasis] = useState<ReportDateBasis>('invoice');
+  const [dateBasis, setDateBasis] = useState(() => getSalesDateBasis(companyId));
   const [state, setState] = useState('all');
   const [currency] = useState('INR');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState('sales');
+
+  useEffect(() => {
+    setDateBasis(getSalesDateBasis(companyId));
+    const onChange = () => setDateBasis(getSalesDateBasis(companyId));
+    window.addEventListener('invogen:sales-date-basis-changed', onChange);
+    return () => window.removeEventListener('invogen:sales-date-basis-changed', onChange);
+  }, [companyId]);
 
   const range = useMemo(() => getReportPresetRange(datePreset), [datePreset]);
   const { data: company } = useReportCompany();
@@ -252,16 +258,6 @@ export function SalesReportTab() {
               value={status}
               onChange={(next) => {
                 setStatus(next);
-                setPage(1);
-              }}
-            />
-          </FilterField>
-
-          <FilterField label="Graph date" icon={<CalendarRange className="h-3.5 w-3.5" />}>
-            <ReportDateBasisToggle
-              value={dateBasis}
-              onChange={(next) => {
-                setDateBasis(next);
                 setPage(1);
               }}
             />

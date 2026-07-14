@@ -14,6 +14,13 @@ import { resolveInvoiceTotal } from '@/features/invoice-composer/invoice-totals'
 import { deleteInvoicesApi } from '@/features/invoice-composer/invoice-share';
 import { confirmToast } from '@/lib/confirm-toast';
 import { getDueProximity } from '@/lib/invoice-due-proximity';
+import {
+  getSalesDateBasis,
+  setSalesDateBasis,
+  type SalesDateBasisPreference,
+} from '@/lib/sales-date-basis';
+import { ReportDateBasisToggle } from '@/features/reports/ReportDateBasisToggle';
+import { useAppSelector } from '@/hooks/useAppDispatch';
 import { toast } from 'sonner';
 
 const PAGE_SIZE = 10;
@@ -34,10 +41,29 @@ function isDeletableInvoice(row: InvoiceRow): boolean {
 
 export default function AdminInvoices() {
   const queryClient = useQueryClient();
+  const companyId = useAppSelector((s) => s.auth.user?.companyId);
   const [searchParams, setSearchParams] = useSearchParams();
   const customerId = searchParams.get('customerId') ?? undefined;
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [dateBasis, setDateBasis] = useState<SalesDateBasisPreference>(() =>
+    getSalesDateBasis(companyId)
+  );
+
+  useEffect(() => {
+    setDateBasis(getSalesDateBasis(companyId));
+  }, [companyId]);
+
+  const handleDateBasisChange = (next: SalesDateBasisPreference) => {
+    setDateBasis(next);
+    setSalesDateBasis(next, companyId);
+    void queryClient.invalidateQueries({ queryKey: ['admin-reports-sales'] });
+    toast.success(
+      next === 'invoice'
+        ? 'Sales graph will use invoice date'
+        : 'Sales graph will use Sent/Paid click time'
+    );
+  };
 
   useEffect(() => {
     setPage(1);
@@ -125,17 +151,29 @@ export default function AdminInvoices() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">All Invoices</h1>
           <p className="mt-1 text-sm text-gray-500">Create, view, and share customer invoices.</p>
         </div>
-        <Link to="/admin/invoices/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            New Invoice
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col items-end gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Sales graph date
+            </span>
+            <ReportDateBasisToggle
+              compact
+              value={dateBasis}
+              onChange={handleDateBasisChange}
+            />
+          </div>
+          <Link to="/admin/invoices/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              New Invoice
+            </Button>
+          </Link>
+        </div>
       </div>
       {customerId ? (
         <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm text-gray-700">
