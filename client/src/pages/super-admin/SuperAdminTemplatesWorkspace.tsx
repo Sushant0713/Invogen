@@ -212,7 +212,11 @@ export function SuperAdminTemplatesWorkspace({ variant }: { variant: WorkspaceVa
         }
         onDeleteTemplate={(template) => void handleDeleteTemplate(template)}
         deletingTemplateId={deletingId}
+        onOpenTemplate={(template) => void handleViewTemplate(template)}
         onViewTemplate={(template) => void handleViewTemplate(template)}
+        onEditTemplate={(template) =>
+          navigate(`/super-admin/templates/${template._id}/edit`)
+        }
       />
 
       <TemplatePreviewModal

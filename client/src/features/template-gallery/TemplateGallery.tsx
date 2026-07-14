@@ -219,13 +219,15 @@ export function TemplateGallery({
               key={template._id}
               template={template}
               apiBase={apiBase}
-              onOpen={handleEdit}
+              onOpen={handleOpen}
+              onEdit={handleEdit}
               cardAction={renderCardAction?.(template)}
               onToggleFavorite={showFavorites ? onToggleFavorite : undefined}
               favorite={isFavorite(template._id)}
               onDelete={onDeleteTemplate}
               canDelete={canDeleteTemplate}
               showEdit={canShowEdit(template)}
+              canOpen={canOpenTemplate ? canOpenTemplate(template) : true}
               onView={onViewTemplate}
               isDeleting={deletingTemplateId === template._id}
             />

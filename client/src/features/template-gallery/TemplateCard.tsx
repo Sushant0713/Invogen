@@ -18,6 +18,8 @@ interface TemplateCardProps {
   canDelete?: (template: TemplateSummary) => boolean;
   favorite?: boolean;
   showEdit?: boolean;
+  /** When false, preview/title click does not open the template. */
+  canOpen?: boolean;
   onView?: (template: TemplateSummary) => void;
   isDeleting?: boolean;
   /** Custom primary action (e.g. New Invoice button). */
@@ -45,6 +47,7 @@ export function TemplateCard({
   canDelete,
   favorite,
   showEdit = true,
+  canOpen = true,
   onView,
   isDeleting = false,
   cardAction,
@@ -81,51 +84,64 @@ export function TemplateCard({
   const templatePages = fullTemplate?.pages;
   const brandingScope = brandingScopeFromApiBase(apiBase);
 
+  const openTemplate = () => {
+    if (!canOpen) return;
+    onOpen(template);
+  };
+
   return (
     <article
       ref={rootRef}
       className="group flex w-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
     >
-      <div className="flex justify-center px-3 pb-1 pt-4">
-        <div
-          className="overflow-hidden rounded-md border border-gray-200/90 bg-gray-50/80 p-1.5 shadow-sm"
-          style={{ width: PREVIEW_WIDTH + 12, height: PREVIEW_VIEWPORT_HEIGHT + 12 }}
-        >
+      <button
+        type="button"
+        onClick={openTemplate}
+        disabled={!canOpen}
+        className="flex w-full flex-col items-center text-left disabled:cursor-not-allowed disabled:opacity-60"
+        title={canOpen ? `Preview ${template.name}` : undefined}
+      >
+        <div className="flex justify-center px-3 pb-1 pt-4">
           <div
-            className="overflow-hidden rounded-sm bg-white"
-            style={{ width: PREVIEW_WIDTH, height: PREVIEW_VIEWPORT_HEIGHT }}
+            className="overflow-hidden rounded-md border border-gray-200/90 bg-gray-50/80 p-1.5 shadow-sm"
+            style={{ width: PREVIEW_WIDTH + 12, height: PREVIEW_VIEWPORT_HEIGHT + 12 }}
           >
-            {!visible || isLoading || !templatePages?.length ? (
-              <PreviewSkeleton />
-            ) : (
-              <TemplatePreviewRenderer
-                pages={templatePages}
-                maxWidth={PREVIEW_WIDTH}
-                brandingScope={brandingScope}
-                className="shadow-none"
-              />
-            )}
+            <div
+              className="overflow-hidden rounded-sm bg-white"
+              style={{ width: PREVIEW_WIDTH, height: PREVIEW_VIEWPORT_HEIGHT }}
+            >
+              {!visible || isLoading || !templatePages?.length ? (
+                <PreviewSkeleton />
+              ) : (
+                <TemplatePreviewRenderer
+                  pages={templatePages}
+                  maxWidth={PREVIEW_WIDTH}
+                  brandingScope={brandingScope}
+                  className="shadow-none"
+                />
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex min-h-[72px] flex-col items-center justify-center gap-0.5 px-3 pb-3 pt-2 text-center">
-        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
-          {template.name}
-        </h3>
-        <p
-          className={`line-clamp-1 text-xs font-medium ${
-            isSuperAdminTemplateCategory(template.category)
-              ? 'text-red-600'
-              : 'text-primary/80'
-          }`}
-        >
-          {formatTemplateCategoryLabel(template.category)}
-        </p>
-        {template.description ? (
-          <p className="line-clamp-2 text-xs leading-relaxed text-gray-500">{template.description}</p>
-        ) : null}
-      </div>
+        <div className="flex min-h-[72px] w-full flex-col items-center justify-center gap-0.5 px-3 pb-3 pt-2 text-center">
+          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
+            {template.name}
+          </h3>
+          <p
+            className={`line-clamp-1 text-xs font-medium ${
+              isSuperAdminTemplateCategory(template.category)
+                ? 'text-red-600'
+                : 'text-primary/80'
+            }`}
+          >
+            {formatTemplateCategoryLabel(template.category)}
+          </p>
+          {template.description ? (
+            <p className="line-clamp-2 text-xs leading-relaxed text-gray-500">{template.description}</p>
+          ) : null}
+        </div>
+      </button>
 
       <div className="mt-auto flex items-center justify-between border-t border-gray-100 px-4 py-2.5">
         {onToggleFavorite ? (

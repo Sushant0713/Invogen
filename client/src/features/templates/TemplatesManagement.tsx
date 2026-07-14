@@ -257,6 +257,7 @@ export function TemplatesManagement({
   };
 
   const handleOpenTemplate = (template: TemplateSummary) => {
+    // Card / recent click → live preview when configured; never open the builder here.
     if (enablePreviewActions && templateViewPath) {
       openTemplateView(template);
       return;
@@ -292,10 +293,10 @@ export function TemplatesManagement({
 
   const subtitle = enablePreviewActions
     ? canCreateTemplates
-      ? 'Edit company templates or add new copies. View opens live preview first; use Open Editor to fill invoice details.'
+      ? 'Click a template for live preview. Use the pencil to edit layout in the builder, or Open Editor from preview to create an invoice.'
       : planCanAddTemplate
-        ? 'View opens live preview first. Use Open Editor on top to fill invoice details, or Edit to customize template layout.'
-        : 'Browse templates on your plan. Use View to open the invoice editor with live preview.'
+        ? 'Click a template for live preview. Use the pencil to edit layout in the builder.'
+        : 'Click a template for live preview. Creating custom templates is not included in your plan.'
     : canCreateTemplates
       ? 'Edit templates or use Add Template to create a named copy from a system template.'
       : canEditTemplates
@@ -322,19 +323,13 @@ export function TemplatesManagement({
         }
         onOpenTemplate={handleOpenTemplate}
         onEditTemplate={(template) => {
-          if (enablePreviewActions && composerPath) {
-            openComposerEditor(template);
-            return;
-          }
           if (!canEditTemplateCard(template)) return;
           handleEditTemplate(template);
         }}
-        canEditTemplate={
-          enablePreviewActions ? () => true : canEditTemplateCard
-        }
-        canOpenTemplate={() => Boolean(enablePreviewActions && (templateViewPath || composerPath))}
+        canEditTemplate={canEditTemplateCard}
+        canOpenTemplate={() => Boolean(enablePreviewActions && templateViewPath)}
         onViewTemplate={
-          enablePreviewActions && (templateViewPath || composerPath)
+          enablePreviewActions && templateViewPath
             ? (template) => openTemplateView(template)
             : undefined
         }
