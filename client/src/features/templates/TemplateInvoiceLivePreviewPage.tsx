@@ -10,7 +10,7 @@ import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
 import { brandingScopeFromApiBase } from '@/features/builder/company-branding';
-import { fitPreviewCardLayout } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 import {
   applyInvoiceFormToPages,
   buildInitialFormContext,
@@ -51,9 +51,9 @@ export function TemplateInvoiceLivePreviewPage({
     if (!template?.pages?.length) return [];
     const normalized = normalizeComposerPages(template.pages);
     const keys = extractPlaceholderKeys(normalized);
-    const context = buildInitialFormContext(keys);
+    const context = buildInitialFormContext(keys, undefined, normalized);
     const filled = applyInvoiceFormToPages(normalized, context);
-    return fitPreviewCardLayout(filled);
+    return reflowPagesForPreview(filled, { trustTableProps: true });
   }, [template]);
 
   const previewMaxWidth = useMemo(
@@ -105,6 +105,7 @@ export function TemplateInvoiceLivePreviewPage({
                     pages={previewPages}
                     useSampleData={false}
                     trustTableProps
+                    autoReflow
                     previewMaxWidth={previewMaxWidth}
                   />
                 </div>

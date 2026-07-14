@@ -231,11 +231,11 @@ export const BUILDER_PALETTE: PaletteItem[] = [
   {
     id: 'field_date',
     type: ComponentType.DATE,
-    label: 'Date',
+    label: 'Invoice date',
     category: 'fields',
     iconKey: 'field_date',
     defaultProps: {
-      label: 'Date',
+      label: 'Invoice Date',
       value: formatDisplayDate(),
       useLiveDate: true,
     },

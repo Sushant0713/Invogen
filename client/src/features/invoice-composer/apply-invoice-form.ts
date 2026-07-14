@@ -7,8 +7,11 @@ import {
 import { parseAddressFromProps, buildAddressProps } from '@/features/builder/address-content';
 import { buildTermsProps, DEFAULT_TERMS_TITLE } from '@/features/builder/terms-content';
 import {
+  clampDueDateToInvoiceDate,
   formatIsoDate,
+  getDatePickerValue,
   isDateFieldComponentType,
+  normalizeInvoiceFormDates,
   toIsoDateValue,
 } from '@/lib/date-format';
 
@@ -149,10 +152,14 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
   if (value == null || value === '') return element;
 
   if (isDateFieldComponentType(element.type)) {
-    const isoValue = toIsoDateValue(String(value));
+    let isoValue = toIsoDateValue(String(value)) || String(value);
+    if (element.type === ComponentType.DUE_DATE) {
+      const invoiceIso = toIsoDateValue(String(context.Date ?? ''));
+      isoValue = clampDueDateToInvoiceDate(invoiceIso, isoValue) || isoValue;
+    }
     const nextProps: Record<string, unknown> = {
       ...(element.props ?? {}),
-      value: isoValue || value,
+      value: isoValue,
       useLiveDate: false,
     };
     if ('textRuns' in nextProps) delete nextProps.textRuns;
@@ -170,8 +177,9 @@ export function applyInvoiceFormToPages(
   pages: TemplatePage[],
   context: PlaceholderContext
 ): TemplatePage[] {
-  const withPlaceholders = applyPlaceholdersToPages(pages, context);
-  return patchStructuredElements(withPlaceholders, context);
+  const normalized = normalizeInvoiceFormDates(context);
+  const withPlaceholders = applyPlaceholdersToPages(pages, normalized);
+  return patchStructuredElements(withPlaceholders, normalized);
 }
 
 export interface CompanyDefaults {
@@ -212,14 +220,54 @@ export function draftInvoiceNumber(company?: CompanyDefaults): string {
   return `${prefix}-${padded}/${String(year).slice(-2)}-${String(year + 1).slice(-2)}`;
 }
 
+/**
+ * Read invoice / due dates from template date fields so a new invoice
+ * keeps the dates configured on that template (instead of always today).
+ * Live-date invoice fields still resolve to today.
+ */
+export function extractComposerDatesFromTemplate(pages: TemplatePage[]): {
+  Date: string;
+  DueDate: string;
+} {
+  const today = formatIsoDate();
+  const fallbackDue = new Date();
+  fallbackDue.setDate(fallbackDue.getDate() + 15);
+  const fallbackDueIso = formatIsoDate(fallbackDue);
+
+  let invoiceIso = '';
+  let dueIso = '';
+
+  for (const page of pages) {
+    for (const element of page.elements) {
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (element.type === ComponentType.DATE && !invoiceIso) {
+        invoiceIso = getDatePickerValue(props, element.type);
+      }
+      if (element.type === ComponentType.DUE_DATE && !dueIso) {
+        dueIso = getDatePickerValue(props, element.type);
+      }
+    }
+  }
+
+  if (!invoiceIso) invoiceIso = today;
+  if (!dueIso) dueIso = fallbackDueIso;
+  dueIso = clampDueDateToInvoiceDate(invoiceIso, dueIso) || dueIso;
+
+  return { Date: invoiceIso, DueDate: dueIso };
+}
+
 export function buildInitialFormContext(
   placeholderKeys: string[],
-  company?: CompanyDefaults
+  company?: CompanyDefaults,
+  templatePages?: TemplatePage[]
 ): PlaceholderContext {
   const today = formatIsoDate();
   const due = new Date();
   due.setDate(due.getDate() + 15);
   const dueDate = formatIsoDate(due);
+  const fromTemplate = templatePages?.length
+    ? extractComposerDatesFromTemplate(templatePages)
+    : null;
 
   const companyAddress = formatCompanyAddress(company?.address);
 
@@ -231,8 +279,8 @@ export function buildInitialFormContext(
     CompanyGST: company?.gst ?? '',
     ClientName: '',
     InvoiceNumber: draftInvoiceNumber(company),
-    Date: today,
-    DueDate: dueDate,
+    Date: fromTemplate?.Date ?? today,
+    DueDate: fromTemplate?.DueDate ?? dueDate,
     GST: '',
     PAN: company?.pan ?? '',
     Address: '',
@@ -251,7 +299,7 @@ export function buildInitialFormContext(
   placeholderKeys.forEach((key) => {
     if (context[key] == null) context[key] = '';
   });
-  return context;
+  return normalizeInvoiceFormDates(context);
 }
 
 export interface CustomerRecord {

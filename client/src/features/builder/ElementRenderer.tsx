@@ -43,6 +43,7 @@ import {
   OUTLINE_NUMBER_COLUMN,
   getOutlineTextIndent,
 } from './text-styles';
+import { findPrimaryInvoiceDateIso, resolveDueDateDisplayIso } from './invoice-date-order';
 import { StructuredContentSizer } from './StructuredContentSizer';
 import {
   structuredMeasureKey,
@@ -432,18 +433,33 @@ function DataFieldSurface({
   onStructuredContentHeight?: (height: number) => void;
   previewMode?: boolean;
 }) {
+  const pages = useAppSelector((s) => s.builder.pages);
   const editorRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
   const textStyle = getTextElementStyle(props, element.type);
   const displayStyle = getTextDisplayStyle(props, element.type);
   const isAddress = element.type === ComponentType.ADDRESS;
-  const label = (props.label as string) || 'Label';
+
+  const displayProps =
+    element.type === ComponentType.DUE_DATE
+      ? (() => {
+          const invoiceIso = findPrimaryInvoiceDateIso(pages);
+          const dueIso = resolveDueDateDisplayIso(props, invoiceIso);
+          return {
+            ...props,
+            value: dueIso,
+            useLiveDate: false,
+          };
+        })()
+      : props;
+
+  const label = (displayProps.label as string) || 'Label';
   const editValue = isAddress
-    ? formatAddressValue(parseAddressFromProps(props), {
-        hidden: new Set(parseHiddenAddressFields(props.hiddenFields)),
+    ? formatAddressValue(parseAddressFromProps(displayProps), {
+        hidden: new Set(parseHiddenAddressFields(displayProps.hiddenFields)),
       })
-    : getDataFieldValue(props, element.type);
-  const displayValue = getDisplayText(props, element.type, element.type);
+    : getDataFieldValue(displayProps, element.type);
+  const displayValue = getDisplayText(displayProps, element.type, element.type);
   const isMultiline = isAddress;
 
   useEffect(() => {
@@ -471,13 +487,13 @@ function DataFieldSurface({
   useEffect(() => {
     if (!isEditing || !isAddress || !editorRef.current) return;
     if (document.activeElement === editorRef.current) return;
-    const next = formatAddressValue(parseAddressFromProps(props), {
-      hidden: new Set(parseHiddenAddressFields(props.hiddenFields)),
+    const next = formatAddressValue(parseAddressFromProps(displayProps), {
+      hidden: new Set(parseHiddenAddressFields(displayProps.hiddenFields)),
     });
     if (editorRef.current.textContent !== next) {
       editorRef.current.textContent = next;
     }
-  }, [isEditing, isAddress, props]);
+  }, [isEditing, isAddress, displayProps]);
 
   const stopEditEvent = (e: React.SyntheticEvent) => {
     e.stopPropagation();

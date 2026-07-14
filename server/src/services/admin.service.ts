@@ -55,6 +55,37 @@ function toCompanyObjectId(companyId: string): mongoose.Types.ObjectId {
   return new mongoose.Types.ObjectId(companyId);
 }
 
+/** Invoice date (issueDate) and due date — due cannot be before invoice date. */
+function normalizeInvoiceDates(data: Record<string, unknown>): {
+  issueDate: Date;
+  dueDate?: Date;
+} {
+  const issueDate =
+    data.issueDate != null && data.issueDate !== ''
+      ? new Date(data.issueDate as string | Date)
+      : new Date();
+  if (Number.isNaN(issueDate.getTime())) {
+    throw new AppError('Invalid invoice date', 400);
+  }
+
+  if (data.dueDate == null || data.dueDate === '') {
+    return { issueDate };
+  }
+
+  const dueDate = new Date(data.dueDate as string | Date);
+  if (Number.isNaN(dueDate.getTime())) {
+    throw new AppError('Invalid due date', 400);
+  }
+
+  const issueDay = Date.UTC(issueDate.getFullYear(), issueDate.getMonth(), issueDate.getDate());
+  const dueDay = Date.UTC(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+  if (dueDay < issueDay) {
+    throw new AppError('Due date cannot be before invoice date', 400);
+  }
+
+  return { issueDate, dueDate };
+}
+
 async function generateUniqueJoinCode(companyId: string): Promise<string> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const joinCode = generateEmployeeJoinCode();
@@ -683,12 +714,16 @@ export const adminService = {
       }
     }
 
+    const { issueDate, dueDate } = normalizeInvoiceDates(data);
+
     const invoice = await Invoice.create({
       ...data,
       companyId,
       invoiceNumber,
       createdBy: userId,
       templateSnapshot,
+      issueDate,
+      dueDate,
       totals: resolveInvoiceTotals({
         totals: data.totals as Record<string, number> | undefined,
         customerSnapshot: data.customerSnapshot as { placeholders?: Record<string, unknown> },
@@ -701,13 +736,21 @@ export const adminService = {
   },
 
   async updateInvoice(companyId: string, id: string, data: Record<string, unknown>) {
-    const existing = await Invoice.findOne({ _id: id, companyId }).select('status');
+    const existing = await Invoice.findOne({ _id: id, companyId }).select('status issueDate dueDate');
     if (!existing) throw new AppError('Invoice not found', 404);
     if (existing.status === InvoiceStatus.PAID) {
       throw new AppError('Paid invoices cannot be edited', 400);
     }
 
     const { status: _ignoredStatus, ...rest } = data;
+    const { issueDate, dueDate } = normalizeInvoiceDates({
+      issueDate: rest.issueDate ?? existing.issueDate,
+      dueDate: rest.dueDate !== undefined ? rest.dueDate : existing.dueDate,
+    });
+    rest.issueDate = issueDate;
+    if (dueDate !== undefined) rest.dueDate = dueDate;
+    else if (rest.dueDate === null || rest.dueDate === '') delete rest.dueDate;
+
     if (rest.customerSnapshot || rest.totals) {
       rest.totals = resolveInvoiceTotals({
         totals: rest.totals as Record<string, number> | undefined,

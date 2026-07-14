@@ -33,6 +33,9 @@ export default function EmployeeTemplates() {
         allowedTemplateIds={planAccess?.allowedTemplateIds}
         planSyncOptions={employeePlanSyncQueryOptions}
         createBlockedMessage="Creating custom templates is not available on your company plan"
+        enablePreviewActions={canCreateInvoice || canEditTemplates}
+        templateViewPath={(templateId) => `/employee/templates/${templateId}/preview`}
+        composerPath={(templateId) => `/employee/invoices/new/${templateId}`}
       />
     );
   }

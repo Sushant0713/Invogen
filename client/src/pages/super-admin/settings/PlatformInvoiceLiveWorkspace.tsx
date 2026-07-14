@@ -5,7 +5,7 @@ import { Loader } from '@/components/ui/Loader';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
-import { fitPreviewCardLayout } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 import { useTaxSettingsQuery } from '@/features/builder/use-tax-settings-query';
 import { parseProductSettings } from '@/features/builder/product-settings';
 import { fetchTemplateDocument } from '@/features/template-gallery/template-loader';
@@ -309,7 +309,10 @@ export function PlatformInvoiceLiveWorkspace({
   );
 
   const pagesForPreview = useMemo(
-    () => (filledPages.length ? fitPreviewCardLayout(cloneTemplatePages(filledPages)) : []),
+    () =>
+      filledPages.length
+        ? reflowPagesForPreview(cloneTemplatePages(filledPages), { trustTableProps: true })
+        : [],
     [filledPages]
   );
 

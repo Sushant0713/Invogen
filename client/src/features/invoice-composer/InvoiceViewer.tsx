@@ -9,7 +9,7 @@ import {
   cloneTemplatePages,
   normalizeComposerPages,
 } from '@/features/invoice-composer/invoice-document';
-import { applyPreviewPageNumbers } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 
 interface InvoiceViewerProps {
   pages: TemplatePage[];
@@ -33,9 +33,11 @@ export function InvoiceViewer({
   madeWithInvogen,
   madeWithImage,
 }: InvoiceViewerProps) {
-  // Keep authored positions — TemplatePreviewPages fits long data fields clear of logos.
   const renderPages = useMemo(
-    () => applyPreviewPageNumbers(normalizeComposerPages(cloneTemplatePages(pages))),
+    () =>
+      reflowPagesForPreview(normalizeComposerPages(cloneTemplatePages(pages)), {
+        trustTableProps: true,
+      }),
     [pages]
   );
 
@@ -45,6 +47,7 @@ export function InvoiceViewer({
         pages={renderPages}
         useSampleData={false}
         trustTableProps
+        autoReflow
         previewMaxWidth={previewMaxWidth}
       />
     </div>

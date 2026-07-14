@@ -215,12 +215,30 @@ export default function AdminInvoices() {
           {
             key: 'issueDate',
             label: 'Invoice date',
-            render: (r) => formatDate((r.issueDate as string) || (r.createdAt as string)),
+            render: (r) => {
+              const snap = r.customerSnapshot as {
+                placeholders?: { Date?: string };
+              } | undefined;
+              const value =
+                (r.issueDate as string | undefined)
+                || snap?.placeholders?.Date
+                || '';
+              return value ? formatDate(value) : '—';
+            },
           },
           {
             key: 'dueDate',
             label: 'Due date',
-            render: (r) => (r.dueDate ? formatDate(r.dueDate as string) : '—'),
+            render: (r) => {
+              const snap = r.customerSnapshot as {
+                placeholders?: { DueDate?: string };
+              } | undefined;
+              const value =
+                (r.dueDate as string | undefined)
+                || snap?.placeholders?.DueDate
+                || '';
+              return value ? formatDate(value) : '—';
+            },
           },
           {
             key: 'actions',

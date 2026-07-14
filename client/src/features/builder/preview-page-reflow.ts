@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ComponentType } from '@invogen/shared';
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { getPageDimensions, type PageMargins } from './builder-dnd';
-import { isTableElementType, productTablePropsToRecord, resolveBuilderTablePropsForEdit, PREVIEW_PAGINATION_ROWS_KEY, PREVIEW_PAGINATION_RANGE_START_KEY, PREVIEW_PAGINATION_RANGE_END_KEY, PREVIEW_PAGINATION_TABLE_ID_KEY, resolvePaginationTableId, isTableContinuationSegment } from './product-table';
+import { isTableElementType, productTablePropsToRecord, resolveBuilderTablePropsForEdit, PREVIEW_PAGINATION_ROWS_KEY, PREVIEW_PAGINATION_RANGE_START_KEY, PREVIEW_PAGINATION_RANGE_END_KEY, PREVIEW_PAGINATION_TABLE_ID_KEY, resolvePaginationTableId, isTableContinuationSegment, mergeTablePaginationProps } from './product-table';
 import { isCardComponentType, estimateCardBlockHeight } from './card-components';
 import {
   resolvePreviewTableFittedLayout,
@@ -30,7 +30,13 @@ import {
 const PUSH_TOLERANCE_PX = 2;
 const FLOW_GAP_PX = 12;
 const ROW_Y_TOLERANCE_PX = 24;
+/** Keep invoice date + due date together across pages even when slightly staggered. */
+const DATE_CLUSTER_Y_PX = 100;
 const LOGICAL_FLOW_Y_KEY = '__logicalFlowY';
+
+function isInvoiceDateFieldType(type: string): boolean {
+  return type === ComponentType.DATE || type === ComponentType.DUE_DATE;
+}
 
 /** Word-style: repeat column titles on Page 1 and every continuation page. */
 function resolvePaginatedSegmentShowHeader(
@@ -61,15 +67,18 @@ function cloneElements(elements: CanvasElement[]): CanvasElement[] {
   return elements.map((element) => ({ ...element, props: { ...(element.props ?? {}) } }));
 }
 
-/** Background / fixed layers — do not participate in document flow. */
+/**
+ * Background / fixed layers — do not participate in Word-like document flow.
+ * Images, stamps, logos, dates, text, etc. all flow with the document.
+ * Only watermarks, footers, and explicitly fixed elements stay put.
+ */
 export function isPinnedPreviewElement(element: CanvasElement): boolean {
   if (element.visible === false) return false;
   if (element.type === ComponentType.WATERMARK) return true;
   if (isDocumentFooterElement(element)) return true;
-  // Invoice watermarks are often plain IMAGE/STAMP — keep authored x/y during reflow.
-  if (element.type === ComponentType.IMAGE || element.type === ComponentType.STAMP) {
-    return true;
-  }
+  const props = (element.props ?? {}) as Record<string, unknown>;
+  // Opt-in: template authors can pin a media/asset with fixedInFlow.
+  if (props.fixedInFlow === true) return true;
   return false;
 }
 
@@ -342,13 +351,124 @@ function stackOverflowElementsAtPageTop(
   const ordered = [...elements].sort(
     (a, b) => getLogicalFlowY(a) - getLogicalFlowY(b) || a.x - b.x
   );
+  const units = groupFlowIntoUnits(ordered);
 
   let cursorY = margins.top;
-  return ordered.map((element) => {
-    const next = withLogicalFlowY({ ...element, y: cursorY }, cursorY);
-    cursorY += element.height + FLOW_GAP_PX;
-    return next;
+  const placed: CanvasElement[] = [];
+  for (const unit of units) {
+    const result = placeFlowUnitAt(unit, cursorY);
+    placed.push(...result.placed);
+    cursorY = result.nextCursorY;
+  }
+  return placed;
+}
+
+/**
+ * Group flow items that must stay on the same page together:
+ * - tables alone
+ * - side-by-side row siblings
+ * - invoice date + due date (even if slightly staggered)
+ */
+function shouldJoinToFlowUnit(unit: CanvasElement[], candidate: CanvasElement): boolean {
+  if (isTableElementType(candidate.type)) return false;
+  if (unit.some((el) => isTableElementType(el.type))) return false;
+
+  const candidateY = getLogicalFlowY(candidate);
+  // Same visual row as any unit member (side-by-side logo / dates / etc.).
+  if (unit.some((el) => Math.abs(getLogicalFlowY(el) - candidateY) <= ROW_Y_TOLERANCE_PX)) {
+    return true;
+  }
+
+  // Invoice date + due date stay together when authored one below/beside the other.
+  const unitHasDate = unit.some((el) => isInvoiceDateFieldType(el.type));
+  if (unitHasDate && isInvoiceDateFieldType(candidate.type)) {
+    const unitMinY = Math.min(...unit.map(getLogicalFlowY));
+    const unitMaxY = Math.max(...unit.map(getLogicalFlowY));
+    if (
+      candidateY >= unitMinY - ROW_Y_TOLERANCE_PX
+      && candidateY <= unitMaxY + DATE_CLUSTER_Y_PX
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function groupFlowIntoUnits(flow: CanvasElement[]): CanvasElement[][] {
+  const units: CanvasElement[][] = [];
+  let index = 0;
+  while (index < flow.length) {
+    const element = flow[index];
+    if (isTableElementType(element.type)) {
+      units.push([element]);
+      index += 1;
+      continue;
+    }
+
+    const unit = [element];
+    let next = index + 1;
+    while (
+      next < flow.length
+      && !isTableElementType(flow[next].type)
+      && shouldJoinToFlowUnit(unit, flow[next])
+    ) {
+      unit.push(flow[next]);
+      next += 1;
+    }
+    units.push(unit);
+    index = next;
+  }
+  return units;
+}
+
+function measureFlowUnitHeight(unit: CanvasElement[]): number {
+  if (unit.length === 0) return 0;
+  if (unit.length === 1) return unit[0].height;
+  const minY = Math.min(...unit.map(getLogicalFlowY));
+  const maxBottom = Math.max(...unit.map((el) => getLogicalFlowY(el) + el.height));
+  return Math.max(maxBottom - minY, ...unit.map((el) => el.height));
+}
+
+/** Place a unit at cursorY while preserving relative X/Y inside the unit. */
+function placeFlowUnitAt(
+  unit: CanvasElement[],
+  cursorY: number
+): { placed: CanvasElement[]; nextCursorY: number } {
+  if (unit.length === 0) return { placed: [], nextCursorY: cursorY };
+  if (unit.length === 1) {
+    const placed = withLogicalFlowY({ ...unit[0], y: cursorY }, cursorY);
+    return {
+      placed: [placed],
+      nextCursorY: cursorY + placed.height + FLOW_GAP_PX,
+    };
+  }
+
+  const minY = Math.min(...unit.map(getLogicalFlowY));
+  const placed = unit.map((el) => {
+    const y = cursorY + (getLogicalFlowY(el) - minY);
+    return withLogicalFlowY({ ...el, y }, y);
   });
+  const top = Math.min(...placed.map((el) => el.y));
+  const bottom = Math.max(...placed.map((el) => el.y + el.height));
+  return {
+    placed,
+    nextCursorY: top + (bottom - top) + FLOW_GAP_PX,
+  };
+}
+
+function unitsFitAt(
+  cursorY: number,
+  units: CanvasElement[][],
+  contentBottom: number
+): boolean {
+  let y = cursorY;
+  for (const unit of units) {
+    const height = measureFlowUnitHeight(unit);
+    if (y + height > contentBottom + PUSH_TOLERANCE_PX) return false;
+    y += height + FLOW_GAP_PX;
+  }
+  return true;
 }
 
 /** Collect unique elements from every page, sorted by document flow order. */
@@ -358,12 +478,16 @@ function gatherReflowElements(pages: TemplatePage[]): {
 } {
   const byId = new Map<string, CanvasElement>();
 
-  for (const page of pages) {
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    const page = pages[pageIndex];
+    const pageHeight = getPageDimensions(page).height;
     for (const element of page.elements) {
       if (element.visible === false || isPinnedPreviewElement(element)) continue;
-      if (!byId.has(element.id)) {
-        byId.set(element.id, element);
-      }
+      if (byId.has(element.id)) continue;
+      // Stamp cross-page document Y so later sorts don't treat page-2 content
+      // (placed at margins.top ≈ 40) as if it belongs above the page-1 table.
+      const documentY = pageIndex * pageHeight + getLogicalFlowY(element);
+      byId.set(element.id, withLogicalFlowY({ ...element }, documentY));
     }
   }
 
@@ -371,9 +495,13 @@ function gatherReflowElements(pages: TemplatePage[]): {
     (a, b) => getLogicalFlowY(a) - getLogicalFlowY(b) || a.x - b.x
   );
   const margins = pages[0]?.margins ?? { top: 40, right: 40, bottom: 40, left: 40 };
+  const page1Height = pages[0] ? getPageDimensions(pages[0]).height : 0;
+  const page1Ys = elements
+    .map(getLogicalFlowY)
+    .filter((y) => y < page1Height || page1Height === 0);
   const startY =
-    elements.length > 0
-      ? Math.max(margins.top, Math.min(...elements.map(getLogicalFlowY)))
+    page1Ys.length > 0
+      ? Math.max(margins.top, Math.min(...page1Ys))
       : margins.top;
 
   return { elements, startY };
@@ -766,14 +894,15 @@ function measureElementForLayout(element: CanvasElement): CanvasElement {
   if (element.visible === false) return element;
 
   if (isTableElementType(element.type)) {
-    const { height, tableProps, allRows } = measureTableFittedHeight(element, 'full');
+    // Use segment height for continuations so page 2+ is not measured as the full table.
+    const { height, tableProps, allRows } = measureTableFittedHeight(element);
     const elementProps = (element.props ?? {}) as Record<string, unknown>;
+    // Set full row list AFTER merge — merge must not shrink it to the segment.
     return {
       ...element,
       height,
       props: {
-        ...elementProps,
-        ...tableProps,
+        ...mergeTablePaginationProps(elementProps, tableProps),
         [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
       },
     };
@@ -876,17 +1005,50 @@ function paginateTableInDocumentFlow(
     fitted.tableProps
   ) as ProductTableProps;
   const allRows = resolvePaginationAllRows(elementProps, fullTable);
-  const tableForSplit: ProductTableProps = { ...fullTable, rows: allRows };
-  const fullHeight = resolveTableElementSize(element.type, tableForSplit).height;
+
+  // Continuations already own a window into allRows (e.g. start=5). Paginate only
+  // that window and keep absolute indexes so Sr.No. continues (6, 7…) on page 2+.
+  const rangeStartRaw = elementProps[PREVIEW_PAGINATION_RANGE_START_KEY];
+  const rangeEndRaw = elementProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+  let baseStart =
+    typeof rangeStartRaw === 'number' && rangeStartRaw >= 0
+      ? Math.floor(rangeStartRaw)
+      : 0;
+  let baseEnd =
+    typeof rangeEndRaw === 'number' && rangeEndRaw > baseStart
+      ? Math.floor(rangeEndRaw)
+      : allRows.length;
+
+  // Clamp stale ranges so we never get an empty window (that looped empty pages
+  // and discarded images/dates after the table).
+  if (allRows.length === 0) {
+    return { onPage: null, overflow: [] };
+  }
+  if (baseStart >= allRows.length) {
+    baseStart = 0;
+    baseEnd = allRows.length;
+  } else {
+    baseEnd = Math.min(Math.max(baseEnd, baseStart + 1), allRows.length);
+  }
+
+  const segmentRows = allRows.slice(baseStart, baseEnd);
+  const tableForSplit: ProductTableProps = { ...fullTable, rows: segmentRows };
+  const segmentHeight = resolveTableElementSize(element.type, tableForSplit).height;
   const spaceLeft = contentBottom - cursorY;
+  const showHeader = resolvePaginatedSegmentShowHeader(fullTable);
+  const isTailOfDocument = baseEnd >= allRows.length;
+
+  if (segmentRows.length === 0) {
+    return { onPage: null, overflow: [] };
+  }
 
   if (spaceLeft <= PUSH_TOLERANCE_PX) {
     const continuation = buildTableSegment(
       element.type,
-      tableForSplit,
-      0,
-      allRows.length,
-      { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: true },
+      { ...fullTable, rows: allRows },
+      baseStart,
+      baseEnd,
+      { showHeader, isLastSegment: isTailOfDocument },
       allRows
     );
     return {
@@ -897,23 +1059,65 @@ function paginateTableInDocumentFlow(
           elementProps,
           continuation.tableProps,
           allRows,
-          0,
-          allRows.length,
+          baseStart,
+          baseEnd,
           continuation.height
         ),
       ],
     };
   }
 
-  if (fullHeight <= spaceLeft + PUSH_TOLERANCE_PX) {
+  if (segmentHeight <= spaceLeft + PUSH_TOLERANCE_PX) {
+    const pageSegment = buildTableSegment(
+      element.type,
+      { ...fullTable, rows: allRows },
+      baseStart,
+      baseEnd,
+      { showHeader, isLastSegment: isTailOfDocument },
+      allRows
+    );
+    // Always keep absolute range so page-2+ Sr.No. does not restart at 1.
+    const range =
+      baseStart > 0 || baseEnd < allRows.length
+        ? { start: baseStart, end: baseEnd }
+        : undefined;
+    const overflow: CanvasElement[] = [];
+    // Stale short range with more rows in allRows — continue them on the next page.
+    if (baseEnd < allRows.length) {
+      const rest = buildTableSegment(
+        element.type,
+        { ...fullTable, rows: allRows },
+        baseEnd,
+        allRows.length,
+        { showHeader, isLastSegment: true },
+        allRows
+      );
+      overflow.push(
+        makeTableContinuationElement(
+          element,
+          elementProps,
+          rest.tableProps,
+          allRows,
+          baseEnd,
+          allRows.length,
+          rest.height
+        )
+      );
+    }
     return {
       onPage: {
         ...element,
         y: cursorY,
-        height: fullHeight,
-        props: tablePropsForPageSegment(elementProps, fitted.tableProps, allRows, element.id),
+        height: pageSegment.height,
+        props: tablePropsForPageSegment(
+          elementProps,
+          pageSegment.tableProps,
+          allRows,
+          element.id,
+          range
+        ),
       },
-      overflow: [],
+      overflow,
     };
   }
 
@@ -927,10 +1131,10 @@ function paginateTableInDocumentFlow(
   if (splitIndex <= 0) {
     const continuation = buildTableSegment(
       element.type,
-      tableForSplit,
-      0,
-      allRows.length,
-      { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: true },
+      { ...fullTable, rows: allRows },
+      baseStart,
+      baseEnd,
+      { showHeader, isLastSegment: isTailOfDocument },
       allRows
     );
     return {
@@ -941,28 +1145,29 @@ function paginateTableInDocumentFlow(
           elementProps,
           continuation.tableProps,
           allRows,
-          0,
-          allRows.length,
+          baseStart,
+          baseEnd,
           continuation.height
         ),
       ],
     };
   }
 
+  const absoluteSplit = baseStart + splitIndex;
   const pageSegment = buildTableSegment(
     element.type,
-    tableForSplit,
-    0,
-    splitIndex,
-    { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: false },
+    { ...fullTable, rows: allRows },
+    baseStart,
+    absoluteSplit,
+    { showHeader, isLastSegment: false },
     allRows
   );
   const continuationSegment = buildTableSegment(
     element.type,
-    tableForSplit,
-    splitIndex,
-    allRows.length,
-    { showHeader: resolvePaginatedSegmentShowHeader(fullTable), isLastSegment: true },
+    { ...fullTable, rows: allRows },
+    absoluteSplit,
+    baseEnd,
+    { showHeader, isLastSegment: isTailOfDocument },
     allRows
   );
 
@@ -976,7 +1181,7 @@ function paginateTableInDocumentFlow(
         pageSegment.tableProps,
         allRows,
         element.id,
-        { start: 0, end: splitIndex }
+        { start: baseStart, end: absoluteSplit }
       ),
     },
     overflow: [
@@ -985,25 +1190,12 @@ function paginateTableInDocumentFlow(
         elementProps,
         continuationSegment.tableProps,
         allRows,
-        splitIndex,
-        allRows.length,
+        absoluteSplit,
+        baseEnd,
         continuationSegment.height
       ),
     ],
   };
-}
-
-function stackFitsAt(
-  cursorY: number,
-  blocks: CanvasElement[],
-  contentBottom: number
-): boolean {
-  let y = cursorY;
-  for (const block of blocks) {
-    if (y + block.height > contentBottom + PUSH_TOLERANCE_PX) return false;
-    y += block.height + FLOW_GAP_PX;
-  }
-  return true;
 }
 
 function spillRemainingFlow(
@@ -1012,11 +1204,13 @@ function spillRemainingFlow(
   cursorY: number,
   overflow: CanvasElement[]
 ): void {
+  const remaining = flow.slice(startIndex);
+  const units = groupFlowIntoUnits(remaining);
   let y = cursorY;
-  for (let index = startIndex; index < flow.length; index += 1) {
-    const block = flow[index];
-    overflow.push(withLogicalFlowY({ ...block, y }, y));
-    y += block.height + FLOW_GAP_PX;
+  for (const unit of units) {
+    const result = placeFlowUnitAt(unit, y);
+    overflow.push(...result.placed);
+    y = result.nextCursorY;
   }
 }
 
@@ -1087,7 +1281,19 @@ function enforcePageBottomSpill(
   const flowIndex = flow.findIndex((element) => element.id === flowOnPage[firstPastBottom].id);
   if (flowIndex < 0) return onPage;
 
+  // Never split a side-by-side / date-pair unit — spill from the start of that unit.
   let spillIndex = flowIndex;
+  const units = groupFlowIntoUnits(flow);
+  let cursor = 0;
+  for (const unit of units) {
+    const unitEnd = cursor + unit.length;
+    if (flowIndex >= cursor && flowIndex < unitEnd) {
+      spillIndex = cursor;
+      break;
+    }
+    cursor = unitEnd;
+  }
+
   if (isTableElementType(flow[spillIndex].type) && spillIndex > 0) {
     const prev = flow[spillIndex - 1];
     if (!isTableElementType(prev.type) && onPage.some((element) => element.id === prev.id)) {
@@ -1116,80 +1322,102 @@ function sortOverflowByFlowOrder(overflow: CanvasElement[]): CanvasElement[] {
 /**
  * Layout one page like Word/Canva:
  * 1. Measure natural heights
- * 2. Stack in document order (top → bottom)
+ * 2. Stack in document order (top → bottom), keeping side-by-side / date pairs together
  * 3. Split table rows when the stack reaches the page bottom
  * 4. Spill remaining blocks to the next page
+ *
+ * `preplaced` keeps authored header content (above the first table) at its original Y.
  */
 function layoutPageDocumentFlow(
   page: TemplatePage,
   elements: CanvasElement[],
-  startY?: number
+  startY?: number,
+  preplaced: CanvasElement[] = []
 ): { page: TemplatePage; overflow: CanvasElement[] } {
-  const { height: pageHeight } = getPageDimensions(page);
   const contentTop = page.margins.top;
   const contentBottom = getFlowContentBottomLimit(page);
 
   const pinned = elements.filter(
     (element) => element.visible !== false && isPinnedPreviewElement(element)
   );
-  const pinnedCount = pinned.length;
-  const flow = sortDocumentFlowElements(elements).map(measureElementForLayout);
+  const preplacedIds = new Set(preplaced.map((el) => el.id));
+  const pinnedCount = pinned.length + preplaced.length;
+  const flow = sortDocumentFlowElements(elements)
+    .filter((element) => !preplacedIds.has(element.id))
+    .map(measureElementForLayout);
 
-  const onPage: CanvasElement[] = [...pinned];
+  const onPage: CanvasElement[] = [...pinned, ...preplaced];
   const overflow: CanvasElement[] = [];
 
   if (flow.length === 0) {
     return { page: { ...page, elements: onPage }, overflow };
   }
 
-  let cursorY = startY ?? Math.max(contentTop, getLogicalFlowY(flow[0]));
+  const units = groupFlowIntoUnits(flow);
+  // Spilled blocks keep a high logical Y from the previous page for sort order only.
+  // Never start a page at that Y — it sits past the footer and every unit "won't fit",
+  // so overflow pages stay empty and get dropped (images/dates disappear).
+  let cursorY = startY ?? contentTop;
+  if (startY === undefined && flow.length > 0) {
+    const authoredY = getLogicalFlowY(flow[0]);
+    if (authoredY < contentBottom - PUSH_TOLERANCE_PX) {
+      cursorY = Math.max(contentTop, authoredY);
+    }
+  }
+  if (preplaced.length > 0) {
+    const preBottom = Math.max(...preplaced.map((el) => el.y + el.height));
+    cursorY = Math.max(cursorY, preBottom + FLOW_GAP_PX);
+  }
+  // Clamp: if cursor is already past usable area, reset to top (continuation page).
+  if (cursorY >= contentBottom - PUSH_TOLERANCE_PX) {
+    cursorY = contentTop;
+  }
+  let flowIndex = 0;
 
-  for (let flowIndex = 0; flowIndex < flow.length; flowIndex += 1) {
-    const element = flow[flowIndex];
-    const remaining = flow.slice(flowIndex);
+  for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
+    const unit = units[unitIndex];
+    const element = unit[0];
 
     if (isTableElementType(element.type)) {
       const paginated = paginateTableInDocumentFlow(element, cursorY, contentBottom);
       if (paginated.onPage === null) {
-        spillFlowFromIndex(
-          flow,
-          flowIndex,
-          onPage,
-          pinnedCount,
-          overflow,
-          contentTop,
-          startY
-        );
+        // Prefer the ranged continuation from paginate; then spill following blocks.
+        for (const spill of paginated.overflow) {
+          overflow.push(withLogicalFlowY(spill, contentTop));
+        }
+        const spillFrom =
+          paginated.overflow.length > 0 ? flowIndex + unit.length : flowIndex;
+        spillRemainingFlow(flow, spillFrom, contentTop, overflow);
         break;
       }
 
       const placed = withLogicalFlowY(paginated.onPage, cursorY);
       onPage.push(placed);
       cursorY = placed.y + placed.height + FLOW_GAP_PX;
+      flowIndex += unit.length;
 
       for (const spill of paginated.overflow) {
         overflow.push(withLogicalFlowY(spill, cursorY));
       }
 
-      const nextIndex = flowIndex + 1;
-      if (nextIndex < flow.length) {
-        const afterTable = flow.slice(nextIndex);
-        if (!stackFitsAt(cursorY, afterTable, contentBottom)) {
-          spillRemainingFlow(flow, nextIndex, cursorY, overflow);
+      if (unitIndex + 1 < units.length) {
+        if (!unitsFitAt(cursorY, units.slice(unitIndex + 1), contentBottom)) {
+          spillRemainingFlow(flow, flowIndex, cursorY, overflow);
           break;
         }
       }
       continue;
     }
 
-    if (!stackFitsAt(cursorY, remaining, contentBottom)) {
+    if (!unitsFitAt(cursorY, units.slice(unitIndex), contentBottom)) {
       spillRemainingFlow(flow, flowIndex, cursorY, overflow);
       break;
     }
 
-    const placed = withLogicalFlowY({ ...element, y: cursorY }, cursorY);
-    onPage.push(placed);
-    cursorY += placed.height + FLOW_GAP_PX;
+    const placedUnit = placeFlowUnitAt(unit, cursorY);
+    onPage.push(...placedUnit.placed);
+    cursorY = placedUnit.nextCursorY;
+    flowIndex += unit.length;
   }
 
   const trimmedOnPage = enforcePageBottomSpill(
@@ -1225,19 +1453,24 @@ function splitOverflowElements(
     return { staying, overflow };
   }
 
-  // Per-element spill — never drop a whole "row" of siblings when one tall table
-  // overflows. (Row-based spill was removing headers/components above the table
-  // when they shared a Y-band within ROW_Y_TOLERANCE, or sat after an unsplit table.)
-  for (const element of flow) {
-    const top = element.y;
-    const bottom = element.y + element.height;
-    const startsPastBottom = top >= contentBottomLimit - PUSH_TOLERANCE_PX;
-    const extendsPastBottom = bottom > contentBottomLimit + PUSH_TOLERANCE_PX;
+  // Spill by flow units so side-by-side / invoice+due date pairs stay on one page.
+  const units = groupFlowIntoUnits(flow);
+  let spilling = false;
+  for (const unit of units) {
+    const unitPastBottom = unit.some((element) => {
+      const top = element.y;
+      const bottom = element.y + element.height;
+      return (
+        top >= contentBottomLimit - PUSH_TOLERANCE_PX
+        || bottom > contentBottomLimit + PUSH_TOLERANCE_PX
+      );
+    });
 
-    if (startsPastBottom || extendsPastBottom) {
-      overflow.push(element);
+    if (spilling || unitPastBottom) {
+      spilling = true;
+      overflow.push(...unit);
     } else {
-      staying.push(element);
+      staying.push(...unit);
     }
   }
 
@@ -2044,7 +2277,8 @@ function pageNeedsTableReflow(page: TemplatePage): boolean {
     const tableForMeasure = resolveTableRowsForPageSegment(elementProps, fittedTable, allRows);
     const fittedHeight = resolveTableElementSize(element.type, tableForMeasure).height;
 
-    if (fittedHeight > element.height + PUSH_TOLERANCE_PX) return true;
+    // Grow OR shrink (add/delete rows) must reflow so content below moves with the table.
+    if (Math.abs(fittedHeight - element.height) > PUSH_TOLERANCE_PX) return true;
     if (element.y + fittedHeight > contentBottomLimit + PUSH_TOLERANCE_PX) return true;
     if (!tableHasPaginationSegment(elementProps) && allRows.length !== table.rows.length) {
       return true;
@@ -2054,7 +2288,7 @@ function pageNeedsTableReflow(page: TemplatePage): boolean {
     return tableForMeasure.rows.some((row, rowIndex) => {
       const next = fittedTable.rows[rowIndex];
       if (!next) return true;
-      return next.heightPx > row.heightPx + PUSH_TOLERANCE_PX;
+      return Math.abs(next.heightPx - row.heightPx) > PUSH_TOLERANCE_PX;
     });
   });
 }
@@ -2074,39 +2308,10 @@ export function layoutDocumentPages(
 export const reflowTablesOnlyForPreview = layoutDocumentPages;
 
 /**
- * Builder editor layout — same Word-like engine as live preview so canvas matches output.
+ * Builder editor layout — same Word-like engine as live preview.
  */
 export function layoutBuilderPages(pages: TemplatePage[]): TemplatePage[] {
-  if (pages.length === 0) return pages;
-  const consolidated = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
-  // Preserve authored table Y on every page (not only page 1).
-  const anchorTablePositions = new Map<string, number>();
-  for (const page of consolidated) {
-    for (const element of page.elements) {
-      if (element.visible === false || !isTableElementType(element.type)) continue;
-      const props = (element.props ?? {}) as Record<string, unknown>;
-      if (isTableContinuationSegment(props)) continue;
-      anchorTablePositions.set(element.id, element.y);
-    }
-  }
-  const source = builderRepaginationSource(consolidated);
-  let result = dropEmptyTrailingPages(reflowPagesForPreview(source, { trustTableProps: true }));
-  if (anchorTablePositions.size > 0) {
-    result = result.map((page) => ({
-      ...page,
-      elements: page.elements.map((element) => {
-        const anchorY = anchorTablePositions.get(element.id);
-        if (anchorY === undefined) return element;
-        const props = (element.props ?? {}) as Record<string, unknown>;
-        if (isTableContinuationSegment(props)) return element;
-        return { ...element, y: anchorY };
-      }),
-    }));
-  }
-  result = sanitizeAnchorPageTableDuplicates(result);
-  result = ensureMissingTableContinuationPages(result);
-  result = normalizeDocumentFooters(result);
-  return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
+  return reflowPagesForPreview(pages, { trustTableProps: true });
 }
 
 /** True when a page only holds auto table-continuations (or is empty aside from footers). */
@@ -2323,9 +2528,8 @@ function reflowPagesWithExpandedCards(pages: TemplatePage[]): TemplatePage[] {
 }
 
 /**
- * Grow cards / terms / address blocks to fit filled content and push elements below
- * (divider, invoice #, table, etc.). Skips table expansion/pagination so authored
- * table position stays intact — use this for live preview vs builder matching.
+ * Grow cards / terms / address blocks only (no table pagination).
+ * Prefer `reflowPagesForPreview` for live preview — it includes Word-style flow.
  */
 export function fitPreviewCardLayout(pages: TemplatePage[]): TemplatePage[] {
   if (pages.length === 0) return pages;
@@ -2339,63 +2543,235 @@ export function fitPreviewCardLayout(pages: TemplatePage[]): TemplatePage[] {
   );
 }
 
+/**
+ * Word-like document flow:
+ * 1. Gather all flow components across page 1 + auto-continuation pages
+ * 2. Keep content above the first table at authored positions (header band)
+ * 3. Restack the table + everything below with row splitting / pagination
+ * 4. When the table shrinks, overflow content pulls back to earlier pages
+ *
+ * User-authored page 2+ (intentional multi-page content) is preserved separately.
+ */
+function reflowPagesWordStyle(
+  pages: TemplatePage[],
+  _options: PreviewReflowOptions = {}
+): TemplatePage[] {
+  if (pages.length === 0) return pages;
+
+  const source = cloneTemplatePages(pages);
+  const master = source[0];
+  if (!master) return pages;
+
+  // Page 1 + auto continuation pages participate in one flow.
+  // Keep user-authored later pages (intentional letter/content) intact.
+  const flowSourcePages: TemplatePage[] = [master];
+  const preservedTail: TemplatePage[] = [];
+  for (const page of source.slice(1)) {
+    if (page.userAuthored === true && !pageIsPureAutoContinuation(page)) {
+      preservedTail.push(page);
+    } else {
+      flowSourcePages.push(page);
+    }
+  }
+
+  const { elements: gathered } = gatherReflowElements(flowSourcePages);
+  if (gathered.length === 0 && preservedTail.length === 0) {
+    return applyPreviewPageNumbers(dropEmptyTrailingPages(source));
+  }
+
+  // `gathered` already has cross-page document Y stamped — do not re-sort by
+  // page-local Y or page-2 images (y≈40) jump into the header above the table.
+  const sortedGathered = sortDocumentFlowElements(gathered);
+  const firstTableIndex = sortedGathered.findIndex(
+    (element) =>
+      isTableElementType(element.type)
+      && !isTableContinuationSegment((element.props ?? {}) as Record<string, unknown>)
+  );
+
+  // Header band: only page-1 content that was authored above the first table.
+  // Restore page-local Y (document stamp can equal local Y on page 1).
+  const page1Height = getPageDimensions(master).height;
+  const headerBand =
+    firstTableIndex > 0
+      ? sortedGathered
+          .slice(0, firstTableIndex)
+          .filter((el) => getLogicalFlowY(el) < page1Height)
+          .map((el) => {
+            // Page-1 stamp equals local Y; keep authored position for preplace.
+            const localY = getLogicalFlowY(el);
+            return withLogicalFlowY({ ...el, y: localY }, localY);
+          })
+      : [];
+  let body =
+    firstTableIndex >= 0 ? sortedGathered.slice(firstTableIndex) : sortedGathered;
+
+  // Grow cards / structured blocks in the flowing body before pagination.
+  body = expandCardsAndPushBelow(body);
+  body = expandStructuredBlocksAndPushBelow(body);
+  body = sortDocumentFlowElements(body);
+
+  const tableStartY =
+    firstTableIndex >= 0
+      ? (() => {
+          const raw = getLogicalFlowY(sortedGathered[firstTableIndex]);
+          // Table on page 1 — use page-local Y, not a stamped multi-page value.
+          return raw >= page1Height ? master.margins.top : raw;
+        })()
+      : master.margins.top;
+
+  const bodyStartY =
+    body.length > 0
+      ? Math.max(
+          master.margins.top,
+          tableStartY,
+          headerBand.length > 0
+            ? Math.max(...headerBand.map((el) => el.y + el.height)) + FLOW_GAP_PX
+            : master.margins.top
+        )
+      : master.margins.top;
+
+  const page1Pinned = master.elements.filter(
+    (element) => element.visible === false || isPinnedPreviewElement(element)
+  );
+
+  const result: TemplatePage[] = [];
+  let remaining = body;
+  let pageNumber = 1;
+  let isFirst = true;
+  let guard = 0;
+
+  while ((remaining.length > 0 || isFirst) && guard < 32) {
+    guard += 1;
+
+    const shell: TemplatePage = {
+      id: isFirst ? master.id : uuidv4(),
+      name: `Page ${pageNumber}`,
+      margins: { ...master.margins },
+      pageSize: master.pageSize ? { ...master.pageSize } : undefined,
+      userAuthored: isFirst ? master.userAuthored : false,
+      elements: [],
+    };
+
+    const pinned = isFirst
+      ? page1Pinned
+      : appendFootersFromMasterPage(master, shell);
+
+    let footers = pinned.filter(isDocumentFooterElement);
+    if (footers.length === 0) {
+      footers = appendFootersFromMasterPage(master, shell);
+    }
+    const nonFooterPinned = pinned.filter((el) => !isDocumentFooterElement(el));
+    const preplaced = isFirst ? headerBand : [];
+
+    const layoutPage: TemplatePage = {
+      ...shell,
+      elements: [...nonFooterPinned, ...footers, ...preplaced, ...remaining],
+    };
+
+    const { page, overflow } = layoutPageDocumentFlow(
+      layoutPage,
+      layoutPage.elements,
+      // Page 2+ must start at the top margin — never reuse spilled page-1 Y.
+      isFirst ? bodyStartY : master.margins.top,
+      preplaced
+    );
+
+    result.push(page);
+    remaining = overflow;
+    isFirst = false;
+    pageNumber += 1;
+
+    if (remaining.length === 0) break;
+  }
+
+  // Never drop overflow (images/dates) if the pagination loop hit its guard.
+  if (remaining.length > 0) {
+    const salvageShell: TemplatePage = {
+      id: uuidv4(),
+      name: `Page ${pageNumber}`,
+      margins: { ...master.margins },
+      pageSize: master.pageSize ? { ...master.pageSize } : undefined,
+      userAuthored: false,
+      elements: [
+        ...appendFootersFromMasterPage(master, {
+          id: '',
+          name: '',
+          margins: master.margins,
+          elements: [],
+        }),
+        ...remaining.map((el) =>
+          withLogicalFlowY({ ...el, y: master.margins.top }, master.margins.top)
+        ),
+      ],
+    };
+    let salvageRemaining = remaining;
+    let salvageGuard = 0;
+    while (salvageRemaining.length > 0 && salvageGuard < 16) {
+      salvageGuard += 1;
+      const shell: TemplatePage = {
+        ...salvageShell,
+        id: uuidv4(),
+        name: `Page ${pageNumber}`,
+        elements: [
+          ...appendFootersFromMasterPage(master, salvageShell),
+          ...salvageRemaining.map((el) =>
+            withLogicalFlowY({ ...el, y: master.margins.top }, master.margins.top)
+          ),
+        ],
+      };
+      const laidOut = layoutPageDocumentFlow(
+        shell,
+        shell.elements,
+        master.margins.top,
+        []
+      );
+      result.push(laidOut.page);
+      pageNumber += 1;
+      if (laidOut.overflow.length >= salvageRemaining.length) {
+        // No progress — append remaining as-is so components stay visible.
+        result.push({
+          ...shell,
+          id: uuidv4(),
+          name: `Page ${pageNumber}`,
+          elements: [
+            ...appendFootersFromMasterPage(master, shell),
+            ...laidOut.overflow.map((el) =>
+              withLogicalFlowY({ ...el, y: master.margins.top }, master.margins.top)
+            ),
+          ],
+        });
+        break;
+      }
+      salvageRemaining = laidOut.overflow;
+    }
+  }
+
+  const combined = [...result, ...preservedTail.map((page) => ({ ...page }))];
+  return applyPreviewPageNumbers(
+    dropEmptyTrailingPages(normalizeDocumentFooters(combined))
+  );
+}
+
+/**
+ * Live preview + builder: always run full Word-style gather → restack → paginate
+ * (same pipeline) so add/delete rows, page-2 spill, and pull-back match the canvas.
+ */
 export function reflowPagesForPreview(
   pages: TemplatePage[],
   options: PreviewReflowOptions = {}
 ): TemplatePage[] {
   if (pages.length === 0) return pages;
 
-  const source = builderRepaginationSource(cloneTemplatePages(pages));
+  const consolidated = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
   const tableOptions: PreviewReflowOptions = { trustTableProps: true, ...options };
+  const withCardHeights = expandPreviewCardHeights(consolidated);
 
-  const needsReflow = previewPagesNeedReflow(source, tableOptions);
-  const withCardHeights = expandPreviewCardHeights(source);
-  const cardHeightsChanged = withCardHeights !== source;
-
-  if (!needsReflow && !cardHeightsChanged) return source;
-  if (!needsReflow && cardHeightsChanged) return reflowPagesWithExpandedCards(withCardHeights);
-
-  const result: TemplatePage[] = [];
-  let pendingOverflow: CanvasElement[] = [];
-
-  const flushOverflow = (anchorPage: TemplatePage) => {
-    if (pendingOverflow.length === 0) return;
-    const footerMaster = result[0] ?? withCardHeights[0] ?? anchorPage;
-    const continuation = createContinuationPage(
-      result.length + 1,
-      anchorPage,
-      pendingOverflow,
-      footerMaster
-    );
-    const reflowed = reflowSinglePage(continuation, tableOptions, footerMaster);
-    result.push(reflowed.page);
-    pendingOverflow = reflowed.overflow;
-  };
-
-  const footerMaster = withCardHeights[0] ?? null;
-
-  for (const sourcePage of withCardHeights) {
-    // Never merge table overflow into an existing content page (that stacked
-    // page-3 tables onto page-1/2 and deleted later tabs). Insert new pages first.
-    let insertGuard = 0;
-    while (pendingOverflow.length > 0 && insertGuard < 32) {
-      insertGuard += 1;
-      flushOverflow(result.length > 0 ? result[result.length - 1] : sourcePage);
-    }
-
-    const reflowed = reflowSinglePage(sourcePage, tableOptions, footerMaster);
-    result.push(reflowed.page);
-    pendingOverflow = reflowed.overflow;
-  }
-
-  let guard = 0;
-  while (pendingOverflow.length > 0 && guard < 32) {
-    guard += 1;
-    const sourcePage = result[result.length - 1];
-    flushOverflow(sourcePage);
-    if (pendingOverflow.length === 0) break;
-  }
-
+  let result = dropEmptyTrailingPages(
+    reflowPagesWordStyle(withCardHeights, tableOptions)
+  );
+  result = sanitizeAnchorPageTableDuplicates(result);
+  result = ensureMissingTableContinuationPages(result);
+  result = normalizeDocumentFooters(result);
   return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
 }
 

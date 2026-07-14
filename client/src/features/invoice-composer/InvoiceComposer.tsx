@@ -28,7 +28,13 @@ import {
   type CompanyDefaults,
   type CustomerRecord,
 } from './apply-invoice-form';
-import { parseFlexibleDate } from '@/lib/date-format';
+import {
+  clampDueDateToInvoiceDate,
+  formatIsoDate,
+  normalizeInvoiceFormDates,
+  parseFlexibleDate,
+  toIsoDateValue,
+} from '@/lib/date-format';
 import { InvoiceComposerForm } from './InvoiceComposerForm';
 import { InvoiceLivePreview } from './InvoiceLivePreview';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
@@ -44,7 +50,7 @@ import {
   nativeSharePdf,
 } from '@/features/builder/template-share';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
-import { fitPreviewCardLayout } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
 import type { TemplatePage } from '@invogen/shared';
@@ -202,7 +208,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     const normalized = normalizeComposerPages(template.pages);
     setWorkingPages(normalized);
     const keys = extractPlaceholderKeys(normalized);
-    setFormContext(buildInitialFormContext(keys, companyToDefaults(company)));
+    setFormContext(buildInitialFormContext(keys, companyToDefaults(company), normalized));
     setSelectedCustomerId('');
     setSavedInvoiceId(null);
     setLoadedTemplateId(templateId);
@@ -219,8 +225,42 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   }, [savedInvoice?._id, isEditing, savedInvoice]);
 
   const updateField = useCallback((key: string, value: string) => {
-    setFormContext((prev) => ({ ...prev, [key]: value }));
+    setFormContext((prev) => {
+      if (key === 'Date') {
+        const invoiceIso = toIsoDateValue(value) || value;
+        const dueIso = toIsoDateValue(prev.DueDate ?? '');
+        const next = normalizeInvoiceFormDates({
+          ...prev,
+          Date: invoiceIso,
+          DueDate: dueIso || prev.DueDate,
+        });
+        if (dueIso && next.DueDate && next.DueDate !== dueIso) {
+          toast.message('Due date updated — it cannot be before invoice date');
+        }
+        return next;
+      }
+      if (key === 'DueDate') {
+        const invoiceIso = toIsoDateValue(prev.Date ?? '');
+        const dueIso = toIsoDateValue(value) || value;
+        const clamped = clampDueDateToInvoiceDate(invoiceIso, dueIso);
+        if (invoiceIso && dueIso && clamped && clamped !== dueIso) {
+          toast.error('Due date cannot be before invoice date');
+          return { ...prev, DueDate: clamped };
+        }
+        return { ...prev, DueDate: clamped || dueIso };
+      }
+      return { ...prev, [key]: value };
+    });
   }, []);
+
+  // Keep form dates consistent even if values came from an old invoice / template sample.
+  useEffect(() => {
+    setFormContext((prev) => {
+      const next = normalizeInvoiceFormDates(prev);
+      if (next.Date === prev.Date && next.DueDate === prev.DueDate) return prev;
+      return next;
+    });
+  }, [formContext.Date, formContext.DueDate]);
 
   const handleDeletePage = useCallback((pageId: string) => {
     setWorkingPages((prev) => {
@@ -426,7 +466,11 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     const placeholders = { ...formContext, ...tableTotals };
     const totals = buildInvoiceTotalsFromPlaceholders(placeholders);
     const issueDate = parseFlexibleDate(String(formContext.Date ?? '')) ?? new Date();
-    const dueDate = parseFlexibleDate(String(formContext.DueDate ?? ''));
+    const rawDue = parseFlexibleDate(String(formContext.DueDate ?? ''));
+    const dueDate =
+      rawDue && rawDue.getTime() < issueDate.getTime()
+        ? new Date(issueDate)
+        : rawDue;
 
     const payload = {
       templateId: loadedTemplateId || templateId || undefined,
@@ -438,7 +482,13 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
         gst: formContext.GST,
         address: formContext.Address,
         state: formContext.State,
-        placeholders,
+        placeholders: {
+          ...placeholders,
+          Date: toIsoDateValue(String(formContext.Date ?? '')) || placeholders.Date,
+          DueDate:
+            (dueDate ? formatIsoDate(dueDate) : toIsoDateValue(String(formContext.DueDate ?? '')))
+            || placeholders.DueDate,
+        },
       },
       templateSnapshot: filledPages,
       lineItems: [{ name: 'Service', quantity: 1, unit: 'pcs', price: 0, discount: 0, tax: 0, total: 0 }],
@@ -468,7 +518,9 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   const pagesForPreview = useMemo(
     () =>
       filledPages.length
-        ? fitOverflowingDataFields(fitPreviewCardLayout(cloneTemplatePages(filledPages)))
+        ? fitOverflowingDataFields(
+            reflowPagesForPreview(cloneTemplatePages(filledPages), { trustTableProps: true })
+          )
         : [],
     [filledPages]
   );
@@ -800,6 +852,8 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
                 pages={pagesForPreview}
                 useSampleData={false}
                 pageRefs={exportPageRefs}
+                trustTableProps
+                autoReflow
               />
             </ProductSettingsProvider>
           </TaxSettingsProvider>

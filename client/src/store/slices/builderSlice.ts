@@ -31,6 +31,7 @@ import {
   prepareNewFooterElement,
   syncSharedFooterAcrossPages,
 } from '@/features/builder/document-footer';
+import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
 
 export interface SelectedTableCell {
   elementId: string;
@@ -362,8 +363,9 @@ const builderSlice = createSlice({
         };
       });
       // Keep authored positions on open — preview/composer reflow, not the canvas editor.
+      // Also fix sample due dates that are earlier than the invoice date.
       state.pages = normalizeBuilderPagesForEditor(
-        normalizeDocumentFooters(normalizedPages)
+        enforceInvoiceDueDateOrderOnPages(normalizeDocumentFooters(normalizedPages)).pages
       );
       state.activePageIndex = 0;
       state.selectedElementIds = [];

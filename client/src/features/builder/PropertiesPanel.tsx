@@ -26,6 +26,12 @@ import {
   isDateFieldComponentType,
   usesLiveDate,
 } from '@/lib/date-format';
+import {
+  clampDueDateElementProps,
+  findPrimaryInvoiceDateIso,
+  isDueBeforeInvoice,
+} from './invoice-date-order';
+import { toast } from 'sonner';
 import { isCardComponentType, estimateCardBlockHeight, type CardCustomField } from './card-components';
 import { isImageComponentType } from './image-components';
 import { isShapeComponentType } from './shape-components';
@@ -205,11 +211,59 @@ export function PropertiesPanel() {
     changes: { value?: string; useLiveDate?: boolean },
     recordHistory = false
   ) => {
-    dispatch(updateElement({
-      id: element.id,
-      changes: { props: { ...props, ...changes } },
-      recordHistory,
-    }));
+    const nextProps: Record<string, unknown> = { ...props, ...changes };
+
+    if (element.type === ComponentType.DUE_DATE) {
+      const invoiceIso = findPrimaryInvoiceDateIso(pages);
+      const dueCandidate = getDatePickerValue(nextProps, ComponentType.DUE_DATE);
+      if (invoiceIso && isDueBeforeInvoice(invoiceIso, dueCandidate)) {
+        toast.error('Due date cannot be before invoice date');
+      }
+      const { props: clampedProps } = clampDueDateElementProps(nextProps, invoiceIso);
+      dispatch(
+        updateElement({
+          id: element.id,
+          changes: { props: clampedProps },
+          recordHistory,
+        })
+      );
+      return;
+    }
+
+    // Invoice date changed — update this field, then bump any earlier due dates.
+    dispatch(
+      updateElement({
+        id: element.id,
+        changes: { props: nextProps },
+        recordHistory,
+      })
+    );
+
+    if (element.type !== ComponentType.DATE) return;
+
+    const nextInvoiceIso = getDatePickerValue(nextProps, ComponentType.DATE);
+    if (!nextInvoiceIso) return;
+
+    let bumped = false;
+    for (const page of pages) {
+      for (const el of page.elements) {
+        if (el.type !== ComponentType.DUE_DATE) continue;
+        const dueProps = (el.props ?? {}) as Record<string, unknown>;
+        const { props: clampedProps, changed } = clampDueDateElementProps(dueProps, nextInvoiceIso);
+        if (!changed) continue;
+        bumped = true;
+        dispatch(
+          updateElement({
+            id: el.id,
+            changes: { props: clampedProps },
+            recordHistory: false,
+          })
+        );
+      }
+    }
+    if (bumped) {
+      toast.message('Due date updated — it cannot be before invoice date');
+    }
   };
 
   const updateCardCustomFields = (customFields: CardCustomField[], recordHistory = false) => {
@@ -467,11 +521,18 @@ export function PropertiesPanel() {
           {isDateFieldComponentType(element.type) && (
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500">Pick date</label>
+                <label className="text-xs text-gray-500">
+                  {element.type === ComponentType.DUE_DATE ? 'Due date' : 'Invoice date'}
+                </label>
                 <input
                   type="date"
                   className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                   value={getDatePickerValue(props, element.type)}
+                  min={
+                    element.type === ComponentType.DUE_DATE
+                      ? findPrimaryInvoiceDateIso(pages) || undefined
+                      : undefined
+                  }
                   onChange={(e) => {
                     const picked = e.target.value;
                     if (!picked) return;
@@ -479,9 +540,12 @@ export function PropertiesPanel() {
                   }}
                 />
                 <p className="mt-1 text-[11px] text-gray-400">
-                  Choose a sample date, or enable live date below to always show today.
+                  {element.type === ComponentType.DUE_DATE
+                    ? 'Must be on or after the invoice date.'
+                    : 'Choose a sample date, or enable live date below to always show today.'}
                 </p>
               </div>
+              {element.type === ComponentType.DATE ? (
               <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
                 <input
                   type="checkbox"
@@ -498,13 +562,17 @@ export function PropertiesPanel() {
                 />
                 Use live date (always today)
               </label>
-              {usesLiveDate(props, element.type) ? (
+              ) : null}
+              {element.type === ComponentType.DATE && usesLiveDate(props, element.type) ? (
                 <p className="text-[11px] text-primary/80">
                   Preview shows today: {formatDisplayDate()} — pick a date above to use a fixed date instead.
                 </p>
               ) : (
                 <p className="text-[11px] text-gray-400">
-                  Preview uses your selected date: {formatDisplayDate(new Date(`${getDatePickerValue(props, element.type)}T12:00:00`))}
+                  Preview uses:{' '}
+                  {formatDisplayDate(
+                    new Date(`${getDatePickerValue(props, element.type)}T12:00:00`)
+                  )}
                 </p>
               )}
             </div>

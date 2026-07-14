@@ -55,6 +55,7 @@ const AdminInvoiceEditPage = lazy(() => import('@/pages/admin/InvoiceEditPage'))
 const AdminInvoiceViewPage = lazy(() => import('@/pages/admin/InvoiceViewPage'));
 const AdminSharedInvoices = lazy(() => import('@/pages/admin/SharedInvoices'));
 const AdminTemplates = lazy(() => import('@/pages/admin/Templates'));
+const AdminTemplateLivePreview = lazy(() => import('@/pages/admin/TemplateLivePreview'));
 const AdminTemplateEdit = lazy(() => import('@/pages/admin/TemplateEdit'));
 const AdminSettings = lazy(() => import('@/pages/admin/Settings'));
 const AdminReports = lazy(() => import('@/pages/admin/Reports'));
@@ -176,6 +177,7 @@ export const router = createBrowserRouter([
           { path: 'invoices/:invoiceId/edit', element: withSuspense(<AdminInvoiceEditPage />) },
           { path: 'invoices/create', element: <Navigate to="/admin/invoices/new" replace /> },
           { path: 'templates', element: withSuspense(<AdminTemplates />) },
+          { path: 'templates/:templateId/preview', element: withSuspense(<AdminTemplateLivePreview />) },
           { path: 'templates/:id/edit', element: withSuspense(<AdminTemplateEdit />) },
           { path: 'settings', element: withSuspense(<AdminSettings />) },
           { path: 'reports', element: withSuspense(<AdminReports />) },

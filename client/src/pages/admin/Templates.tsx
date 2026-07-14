@@ -16,6 +16,9 @@ export default function AdminTemplates() {
       canCreateTemplates={planCanAddTemplate}
       allowedTemplateIds={subscriptionStatus?.allowedTemplateIds}
       planSyncOptions={adminPlanSyncQueryOptions}
+      enablePreviewActions
+      templateViewPath={(templateId) => `/admin/templates/${templateId}/preview`}
+      composerPath={(templateId) => `/admin/invoices/new/${templateId}`}
     />
   );
 }

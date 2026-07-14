@@ -137,6 +137,7 @@ export function InvoiceLivePreview({
               useSampleData={false}
               previewMaxWidth={previewWidth}
               trustTableProps
+              autoReflow
             />
           </div>
         </div>
@@ -150,6 +151,7 @@ export function InvoiceLivePreview({
             useSampleData={false}
             pageRefs={exportPageRefs}
             trustTableProps
+            autoReflow
           />
         </div>
     </>

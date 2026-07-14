@@ -170,6 +170,8 @@ export function TemplatePreviewModal({
               <TemplatePreviewPages
                 pages={pages}
                 useSampleData={false}
+                trustTableProps
+                autoReflow
                 previewMaxWidth={Math.min(680, window.innerWidth - 120)}
               />
             </div>
@@ -242,7 +244,13 @@ export function TemplatePreviewModal({
             aria-hidden
             className="pointer-events-none fixed left-[-10000px] top-0 overflow-hidden opacity-0"
           >
-            <TemplatePreviewPages pages={pages} pageRefs={exportPageRefs} useSampleData={false} />
+            <TemplatePreviewPages
+              pages={pages}
+              pageRefs={exportPageRefs}
+              useSampleData={false}
+              trustTableProps
+              autoReflow
+            />
           </div>
         </div>
       </TaxSettingsProvider>

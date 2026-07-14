@@ -294,8 +294,36 @@ export function mergeTablePaginationProps(
 
   if (options.clearSegmentRange && Array.isArray(merged.rows)) {
     merged[PREVIEW_PAGINATION_ROWS_KEY] = merged.rows;
-  } else if (hadPagination && Array.isArray(merged.rows)) {
-    merged[PREVIEW_PAGINATION_ROWS_KEY] = merged.rows;
+  } else if (hadPagination) {
+    // Never replace the full pagination row list with a page segment's `rows`
+    // (that emptied continuations and dropped following images/dates).
+    const sourceAll = Array.isArray(source[PREVIEW_PAGINATION_ROWS_KEY])
+      ? (source[PREVIEW_PAGINATION_ROWS_KEY] as unknown[])
+      : null;
+    const targetAll = Array.isArray(merged[PREVIEW_PAGINATION_ROWS_KEY])
+      ? (merged[PREVIEW_PAGINATION_ROWS_KEY] as unknown[])
+      : null;
+    const displayRows = Array.isArray(merged.rows) ? (merged.rows as unknown[]) : null;
+
+    if (sourceAll && targetAll) {
+      merged[PREVIEW_PAGINATION_ROWS_KEY] =
+        sourceAll.length >= targetAll.length ? sourceAll : targetAll;
+    } else if (sourceAll) {
+      merged[PREVIEW_PAGINATION_ROWS_KEY] = sourceAll;
+    } else if (targetAll) {
+      merged[PREVIEW_PAGINATION_ROWS_KEY] = targetAll;
+    } else if (displayRows) {
+      merged[PREVIEW_PAGINATION_ROWS_KEY] = displayRows;
+    }
+
+    // Structural edits on the full table grow `rows` past the stored list.
+    if (
+      displayRows
+      && Array.isArray(merged[PREVIEW_PAGINATION_ROWS_KEY])
+      && displayRows.length > (merged[PREVIEW_PAGINATION_ROWS_KEY] as unknown[]).length
+    ) {
+      merged[PREVIEW_PAGINATION_ROWS_KEY] = displayRows;
+    }
   }
 
   if (typeof source[PREVIEW_PAGINATION_TABLE_ID_KEY] === 'string') {

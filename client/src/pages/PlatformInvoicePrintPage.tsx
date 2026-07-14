@@ -8,7 +8,7 @@ import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
-import { fitPreviewCardLayout } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 import { resolveMediaUrl } from '@/lib/media';
 import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
 
@@ -43,8 +43,8 @@ export default function PlatformInvoicePrintPage() {
 
   const printPages = useMemo((): TemplatePage[] => {
     if (!data?.pages?.length) return [];
-    // Pages are already filled server-side; only resolve card overflow vs divider.
-    return fitPreviewCardLayout(data.pages);
+    // Same Word-style pagination as builder / live preview.
+    return reflowPagesForPreview(data.pages, { trustTableProps: true });
   }, [data?.pages]);
 
   useEffect(() => {
@@ -100,6 +100,7 @@ export default function PlatformInvoicePrintPage() {
                 pages={printPages}
                 useSampleData={false}
                 trustTableProps
+                autoReflow
               />
             </div>
             <style>{`

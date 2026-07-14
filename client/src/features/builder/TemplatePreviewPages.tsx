@@ -19,6 +19,7 @@ import {
   type CompanyBrandingScope,
 } from '@/features/builder/company-branding';
 import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
+import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
 
 export const TEMPLATE_PREVIEW_PAGE_ATTR = 'data-template-preview-page';
 
@@ -124,7 +125,8 @@ export function TemplatePreviewPages({
   pageRefs,
   className = '',
   trustTableProps = false,
-  autoReflow = false,
+  /** Default on so every live preview matches builder Word-style flow/pagination. */
+  autoReflow = true,
   editableTables = false,
   onTableCellChange,
   onTableProductPick,
@@ -147,7 +149,8 @@ export function TemplatePreviewPages({
       ? reflowPagesForPreview(cloned, { trustTableProps })
       : applyPreviewPageNumbers(cloned);
     // Keep long live values (invoice #, dates) clear of logos/neighbors in every preview.
-    return fitOverflowingDataFields(laidOut);
+    const fitted = fitOverflowingDataFields(laidOut);
+    return enforceInvoiceDueDateOrderOnPages(fitted).pages;
   }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow]);
 
   return (

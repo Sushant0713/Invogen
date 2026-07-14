@@ -179,7 +179,9 @@ export function InvoiceComposerForm({
   showPageManagement = true,
 }: InvoiceComposerFormProps) {
   const formModel = buildComposerFormModel(pages);
-  const invoiceDateFields = formModel.invoiceFields.filter(
+  const hasInvoiceDate = formModel.invoiceFields.includes('Date');
+  const hasDueDate = formModel.invoiceFields.includes('DueDate');
+  const invoiceOtherFields = formModel.invoiceFields.filter(
     (key) => key !== 'Date' && key !== 'DueDate'
   );
 
@@ -281,27 +283,34 @@ export function InvoiceComposerForm({
         </FormSection>
       ) : null}
 
-      <FormSection
-        title="Invoice dates"
-        subtitle="Updates the live preview and saved invoice dates."
-      >
-        <Input
-          label="Invoice date"
-          fieldKind="date"
-          value={toIsoDateValue(formContext.Date ?? '')}
-          onChange={(e) => onChange('Date', e.target.value)}
-        />
-        <Input
-          label="Due date"
-          fieldKind="date"
-          value={toIsoDateValue(formContext.DueDate ?? '')}
-          onChange={(e) => onChange('DueDate', e.target.value)}
-        />
-      </FormSection>
+      {hasInvoiceDate || hasDueDate ? (
+        <FormSection
+          title="Invoice dates"
+          subtitle="These update the date fields on the live preview. Due date cannot be before invoice date."
+        >
+          {hasInvoiceDate ? (
+            <Input
+              label="Invoice date"
+              fieldKind="date"
+              value={toIsoDateValue(formContext.Date ?? '')}
+              onChange={(e) => onChange('Date', e.target.value)}
+            />
+          ) : null}
+          {hasDueDate ? (
+            <Input
+              label="Due date"
+              fieldKind="date"
+              value={toIsoDateValue(formContext.DueDate ?? '')}
+              min={toIsoDateValue(formContext.Date ?? '') || undefined}
+              onChange={(e) => onChange('DueDate', e.target.value)}
+            />
+          ) : null}
+        </FormSection>
+      ) : null}
 
-      {invoiceDateFields.length > 0 ? (
+      {invoiceOtherFields.length > 0 ? (
         <FormSection title="Invoice details">
-          {invoiceDateFields.map((key) => {
+          {invoiceOtherFields.map((key) => {
             const dataField = formModel.dataFields.find((field) => field.key === key);
             return (
               <FieldInput

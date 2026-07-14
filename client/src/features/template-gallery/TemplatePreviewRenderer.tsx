@@ -45,7 +45,7 @@ export function TemplatePreviewRenderer({
   scale = 0.22,
   maxWidth,
   useSampleData = true,
-  autoReflow = false,
+  autoReflow = true,
   brandingScope = 'admin',
   className = '',
 }: TemplatePreviewRendererProps) {
