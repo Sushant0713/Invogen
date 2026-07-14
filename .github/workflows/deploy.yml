@@ -25,17 +25,74 @@ jobs:
           ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
       - name: Add VPS host to known_hosts
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
           set -euo pipefail
+
+          if [ -z "${VPS_HOST:-}" ]; then
+            echo "::error::Missing secret VPS_HOST (hostname or IP only — no https:// or path)"
+            exit 1
+          fi
+
+          # Strip accidental scheme/path/port from the secret value
+          HOST="${VPS_HOST}"
+          HOST="${HOST#https://}"
+          HOST="${HOST#http://}"
+          HOST="${HOST%%/*}"
+          if [[ "$HOST" == *:* ]] && [[ ! "$HOST" =~ ^\[.*\]$ ]]; then
+            # host:port form in VPS_HOST — keep host, use port if VPS_SSH_PORT unset
+            if [ -z "${VPS_SSH_PORT:-}" ]; then
+              VPS_SSH_PORT="${HOST##*:}"
+            fi
+            HOST="${HOST%%:*}"
+          fi
+
+          PORT="${VPS_SSH_PORT:-22}"
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+          touch ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+
+          echo "==> Resolving host keys for ${HOST} (port ${PORT})"
+          SCAN_OK=0
+          BEFORE_LINES=$(wc -l < ~/.ssh/known_hosts | tr -d ' ')
+          for i in 1 2 3 4 5; do
+            : > /tmp/ssh-keyscan.out
+            if ssh-keyscan -T 10 -p "${PORT}" -H "${HOST}" > /tmp/ssh-keyscan.out 2>/tmp/ssh-keyscan.err \
+              && [ -s /tmp/ssh-keyscan.out ]; then
+              cat /tmp/ssh-keyscan.out >> ~/.ssh/known_hosts
+              AFTER_LINES=$(wc -l < ~/.ssh/known_hosts | tr -d ' ')
+              if [ "${AFTER_LINES}" -gt "${BEFORE_LINES}" ]; then
+                SCAN_OK=1
+                break
+              fi
+            fi
+            echo "… ssh-keyscan attempt ${i}/5 failed; retrying in 5s"
+            if [ -s /tmp/ssh-keyscan.err ]; then
+              cat /tmp/ssh-keyscan.err
+            fi
+            sleep 5
+          done
+
+          if [ "$SCAN_OK" != "1" ]; then
+            echo "::error::ssh-keyscan could not reach ${HOST}:${PORT}."
+            echo "Check: VPS is online, SSH firewall allows GitHub Actions, VPS_HOST/VPS_SSH_PORT secrets."
+            if [ -s /tmp/ssh-keyscan.err ]; then
+              cat /tmp/ssh-keyscan.err
+            fi
+            exit 1
+          fi
+
+          echo "==> known_hosts updated (${HOST}:${PORT})"
 
       - name: Deploy over SSH
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
           DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
         run: |
           set -euo pipefail
@@ -45,12 +102,29 @@ jobs:
             exit 1
           fi
 
+          HOST="${VPS_HOST}"
+          HOST="${HOST#https://}"
+          HOST="${HOST#http://}"
+          HOST="${HOST%%/*}"
+          if [[ "$HOST" == *:* ]] && [[ ! "$HOST" =~ ^\[.*\]$ ]]; then
+            if [ -z "${VPS_SSH_PORT:-}" ]; then
+              VPS_SSH_PORT="${HOST##*:}"
+            fi
+            HOST="${HOST%%:*}"
+          fi
+          PORT="${VPS_SSH_PORT:-22}"
+
           REMOTE_DIR="${DEPLOY_PATH:-~/Invogen}"
 
-          echo "==> Connecting to ${VPS_USER}@${VPS_HOST}"
+          echo "==> Connecting to ${VPS_USER}@${HOST}:${PORT}"
           echo "==> Deploy path: ${REMOTE_DIR}"
 
-          ssh -o StrictHostKeyChecking=yes "${VPS_USER}@${VPS_HOST}" \
+          ssh -p "${PORT}" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            "${VPS_USER}@${HOST}" \
             REMOTE_DIR="$REMOTE_DIR" \
             'bash -s' <<'EOF'
           set -euo pipefail
