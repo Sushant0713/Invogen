@@ -223,7 +223,7 @@ export function SalesReportTab() {
   const summary = data?.summary;
   const customers = data?.customers ?? [];
   const meta = data?.customersMeta;
-  const companyId = company?._id ?? 'company';
+  const reportCompanyId = company?._id ?? companyId ?? 'company';
   const companyName = company?.name ?? data?.companyName ?? 'Your company';
 
   return (
@@ -248,8 +248,8 @@ export function SalesReportTab() {
           </FilterField>
 
           <FilterField label="Company" icon={<Building2 className="h-3.5 w-3.5" />}>
-            <select className={selectClassName} value={companyId}>
-              <option value={companyId}>{companyName}</option>
+            <select className={selectClassName} value={reportCompanyId}>
+              <option value={reportCompanyId}>{companyName}</option>
             </select>
           </FilterField>
 
