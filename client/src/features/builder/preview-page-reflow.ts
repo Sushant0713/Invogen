@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ComponentType } from '@invogen/shared';
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { getPageDimensions, type PageMargins } from './builder-dnd';
-import { isTableElementType, productTablePropsToRecord, resolveBuilderTablePropsForEdit, PREVIEW_PAGINATION_ROWS_KEY, PREVIEW_PAGINATION_RANGE_START_KEY, PREVIEW_PAGINATION_RANGE_END_KEY, PREVIEW_PAGINATION_TABLE_ID_KEY, resolvePaginationTableId, isTableContinuationSegment, mergeTablePaginationProps } from './product-table';
+import { isTableElementType, productTablePropsToRecord, resolveBuilderTablePropsForEdit, PREVIEW_PAGINATION_ROWS_KEY, PREVIEW_PAGINATION_RANGE_START_KEY, PREVIEW_PAGINATION_RANGE_END_KEY, PREVIEW_PAGINATION_TABLE_ID_KEY, PREVIEW_PAGINATION_SHOW_TOTALS_KEY, resolvePaginationTableId, isTableContinuationSegment, isTotalsOnlyPaginationRange, mergeTablePaginationProps } from './product-table';
 import { isCardComponentType, estimateCardBlockHeight } from './card-components';
 import {
   resolvePreviewTableFittedLayout,
@@ -563,7 +563,11 @@ type TableMeasureMode = 'full' | 'segment';
 function tableHasPaginationSegment(props: Record<string, unknown>): boolean {
   const start = props[PREVIEW_PAGINATION_RANGE_START_KEY];
   const end = props[PREVIEW_PAGINATION_RANGE_END_KEY];
-  return typeof start === 'number' && typeof end === 'number' && end > start;
+  if (typeof start !== 'number' || typeof end !== 'number') return false;
+  if (end > start) return true;
+  // Totals-only page-2 shell: start === end === allRows.length
+  const allRows = props[PREVIEW_PAGINATION_ROWS_KEY];
+  return Array.isArray(allRows) && isTotalsOnlyPaginationRange(start, end, allRows.length);
 }
 
 function resolveRowsForTableMeasure(
@@ -1020,15 +1024,22 @@ function paginateTableInDocumentFlow(
       : allRows.length;
 
   // Clamp stale ranges so we never get an empty window (that looped empty pages
-  // and discarded images/dates after the table).
+  // and discarded images/dates after the table). Preserve totals-only tails
+  // (start === end === allRows.length) — those hold the footer after page-2 row delete.
   if (allRows.length === 0) {
     return { onPage: null, overflow: [] };
   }
-  if (baseStart >= allRows.length) {
-    baseStart = 0;
-    baseEnd = allRows.length;
+  const incomingTotalsOnly = isTotalsOnlyPaginationRange(baseStart, baseEnd, allRows.length);
+  if (!incomingTotalsOnly) {
+    if (baseStart >= allRows.length) {
+      baseStart = 0;
+      baseEnd = allRows.length;
+    } else {
+      baseEnd = Math.min(Math.max(baseEnd, baseStart + 1), allRows.length);
+    }
   } else {
-    baseEnd = Math.min(Math.max(baseEnd, baseStart + 1), allRows.length);
+    baseStart = allRows.length;
+    baseEnd = allRows.length;
   }
 
   const segmentRows = allRows.slice(baseStart, baseEnd);
@@ -1038,8 +1049,58 @@ function paginateTableInDocumentFlow(
   const showHeader = resolvePaginatedSegmentShowHeader(fullTable);
   const isTailOfDocument = baseEnd >= allRows.length;
 
-  if (segmentRows.length === 0) {
+  const isTotalsOnlyTail =
+    incomingTotalsOnly
+    || (segmentRows.length === 0 && isTailOfDocument && baseStart >= allRows.length);
+
+  if (segmentRows.length === 0 && !isTotalsOnlyTail) {
     return { onPage: null, overflow: [] };
+  }
+
+  if (isTotalsOnlyTail) {
+    const showTotals = resolvePaginationShowTotals(element.type, fullTable);
+    if (!showTotals) {
+      return { onPage: null, overflow: [] };
+    }
+    const totalsOnly = buildTableSegment(
+      element.type,
+      { ...fullTable, rows: allRows },
+      allRows.length,
+      allRows.length,
+      { showHeader, isLastSegment: true },
+      allRows
+    );
+    if (spaceLeft <= PUSH_TOLERANCE_PX) {
+      return {
+        onPage: null,
+        overflow: [
+          makeTableContinuationElement(
+            element,
+            elementProps,
+            totalsOnly.tableProps,
+            allRows,
+            allRows.length,
+            allRows.length,
+            totalsOnly.height
+          ),
+        ],
+      };
+    }
+    return {
+      onPage: {
+        ...element,
+        y: cursorY,
+        height: totalsOnly.height,
+        props: tablePropsForPageSegment(
+          elementProps,
+          totalsOnly.tableProps,
+          allRows,
+          element.id,
+          { start: allRows.length, end: allRows.length }
+        ),
+      },
+      overflow: [],
+    };
   }
 
   if (spaceLeft <= PUSH_TOLERANCE_PX) {
@@ -1632,6 +1693,21 @@ function consolidatePaginatedTablesForReflow(pages: TemplatePage[]): TemplatePag
     delete props[PREVIEW_PAGINATION_RANGE_START_KEY];
     delete props[PREVIEW_PAGINATION_RANGE_END_KEY];
     props[PREVIEW_PAGINATION_ROWS_KEY] = mergedRows;
+    // Restore totals after page-1 forced footers off — one table again for the next reflow.
+    const explicitShowTotals = segments
+      .map((segment) => (segment.element.props ?? {})[PREVIEW_PAGINATION_SHOW_TOTALS_KEY])
+      .find((value): value is boolean => typeof value === 'boolean');
+    const wantsTotals = explicitShowTotals !== false;
+    props[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] = wantsTotals;
+    if (wantsTotals) {
+      props.showGrandTotalFooter = true;
+      props.showTotalFooter = true;
+      props.showSummaryTable = true;
+    } else {
+      props.showGrandTotalFooter = false;
+      props.showTotalFooter = false;
+      props.showSummaryTable = false;
+    }
     props[PREVIEW_PAGINATION_TABLE_ID_KEY] = resolvePaginationTableId(
       props,
       primary.element.id
@@ -1850,6 +1926,23 @@ function ensureMissingTableContinuationPages(pages: TemplatePage[]): TemplatePag
   return changed ? applyPreviewPageNumbers(dropEmptyTrailingPages(next)) : next;
 }
 
+function resolvePaginationShowTotals(
+  elementType: string,
+  fullTable: ProductTableProps
+): boolean {
+  const stored = (fullTable as ProductTableProps & Record<string, unknown>)[
+    PREVIEW_PAGINATION_SHOW_TOTALS_KEY
+  ];
+  if (typeof stored === 'boolean') return stored;
+  if (isInvoiceTable2Type(elementType)) {
+    return (fullTable as ProductTableProps & { showSummaryTable?: boolean }).showSummaryTable !== false;
+  }
+  if (isInvoiceTable3Type(elementType)) {
+    return (fullTable as ProductTableProps & { showTotalFooter?: boolean }).showTotalFooter !== false;
+  }
+  return fullTable.showGrandTotalFooter !== false;
+}
+
 function buildTableSegment(
   elementType: string,
   fullTable: ProductTableProps,
@@ -1860,6 +1953,9 @@ function buildTableSegment(
 ): { tableProps: Record<string, unknown>; height: number } {
   const displayRows = fullTable.rows.slice(rowStart, rowEnd);
   const rowsForSummary = allRowsForSummary ?? fullTable.rows;
+  // Page-1 segments force footers off; remember authored intent so page-2 (last
+  // segment) can show the total again — one table across pages.
+  const showTotals = resolvePaginationShowTotals(elementType, fullTable);
   let segmentTable: ProductTableProps = {
     ...fullTable,
     rows: displayRows,
@@ -1867,7 +1963,7 @@ function buildTableSegment(
   };
 
   if (isInvoiceTable2Type(elementType)) {
-    if (!options.isLastSegment) {
+    if (!options.isLastSegment || !showTotals) {
       segmentTable = {
         ...segmentTable,
         showSummaryTable: false,
@@ -1878,6 +1974,7 @@ function buildTableSegment(
       const recalculated = recalculateInvoiceTable2({
         ...fullTable,
         rows: rowsForSummary,
+        showSummaryTable: true,
       });
       segmentTable = {
         ...segmentTable,
@@ -1889,22 +1986,44 @@ function buildTableSegment(
   } else if (isInvoiceTable3Type(elementType)) {
     segmentTable = {
       ...segmentTable,
-      showTotalFooter:
-        options.isLastSegment
-        && (fullTable as ProductTableProps & { showTotalFooter?: boolean }).showTotalFooter !== false,
+      showTotalFooter: options.isLastSegment && showTotals,
     };
   } else {
     segmentTable = {
       ...segmentTable,
-      showGrandTotalFooter: options.isLastSegment && fullTable.showGrandTotalFooter !== false,
+      showGrandTotalFooter: options.isLastSegment && showTotals,
     };
   }
 
-  const fitted = fitTableHeightsPreservingWidths(
+  const allRows = allRowsForSummary ?? fullTable.rows;
+  const fitted = fitTableHeightsPreservingWidths(elementType, {
+    ...productTablePropsToRecord(segmentTable),
+    // Keep pagination markers so normalize does not inject a default Sample item
+    // into empty totals-only segments (page-2 shell after deleting the only row).
+    [PREVIEW_PAGINATION_ROWS_KEY]: allRows,
+    [PREVIEW_PAGINATION_RANGE_START_KEY]: rowStart,
+    [PREVIEW_PAGINATION_RANGE_END_KEY]: rowEnd,
+    [PREVIEW_PAGINATION_SHOW_TOTALS_KEY]: showTotals,
+  });
+  // Re-assert footer flags after fit/normalize — empty totals-only shells must keep the total.
+  const footerOn = options.isLastSegment && showTotals;
+  const tableProps: Record<string, unknown> = {
+    ...fitted.tableProps,
+    rows: displayRows,
+    [PREVIEW_PAGINATION_SHOW_TOTALS_KEY]: showTotals,
+  };
+  if (isInvoiceTable2Type(elementType)) {
+    tableProps.showSummaryTable = footerOn;
+  } else if (isInvoiceTable3Type(elementType)) {
+    tableProps.showTotalFooter = footerOn;
+  } else {
+    tableProps.showGrandTotalFooter = footerOn;
+  }
+  const height = resolveTableElementSize(
     elementType,
-    productTablePropsToRecord(segmentTable)
-  );
-  return { tableProps: fitted.tableProps, height: fitted.height };
+    normalizeTablePropsForType(elementType, tableProps) as ProductTableProps
+  ).height;
+  return { tableProps, height };
 }
 
 function findTableRowSplitIndex(
@@ -1992,6 +2111,9 @@ function resolveTableRowsForPageSegment(
     const segmentRows = allRows.slice(start, end);
     return { ...fullTable, rows: segmentRows };
   }
+  if (isTotalsOnlyPaginationRange(start, end, allRows.length)) {
+    return { ...fullTable, rows: [] };
+  }
   const rows = fullTable.rows.length > 0 ? fullTable.rows : allRows;
   return { ...fullTable, rows };
 }
@@ -2022,7 +2144,6 @@ function splitOverflowTables(
       fitted.tableProps
     ) as ProductTableProps;
     const allRows = resolvePaginationAllRows(elementProps, fullTable);
-    const tableForSplit = resolveTableRowsForPageSegment(elementProps, fullTable, allRows);
     const isPaginatedSegment = tableHasPaginationSegment(elementProps);
     const segmentRowStart = isPaginatedSegment
       ? (elementProps[PREVIEW_PAGINATION_RANGE_START_KEY] as number)
@@ -2030,6 +2151,41 @@ function splitOverflowTables(
     const segmentRowEnd = isPaginatedSegment
       ? (elementProps[PREVIEW_PAGINATION_RANGE_END_KEY] as number)
       : allRows.length;
+
+    // Keep totals-only page-2 shells intact (header + total, no data rows).
+    if (isTotalsOnlyPaginationRange(segmentRowStart, segmentRowEnd, allRows.length)) {
+      const showTotals = resolvePaginationShowTotals(element.type, fullTable);
+      if (!showTotals) {
+        result = result.filter((item) => item.id !== element.id);
+        continue;
+      }
+      const totalsOnly = buildTableSegment(
+        element.type,
+        { ...fullTable, rows: allRows },
+        allRows.length,
+        allRows.length,
+        {
+          showHeader: resolvePaginatedSegmentShowHeader(fullTable),
+          isLastSegment: true,
+        },
+        allRows
+      );
+      const anchorId = resolvePaginationTableId(elementProps, element.id);
+      result[index] = {
+        ...element,
+        height: totalsOnly.height,
+        props: tablePropsForPageSegment(
+          elementProps,
+          totalsOnly.tableProps,
+          allRows,
+          anchorId,
+          { start: allRows.length, end: allRows.length }
+        ),
+      };
+      continue;
+    }
+
+    const tableForSplit = resolveTableRowsForPageSegment(elementProps, fullTable, allRows);
 
     const spillEntireTableToOverflow = () => {
       const continuationSegment = buildTableSegment(
@@ -2344,6 +2500,8 @@ function builderRepaginationSource(pages: TemplatePage[]): TemplatePage[] {
 /**
  * Add/remove rows on Page 2+ without re-splitting from Page 1.
  * Keeps the Page 1 segment row range fixed; only extends the edited continuation.
+ * When the only page-2 data row is deleted, keep a totals-only continuation so the
+ * footer (and content below, e.g. images) stay on page 2 when they do not fit on page 1.
  */
 export function applyContinuationTableStructuralEdit(
   pages: TemplatePage[],
@@ -2368,9 +2526,77 @@ export function applyContinuationTableStructuralEdit(
     resolveBuilderTablePropsForEdit(editedProps)
   ) as ProductTableProps;
   const fullRows = fullTable.rows;
+  const showTotals = resolvePaginationShowTotals(editedType, fullTable);
+
+  type SegmentPlan = {
+    pageIndex: number;
+    element: CanvasElement;
+    newStart: number;
+    newEnd: number;
+    isTotalsOnly: boolean;
+  };
+  const plans: SegmentPlan[] = [];
 
   for (let pageIndex = 0; pageIndex < next.length; pageIndex += 1) {
+    for (const element of next[pageIndex].elements) {
+      if (!isTableElementType(element.type) || element.visible === false) continue;
+      const elementProps = (element.props ?? {}) as Record<string, unknown>;
+      if (resolvePaginationTableId(elementProps, element.id) !== tableId) continue;
+
+      const isEdited = element.id === editedElementId;
+      if (isEdited) editedPageIndex = pageIndex;
+
+      const rangeStart = elementProps[PREVIEW_PAGINATION_RANGE_START_KEY];
+      const rangeEnd = elementProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+      const wasTotalsOnly = isTotalsOnlyPaginationRange(
+        rangeStart,
+        rangeEnd,
+        Array.isArray(elementProps[PREVIEW_PAGINATION_ROWS_KEY])
+          ? (elementProps[PREVIEW_PAGINATION_ROWS_KEY] as ProductTableRow[]).length
+          : fullRows.length
+      );
+      const hasRange =
+        typeof rangeStart === 'number'
+        && typeof rangeEnd === 'number'
+        && (rangeEnd > rangeStart || wasTotalsOnly);
+
+      // Preserve each page's row window so Sr.No. stays continuous after deletes.
+      let newStart = hasRange ? Math.min(Math.max(0, rangeStart), fullRows.length) : 0;
+      let newEnd = hasRange
+        ? Math.min(Math.max(newStart, rangeEnd), fullRows.length)
+        : fullRows.length;
+
+      if (isEdited && !wasTotalsOnly) {
+        // Edited continuation (page 2+) keeps its start offset; end follows full list.
+        newEnd = fullRows.length;
+      }
+
+      let isTotalsOnly = false;
+      // No data rows left (deleted the only page-2 row) — keep totals-only shell.
+      if (newEnd <= newStart) {
+        if (showTotals && (isEdited || wasTotalsOnly || newStart > 0)) {
+          newStart = fullRows.length;
+          newEnd = fullRows.length;
+          isTotalsOnly = true;
+        } else {
+          continue;
+        }
+      } else if (isTotalsOnlyPaginationRange(newStart, newEnd, fullRows.length)) {
+        isTotalsOnly = showTotals;
+        if (!isTotalsOnly) continue;
+      }
+
+      plans.push({ pageIndex, element, newStart, newEnd, isTotalsOnly });
+    }
+  }
+
+  const hasTotalsOnlyTail = plans.some((plan) => plan.isTotalsOnly);
+
+  for (let pageIndex = 0; pageIndex < next.length; pageIndex += 1) {
+    const pagePlans = plans.filter((plan) => plan.pageIndex === pageIndex);
+    const planById = new Map(pagePlans.map((plan) => [plan.element.id, plan]));
     const kept: CanvasElement[] = [];
+
     for (const element of next[pageIndex].elements) {
       if (!isTableElementType(element.type) || element.visible === false) {
         kept.push(element);
@@ -2382,53 +2608,55 @@ export function applyContinuationTableStructuralEdit(
         continue;
       }
 
-      const isEdited = element.id === editedElementId;
-      if (isEdited) editedPageIndex = pageIndex;
+      const plan = planById.get(element.id);
+      if (!plan) continue;
 
-      const rangeStart = elementProps[PREVIEW_PAGINATION_RANGE_START_KEY];
-      const rangeEnd = elementProps[PREVIEW_PAGINATION_RANGE_END_KEY];
-      const hasRange =
-        typeof rangeStart === 'number'
-        && typeof rangeEnd === 'number'
-        && rangeEnd > rangeStart;
-
-      let newStart = hasRange ? rangeStart : 0;
-      let newEnd = hasRange ? rangeEnd : fullRows.length;
-
-      if (isEdited) {
-        newEnd = fullRows.length;
-      }
-
-      if (newEnd <= newStart) continue;
+      const isLastSegment = plan.isTotalsOnly
+        || (!hasTotalsOnlyTail && plan.newEnd >= fullRows.length);
 
       const pageSegment = buildTableSegment(
         element.type,
         { ...fullTable, rows: fullRows },
-        newStart,
-        newEnd,
+        plan.newStart,
+        plan.newEnd,
         {
           showHeader: resolvePaginatedSegmentShowHeader(fullTable),
-          isLastSegment: newEnd >= fullRows.length,
+          isLastSegment,
         },
         fullRows
       );
-      const fitted = fitTableHeightsPreservingWidths(element.type, pageSegment.tableProps);
+      const range =
+        plan.isTotalsOnly
+        || plan.newStart > 0
+        || plan.newEnd < fullRows.length
+        || hasTotalsOnlyTail
+          ? { start: plan.newStart, end: plan.newEnd }
+          : undefined;
       kept.push({
         ...element,
-        height: fitted.height,
+        height: pageSegment.height,
         props: tablePropsForPageSegment(
           elementProps,
-          fitted.tableProps,
+          pageSegment.tableProps,
           fullRows,
           tableId,
-          { start: newStart, end: newEnd }
+          range
         ),
       });
     }
     next[pageIndex].elements = kept;
   }
 
-  if (editedPageIndex < 0) return next;
+  // Collapse page-1 range only when no continuation (including totals-only) remains.
+  if (!hasTotalsOnlyTail) {
+    collapseOrphanTablePagination(next, tableId, fullRows);
+  }
+
+  if (editedPageIndex < 0) {
+    const dropped = applyPreviewPageNumbers(dropEmptyTrailingPages(next));
+    ensureTableTotalsOnLastSegment(dropped, tableId, showTotals);
+    return dropped;
+  }
 
   let result = next;
   let pendingOverflow: CanvasElement[] = [];
@@ -2451,7 +2679,115 @@ export function applyContinuationTableStructuralEdit(
     pendingOverflow = spill.overflow;
   }
 
-  return applyPreviewPageNumbers(dropEmptyTrailingPages(result));
+  result = applyPreviewPageNumbers(dropEmptyTrailingPages(result));
+  // If the totals-only page was dropped during reflow, put the total back on the last segment.
+  ensureTableTotalsOnLastSegment(result, tableId, showTotals);
+  return result;
+}
+
+/**
+ * Guarantee the table total is visible on exactly one segment after pagination edits.
+ * Covers the case where a totals-only page-2 shell was dropped during reflow.
+ */
+function ensureTableTotalsOnLastSegment(
+  pages: TemplatePage[],
+  tableId: string,
+  showTotals: boolean
+): void {
+  if (!showTotals) return;
+
+  const segments: Array<{ page: TemplatePage; index: number; element: CanvasElement }> = [];
+  for (const page of pages) {
+    page.elements.forEach((element, index) => {
+      if (element.visible === false || !isTableElementType(element.type)) return;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (resolvePaginationTableId(props, element.id) !== tableId) return;
+      segments.push({ page, index, element });
+    });
+  }
+  if (segments.length === 0) return;
+
+  const hasVisibleTotals = segments.some(({ element }) => {
+    const props = (element.props ?? {}) as Record<string, unknown>;
+    if (isInvoiceTable2Type(element.type)) return props.showSummaryTable !== false;
+    if (isInvoiceTable3Type(element.type)) return props.showTotalFooter !== false;
+    return props.showGrandTotalFooter !== false;
+  });
+  if (hasVisibleTotals) return;
+
+  const last = segments[segments.length - 1];
+  const props = { ...(last.element.props ?? {}) } as Record<string, unknown>;
+  props[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] = true;
+  if (isInvoiceTable2Type(last.element.type)) {
+    props.showSummaryTable = true;
+  } else if (isInvoiceTable3Type(last.element.type)) {
+    props.showTotalFooter = true;
+  } else {
+    props.showGrandTotalFooter = true;
+  }
+  const fitted = fitTableHeightsPreservingWidths(last.element.type, props);
+  last.page.elements[last.index] = {
+    ...last.element,
+    height: fitted.height,
+    props: {
+      ...fitted.tableProps,
+      [PREVIEW_PAGINATION_SHOW_TOTALS_KEY]: true,
+      ...(isInvoiceTable2Type(last.element.type)
+        ? { showSummaryTable: true }
+        : isInvoiceTable3Type(last.element.type)
+          ? { showTotalFooter: true }
+          : { showGrandTotalFooter: true }),
+    },
+  };
+}
+
+/** After page-2 rows are deleted, clear split metadata on the sole remaining segment. */
+function collapseOrphanTablePagination(
+  pages: TemplatePage[],
+  tableId: string,
+  fullRows: ProductTableRow[]
+): void {
+  const segments: Array<{ page: TemplatePage; index: number; element: CanvasElement }> = [];
+  for (const page of pages) {
+    page.elements.forEach((element, index) => {
+      if (element.visible === false || !isTableElementType(element.type)) return;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (resolvePaginationTableId(props, element.id) !== tableId) return;
+      segments.push({ page, index, element });
+    });
+  }
+  if (segments.length !== 1) return;
+
+  const { page, index, element } = segments[0];
+  const elementProps = (element.props ?? {}) as Record<string, unknown>;
+  const pageSegment = buildTableSegment(
+    element.type,
+    {
+      ...normalizeTablePropsForType(element.type, resolveBuilderTablePropsForEdit(elementProps)),
+      rows: fullRows,
+    } as ProductTableProps,
+    0,
+    fullRows.length,
+    {
+      showHeader: resolvePaginatedSegmentShowHeader(
+        normalizeTablePropsForType(element.type, elementProps) as ProductTableProps
+      ),
+      isLastSegment: true,
+    },
+    fullRows
+  );
+  const fitted = fitTableHeightsPreservingWidths(element.type, pageSegment.tableProps);
+  page.elements[index] = {
+    ...element,
+    height: fitted.height,
+    props: tablePropsForPageSegment(
+      elementProps,
+      fitted.tableProps,
+      fullRows,
+      tableId,
+      undefined
+    ),
+  };
 }
 
 export function layoutDocumentPagesForBuilder(pages: TemplatePage[]): TemplatePage[] {

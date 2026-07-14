@@ -32,6 +32,7 @@ import {
   removeRow,
   computeTableHeight,
   applySerialNumbers,
+  allowsEmptyPaginationSegmentRows,
 } from './product-table';
 import {
   type InvoiceDiscountMode,
@@ -636,8 +637,10 @@ export function recalculateInvoiceTable2(
 function normalizeRows(
   rows: ProductTableRow[],
   columns: ProductTableColumn[],
-  discountMode: InvoiceDiscountMode = 'amount'
+  discountMode: InvoiceDiscountMode = 'amount',
+  allowEmpty = false
 ): ProductTableRow[] {
+  if (rows.length === 0 && allowEmpty) return [];
   const source = rows.length > 0 ? rows : DEFAULT_INVOICE_TABLE_2_PROPS.rows;
   const emptyCells = buildEmptyRowCells(columns);
   const normalized = source.map((row, index) => {
@@ -795,7 +798,8 @@ export function normalizeInvoiceTable2Props(raw: Record<string, unknown> = {}): 
     rows: normalizeRows(
       Array.isArray(raw.rows) ? (raw.rows as ProductTableRow[]) : [],
       columns,
-      discountMode
+      discountMode,
+      allowsEmptyPaginationSegmentRows(raw)
     ),
     showHeader: raw.showHeader !== false,
     headerHeightPx:

@@ -103,6 +103,7 @@ import type { CanvasInteractionMode } from './builder-interaction';
 const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
 const PREVIEW_PAGINATION_RANGE_START_KEY = '__previewPaginationStart';
 const PREVIEW_PAGINATION_RANGE_END_KEY = '__previewPaginationEnd';
+const PREVIEW_PAGINATION_SHOW_TOTALS_KEY = '__previewPaginationShowTotals';
 
 function pendingCellKey(rowId: string, columnId: string) {
   return `${rowId}\0${columnId}`;
@@ -680,12 +681,60 @@ export function ProductTableView({
     && paginationStart != null
     && paginationEnd != null
     && paginationEnd >= paginationStart;
+  /** Last page of a split table — show total once for the whole table. */
+  const segmentFooterExplicitlyOff = isInvoiceTable2
+    ? table2Props?.showSummaryTable === false
+    : isInvoiceTable3
+      ? table3Props?.showTotalFooter === false
+      : table.showGrandTotalFooter === false;
+  const isLastPaginationSegment =
+    !isPaginatedSegment
+    || (
+      !!paginationAllRows
+      && paginationEnd != null
+      && paginationEnd >= paginationAllRows.length
+      // Page-1 may hold every data row (end === rowCount) while a totals-only page-2
+      // shell still owns the footer — honor explicit footer-off from pagination build.
+      && !(
+        paginationStart != null
+        && paginationStart < paginationEnd
+        && paginationEnd === paginationAllRows.length
+        && segmentFooterExplicitlyOff
+      )
+    );
+  const paginationShowTotals = useMemo(() => {
+    const raw = props as Record<string, unknown>;
+    const stored = raw[PREVIEW_PAGINATION_SHOW_TOTALS_KEY];
+    if (typeof stored === 'boolean') return stored;
+    // Split tables clear footers on page 1 — without the key, still treat as one table with totals.
+    if (isPaginatedSegment) return true;
+    if (isInvoiceTable2) return table2Props?.showSummaryTable !== false;
+    if (isInvoiceTable3) return table3Props?.showTotalFooter !== false;
+    return table.showGrandTotalFooter !== false;
+  }, [
+    props,
+    isPaginatedSegment,
+    isInvoiceTable2,
+    isInvoiceTable3,
+    table2Props,
+    table3Props,
+    table.showGrandTotalFooter,
+  ]);
   const tableForEdit = useMemo(() => {
     if (!isPaginatedSegment || !paginationAllRows) return table;
     return { ...table, rows: paginationAllRows };
   }, [table, isPaginatedSegment, paginationAllRows]);
   const rowsForDisplay = useMemo(() => {
     if (!isPaginatedSegment || paginationStart == null || paginationEnd == null) return safeRows;
+    // Totals-only page-2 shell after deleting the only continuation row — never show
+    // a default Sample item body (normalizers used to inject one into rows: []).
+    if (
+      paginationAllRows
+      && paginationStart === paginationEnd
+      && paginationEnd === paginationAllRows.length
+    ) {
+      return [];
+    }
     const source = paginationAllRows ?? safeRows;
     return source.slice(paginationStart, paginationEnd);
   }, [safeRows, isPaginatedSegment, paginationStart, paginationEnd, paginationAllRows]);
@@ -710,11 +759,43 @@ export function ProductTableView({
       isPaginatedSegment && tableForEdit.showHeader !== false
         ? { ...base, showHeader: true }
         : base;
+    // One table across pages: totals on the last segment (or totals-only page-2 shell).
+    const isTotalsOnly =
+      !!paginationAllRows
+      && paginationStart != null
+      && paginationEnd != null
+      && paginationStart === paginationEnd
+      && paginationEnd === paginationAllRows.length;
+    const showTotalsHere =
+      paginationShowTotals && (isTotalsOnly || isLastPaginationSegment);
+    const withTotalsPolicy = {
+      ...withRepeatedHeader,
+      showGrandTotalFooter: isInvoiceTable1 ? showTotalsHere : withRepeatedHeader.showGrandTotalFooter,
+      showTotalFooter: isInvoiceTable3 ? showTotalsHere : (withRepeatedHeader as InvoiceTable3Props).showTotalFooter,
+      showSummaryTable: isInvoiceTable2 ? showTotalsHere : (withRepeatedHeader as InvoiceTable2Props).showSummaryTable,
+      ...(isInvoiceTable2 && !showTotalsHere
+        ? { summaryRows: [], computedSummaryRows: [] }
+        : {}),
+    };
     const columnWidths = displayColumns.map((col) => col.widthPx);
-    let fitted = fitTableHeaderHeightToText(withRepeatedHeader, columnWidths);
+    let fitted = fitTableHeaderHeightToText(withTotalsPolicy, columnWidths);
     fitted = fitTableRowHeightsToText(fitted, columnWidths, { includeAllTextColumns: true });
     return fitted;
-  }, [displayColumns, safeColumns, rowsForDisplay, tableForEdit, isPaginatedSegment]);
+  }, [
+    displayColumns,
+    safeColumns,
+    rowsForDisplay,
+    tableForEdit,
+    isPaginatedSegment,
+    isLastPaginationSegment,
+    paginationShowTotals,
+    paginationAllRows,
+    paginationStart,
+    paginationEnd,
+    isInvoiceTable1,
+    isInvoiceTable2,
+    isInvoiceTable3,
+  ]);
 
   const displayRows = Array.isArray(displayTable.rows) ? displayTable.rows : [];
   const serialNumberOffset = paginationStart ?? 0;
@@ -817,11 +898,23 @@ export function ProductTableView({
   const renderedHeight = Math.round(intrinsicHeight * scale);
   const headerBackground = getTableHeaderBackground(table);
   const lastRowIndex = displayRows.length - 1;
-  const footerHeightPx = table.showGrandTotalFooter
+  const isTotalsOnlySegment =
+    !!paginationAllRows
+    && paginationStart != null
+    && paginationEnd != null
+    && paginationStart === paginationEnd
+    && paginationEnd === paginationAllRows.length;
+  const showGrandTotalFooterHere =
+    isInvoiceTable1
+    && paginationShowTotals
+    && (isTotalsOnlySegment || isLastPaginationSegment);
+  const footerHeightPx = showGrandTotalFooterHere
     ? (table.grandTotalFooterHeightPx ?? DEFAULT_ROW_HEIGHT_PX)
     : 0;
+  // Total for the whole table (all rows), not just this page's segment.
+  const rowsForGrandTotal = paginationAllRows ?? displayRows;
   const grandTotalText = isInvoiceTable1
-    ? getInvoiceGrandTotalFormatted(displayRows, taxSettings, safeColumns, {
+    ? getInvoiceGrandTotalFormatted(rowsForGrandTotal, taxSettings, safeColumns, {
         discountMode: (table as InvoiceTableProps).discountMode ?? 'amount',
         taxDisplayMode: (table as InvoiceTableProps).taxDisplayMode ?? 'split',
       })
@@ -831,7 +924,9 @@ export function ProductTableView({
 
   const showInvoice2Summary =
     isInvoiceTable2
-    && table2Props?.showSummaryTable !== false
+    && (isTotalsOnlySegment || isLastPaginationSegment)
+    && paginationShowTotals
+    && (displayTable as InvoiceTable2Props).showSummaryTable !== false
     && invoice2SummaryRows.length > 0;
   const invoice2SummaryGapPx = showInvoice2Summary
     ? getInvoice2SummaryGap(table2Props!)
@@ -848,15 +943,18 @@ export function ProductTableView({
   const invoice3GrandTotalText = useMemo(() => {
     if (!isInvoiceTable3 || !table3Props) return '';
     return getInvoice3GrandTotalFormatted(
-      table3Props.rows,
+      paginationAllRows ?? table3Props.rows,
       taxSettings,
       table3Props.columns,
       table3Props.discountMode ?? 'amount'
     );
-  }, [isInvoiceTable3, table3Props, taxSettings]);
+  }, [isInvoiceTable3, table3Props, taxSettings, paginationAllRows]);
 
   const showInvoice3TotalFooter =
-    isInvoiceTable3 && table3Props?.showTotalFooter !== false;
+    isInvoiceTable3
+    && (isTotalsOnlySegment || isLastPaginationSegment)
+    && paginationShowTotals
+    && (displayTable as InvoiceTable3Props).showTotalFooter !== false;
   const invoice3TotalFooterGapPx = showInvoice3TotalFooter && table3Props
     ? getInvoice3TotalFooterGap(table3Props)
     : 0;
@@ -867,7 +965,7 @@ export function ProductTableView({
 
   const rowHasBottomBorder = (rowIndex: number) => {
     if (isInvoiceLineTable) return rowIndex < lastRowIndex;
-    return rowIndex < lastRowIndex || table.showGrandTotalFooter;
+    return rowIndex < lastRowIndex || showGrandTotalFooterHere;
   };
 
   const applyCellRange = useCallback(
@@ -1073,9 +1171,29 @@ export function ProductTableView({
       } else if (isInvoiceTable1) {
         persisted = recalculateInvoiceTable(next, taxSettings);
       }
-      // Persist full row set when editing a paginated segment.
-      if (isPaginatedSegment && paginationAllRows && next.rows.length === paginationAllRows.length) {
-        persisted = { ...persisted, rows: next.rows };
+      // Persist full row set when editing a paginated segment (including add/delete).
+      if (isPaginatedSegment && paginationAllRows) {
+        const segmentLen =
+          paginationStart != null && paginationEnd != null
+            ? paginationEnd - paginationStart
+            : null;
+        const isFullListEdit =
+          next.rows.length === paginationAllRows.length
+          || (segmentLen == null || next.rows.length !== segmentLen);
+        if (isFullListEdit) {
+          const record = productTablePropsToRecord(persisted) as Record<string, unknown>;
+          record.rows = next.rows;
+          record[PREVIEW_PAGINATION_ROWS_KEY] = next.rows;
+          dispatch(
+            updateElement({
+              id: elementId,
+              changes: { props: record },
+              replaceProps: true,
+              recordHistory,
+            })
+          );
+          return;
+        }
       }
       dispatch(
         updateElement({
@@ -1086,7 +1204,18 @@ export function ProductTableView({
         })
       );
     },
-    [dispatch, elementId, isInvoiceTable2, isInvoiceTable3, isInvoiceTable1, taxSettings, isPaginatedSegment, paginationAllRows]
+    [
+      dispatch,
+      elementId,
+      isInvoiceTable2,
+      isInvoiceTable3,
+      isInvoiceTable1,
+      taxSettings,
+      isPaginatedSegment,
+      paginationAllRows,
+      paginationStart,
+      paginationEnd,
+    ]
   );
 
   const commitInvoice3Pending = useCallback(
@@ -1709,7 +1838,7 @@ export function ProductTableView({
             </>
           )}
 
-          {table.showGrandTotalFooter && isInvoiceTable1 && displayColumns.some((col) => col.id === INVOICE_COL_TOTAL) && (
+          {showGrandTotalFooterHere && displayColumns.some((col) => col.id === INVOICE_COL_TOTAL) && (
             <div
               className="relative flex shrink-0 bg-gray-50/90"
               style={{ height: footerHeightPx * scale }}

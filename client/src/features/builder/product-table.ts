@@ -223,7 +223,12 @@ function normalizeColumns(
   return rawColumns.map((col, index) => migrateColumn(col, index, totalWidth));
 }
 
-function normalizeRows(rows: ProductTableRow[], columns: ProductTableColumn[]): ProductTableRow[] {
+function normalizeRows(
+  rows: ProductTableRow[],
+  columns: ProductTableColumn[],
+  allowEmpty = false
+): ProductTableRow[] {
+  if (rows.length === 0 && allowEmpty) return [];
   const source = rows.length > 0 ? rows : [createEmptyRow(columns, 1)];
   return source.map((row, index) => {
     const cells: Record<string, string> = {};
@@ -264,6 +269,8 @@ export const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
 export const PREVIEW_PAGINATION_RANGE_START_KEY = '__previewPaginationStart';
 export const PREVIEW_PAGINATION_RANGE_END_KEY = '__previewPaginationEnd';
 export const PREVIEW_PAGINATION_TABLE_ID_KEY = '__previewPaginationTableId';
+/** Authored "show totals" intent — survives page-1 segments that force footers off. */
+export const PREVIEW_PAGINATION_SHOW_TOTALS_KEY = '__previewPaginationShowTotals';
 
 /** True when this table element is a Page 2+ continuation segment (not the Page 1 head). */
 export function isTableContinuationSegment(props: Record<string, unknown>): boolean {
@@ -295,8 +302,8 @@ export function mergeTablePaginationProps(
   if (options.clearSegmentRange && Array.isArray(merged.rows)) {
     merged[PREVIEW_PAGINATION_ROWS_KEY] = merged.rows;
   } else if (hadPagination) {
-    // Never replace the full pagination row list with a page segment's `rows`
-    // (that emptied continuations and dropped following images/dates).
+    // Keep the full pagination row list — never replace it with a page segment slice
+    // (except real add/delete of the full list from the properties editor).
     const sourceAll = Array.isArray(source[PREVIEW_PAGINATION_ROWS_KEY])
       ? (source[PREVIEW_PAGINATION_ROWS_KEY] as unknown[])
       : null;
@@ -305,7 +312,34 @@ export function mergeTablePaginationProps(
       : null;
     const displayRows = Array.isArray(merged.rows) ? (merged.rows as unknown[]) : null;
 
-    if (sourceAll && targetAll) {
+    const rangeStart =
+      typeof merged[PREVIEW_PAGINATION_RANGE_START_KEY] === 'number'
+        ? (merged[PREVIEW_PAGINATION_RANGE_START_KEY] as number)
+        : typeof source[PREVIEW_PAGINATION_RANGE_START_KEY] === 'number'
+          ? (source[PREVIEW_PAGINATION_RANGE_START_KEY] as number)
+          : null;
+    const rangeEnd =
+      typeof merged[PREVIEW_PAGINATION_RANGE_END_KEY] === 'number'
+        ? (merged[PREVIEW_PAGINATION_RANGE_END_KEY] as number)
+        : typeof source[PREVIEW_PAGINATION_RANGE_END_KEY] === 'number'
+          ? (source[PREVIEW_PAGINATION_RANGE_END_KEY] as number)
+          : null;
+    const segmentLen =
+      rangeStart != null && rangeEnd != null && rangeEnd > rangeStart
+        ? rangeEnd - rangeStart
+        : null;
+
+    // Full-list add/delete: `rows` length changed vs stored all-rows, and it is not
+    // merely this page's segment (segment-sized writes must not wipe the full list).
+    const isFullListStructuralEdit =
+      !!displayRows
+      && !!sourceAll
+      && displayRows.length !== sourceAll.length
+      && (segmentLen == null || displayRows.length !== segmentLen);
+
+    if (isFullListStructuralEdit) {
+      merged[PREVIEW_PAGINATION_ROWS_KEY] = displayRows;
+    } else if (sourceAll && targetAll) {
       merged[PREVIEW_PAGINATION_ROWS_KEY] =
         sourceAll.length >= targetAll.length ? sourceAll : targetAll;
     } else if (sourceAll) {
@@ -316,11 +350,12 @@ export function mergeTablePaginationProps(
       merged[PREVIEW_PAGINATION_ROWS_KEY] = displayRows;
     }
 
-    // Structural edits on the full table grow `rows` past the stored list.
+    // Grow when `rows` is already the full list longer than the stored key.
     if (
       displayRows
       && Array.isArray(merged[PREVIEW_PAGINATION_ROWS_KEY])
       && displayRows.length > (merged[PREVIEW_PAGINATION_ROWS_KEY] as unknown[]).length
+      && (segmentLen == null || displayRows.length !== segmentLen)
     ) {
       merged[PREVIEW_PAGINATION_ROWS_KEY] = displayRows;
     }
@@ -335,9 +370,25 @@ export function mergeTablePaginationProps(
     );
   }
 
+  if (typeof source[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] === 'boolean') {
+    merged[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] = source[PREVIEW_PAGINATION_SHOW_TOTALS_KEY];
+  } else if (typeof merged[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] === 'boolean') {
+    // keep target
+  }
+
   if (options.clearSegmentRange) {
     delete merged[PREVIEW_PAGINATION_RANGE_START_KEY];
     delete merged[PREVIEW_PAGINATION_RANGE_END_KEY];
+    // Restoring a full table for reflow — put totals back like a single table.
+    if (merged[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] === true) {
+      merged.showGrandTotalFooter = true;
+      merged.showTotalFooter = true;
+      merged.showSummaryTable = true;
+    } else if (merged[PREVIEW_PAGINATION_SHOW_TOTALS_KEY] === false) {
+      merged.showGrandTotalFooter = false;
+      merged.showTotalFooter = false;
+      merged.showSummaryTable = false;
+    }
   } else {
     if (typeof source[PREVIEW_PAGINATION_RANGE_START_KEY] === 'number') {
       merged[PREVIEW_PAGINATION_RANGE_START_KEY] = source[PREVIEW_PAGINATION_RANGE_START_KEY];
@@ -361,6 +412,44 @@ export function resolveBuilderTablePropsForEdit(
   return raw;
 }
 
+/** Empty page-2+ window that still owns the table total (no data rows left after delete). */
+export function isTotalsOnlyPaginationRange(
+  start: unknown,
+  end: unknown,
+  rowCount: number
+): boolean {
+  return (
+    typeof start === 'number'
+    && typeof end === 'number'
+    && start === end
+    && start === rowCount
+    && rowCount >= 0
+  );
+}
+
+/**
+ * Totals-only / empty continuation segments must keep `rows: []`.
+ * Normalizers otherwise inject a default "Sample item" row into empty tables.
+ */
+export function allowsEmptyPaginationSegmentRows(raw: Record<string, unknown> = {}): boolean {
+  const allRows = raw[PREVIEW_PAGINATION_ROWS_KEY];
+  const start = raw[PREVIEW_PAGINATION_RANGE_START_KEY];
+  const end = raw[PREVIEW_PAGINATION_RANGE_END_KEY];
+  if (!Array.isArray(allRows)) return false;
+  if (typeof start !== 'number' || typeof end !== 'number') return false;
+  if (isTotalsOnlyPaginationRange(start, end, allRows.length)) return true;
+  return end <= start && start > 0;
+}
+
+function paginationWantsTotals(props: Record<string, unknown>): boolean {
+  const stored = props[PREVIEW_PAGINATION_SHOW_TOTALS_KEY];
+  if (typeof stored === 'boolean') return stored;
+  if (props.showGrandTotalFooter === false) return false;
+  if (props.showTotalFooter === false) return false;
+  if (props.showSummaryTable === false) return false;
+  return true;
+}
+
 /** Keep every split segment on the same full row list before document re-layout. */
 export function syncPaginatedTableRowsAcrossSegments(
   pages: Array<{ elements: Array<{ id: string; type: string; props?: Record<string, unknown> }> }>,
@@ -369,21 +458,72 @@ export function syncPaginatedTableRowsAcrossSegments(
 ): typeof pages {
   return pages.map((page) => ({
     ...page,
-    elements: page.elements.map((element) => {
-      if (!isTableElementType(element.type)) return element;
+    elements: page.elements.flatMap((element) => {
+      if (!isTableElementType(element.type)) return [element];
       const props = (element.props ?? {}) as Record<string, unknown>;
-      if (resolvePaginationTableId(props, element.id) !== tableId) return element;
-      const nextProps = {
+      if (resolvePaginationTableId(props, element.id) !== tableId) return [element];
+
+      // Keep page ranges so page-2 Sr.No. does not reset to 1 after add/delete rows.
+      const start = props[PREVIEW_PAGINATION_RANGE_START_KEY];
+      const end = props[PREVIEW_PAGINATION_RANGE_END_KEY];
+      const wasTotalsOnly = isTotalsOnlyPaginationRange(start, end, Array.isArray(props[PREVIEW_PAGINATION_ROWS_KEY])
+        ? (props[PREVIEW_PAGINATION_ROWS_KEY] as ProductTableRow[]).length
+        : (Array.isArray(props.rows) ? (props.rows as ProductTableRow[]).length : 0));
+      const hasRange =
+        typeof start === 'number'
+        && typeof end === 'number'
+        && (end > start || wasTotalsOnly || isTotalsOnlyPaginationRange(start, end, fullRows.length));
+      const clampedStart = hasRange
+        ? Math.min(Math.max(0, start), fullRows.length)
+        : 0;
+      const clampedEnd = hasRange
+        ? Math.min(Math.max(clampedStart, end), fullRows.length)
+        : fullRows.length;
+
+      // Page-2+ segment has no rows left after delete — keep a totals-only shell when
+      // totals still belong on a later page; otherwise remove (do NOT copy full table).
+      if (
+        hasRange
+        && clampedEnd <= clampedStart
+        && (clampedStart > 0 || isTableContinuationSegment(props) || wasTotalsOnly)
+      ) {
+        if (paginationWantsTotals(props)) {
+          const nextProps: Record<string, unknown> = {
+            ...props,
+            [PREVIEW_PAGINATION_ROWS_KEY]: fullRows,
+            rows: [],
+            [PREVIEW_PAGINATION_RANGE_START_KEY]: fullRows.length,
+            [PREVIEW_PAGINATION_RANGE_END_KEY]: fullRows.length,
+            [PREVIEW_PAGINATION_SHOW_TOTALS_KEY]: true,
+          };
+          return [{ ...element, props: nextProps }];
+        }
+        return [];
+      }
+
+      const nextProps: Record<string, unknown> = {
         ...props,
         [PREVIEW_PAGINATION_ROWS_KEY]: fullRows,
-        rows: fullRows,
+        rows:
+          hasRange && clampedEnd > clampedStart
+            ? fullRows.slice(clampedStart, clampedEnd)
+            : fullRows,
       };
-      delete nextProps[PREVIEW_PAGINATION_RANGE_START_KEY];
-      delete nextProps[PREVIEW_PAGINATION_RANGE_END_KEY];
-      return {
-        ...element,
-        props: nextProps,
-      };
+      if (hasRange && clampedEnd > clampedStart) {
+        nextProps[PREVIEW_PAGINATION_RANGE_START_KEY] = clampedStart;
+        nextProps[PREVIEW_PAGINATION_RANGE_END_KEY] = clampedEnd;
+      } else if (isTotalsOnlyPaginationRange(clampedStart, clampedEnd, fullRows.length)) {
+        nextProps.rows = [];
+        nextProps[PREVIEW_PAGINATION_RANGE_START_KEY] = fullRows.length;
+        nextProps[PREVIEW_PAGINATION_RANGE_END_KEY] = fullRows.length;
+      } else {
+        // Single remaining segment owns all rows — clear split metadata.
+        delete nextProps[PREVIEW_PAGINATION_RANGE_START_KEY];
+        delete nextProps[PREVIEW_PAGINATION_RANGE_END_KEY];
+        nextProps.rows = fullRows;
+      }
+
+      return [{ ...element, props: nextProps }];
     }),
   }));
 }
@@ -435,7 +575,7 @@ export function normalizeProductTableProps(raw: Record<string, unknown> = {}): P
           : [];
     return {
       columns,
-      rows: normalizeRows(resolvedRows, columns),
+      rows: normalizeRows(resolvedRows, columns, allowsEmptyPaginationSegmentRows(raw)),
       showHeader: raw.showHeader !== false,
       headerHeightPx:
         typeof raw.headerHeightPx === 'number' && raw.headerHeightPx > 0

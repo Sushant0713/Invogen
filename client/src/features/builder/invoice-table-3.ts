@@ -29,6 +29,7 @@ import {
   removeRow,
   computeTableHeight,
   applySerialNumbers,
+  allowsEmptyPaginationSegmentRows,
 } from './product-table';
 import { type InvoiceDiscountMode } from './invoice-table';
 import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate } from './tax-settings';
@@ -390,8 +391,10 @@ function normalizeRows(
   rows: ProductTableRow[],
   columns: ProductTableColumn[],
   tax: TaxSettings,
-  discountMode: InvoiceDiscountMode = 'amount'
+  discountMode: InvoiceDiscountMode = 'amount',
+  allowEmpty = false
 ): ProductTableRow[] {
+  if (rows.length === 0 && allowEmpty) return [];
   const source = rows.length > 0 ? rows : DEFAULT_INVOICE_TABLE_3_PROPS.rows;
   const emptyCells = buildEmptyRowCells(columns);
   const normalized = source.map((row, index) => {
@@ -473,7 +476,8 @@ export function normalizeInvoiceTable3Props(
       Array.isArray(raw.rows) ? (raw.rows as ProductTableRow[]) : [],
       columns,
       tax,
-      discountMode
+      discountMode,
+      allowsEmptyPaginationSegmentRows(raw)
     ),
     showHeader: raw.showHeader !== false,
     headerHeightPx:

@@ -199,10 +199,12 @@ export function BuilderCanvas() {
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const { pages, activePageIndex, selectedElementIds, selectedTableCell, selectedTableCells, imageCropElementId, shapeCropElementId, zoom, snapToGrid } =
     useAppSelector((s) => s.builder);
-  const page = pages[activePageIndex];
+  const safePageIndex =
+    pages.length === 0 ? 0 : Math.min(Math.max(0, activePageIndex), pages.length - 1);
+  const page = pages[safePageIndex] ?? pages[0];
   const primarySelectedId = getPrimarySelectedId(selectedElementIds);
-  const margins = page.margins;
-  const pageSize = getPageDimensions(page);
+  const margins = page?.margins ?? { top: 0, right: 0, bottom: 0, left: 0 };
+  const pageSize = page ? getPageDimensions(page) : { width: 0, height: 0 };
   const grid = snapToGrid ? [GRID_SIZE, GRID_SIZE] as [number, number] : undefined;
 
   useBuilderKeyboard();
@@ -214,7 +216,7 @@ export function BuilderCanvas() {
   const applyInteractionMode = useCallback(
     (mode: CanvasInteractionMode, elementId: string) => {
       setInteractionMode(mode);
-      const el = page.elements.find((item) => item.id === elementId);
+      const el = page?.elements.find((item) => item.id === elementId);
       if (!el) return;
 
       if (mode === 'move') {
@@ -235,7 +237,7 @@ export function BuilderCanvas() {
         setEditingElementId(null);
       }
     },
-    [dispatch, page.elements]
+    [dispatch, page?.elements]
   );
 
   useEffect(() => {
@@ -773,6 +775,14 @@ export function BuilderCanvas() {
         height: tableEditElement.height,
       }
     : undefined;
+
+  if (!page) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-[#e8e8ed] text-sm text-gray-500">
+        No page to display
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#e8e8ed] [overflow-anchor:none]">

@@ -182,6 +182,11 @@ function remapSelectionAfterDocumentLayout(
   previousPages: TemplatePage[],
   nextPages: TemplatePage[]
 ) {
+  // Page tabs can shrink (e.g. empty page-2 table continuation removed after delete).
+  if (state.activePageIndex >= nextPages.length) {
+    state.activePageIndex = Math.max(0, nextPages.length - 1);
+  }
+
   const primaryId = getPrimarySelectedId(state.selectedElementIds);
   if (!primaryId) return;
 
@@ -216,10 +221,12 @@ function remapSelectionAfterDocumentLayout(
   );
   if (anchor) {
     state.selectedElementIds = [anchor.id];
+    state.activePageIndex = 0;
     return;
   }
 
-  for (const page of nextPages) {
+  for (let pageIndex = 0; pageIndex < nextPages.length; pageIndex += 1) {
+    const page = nextPages[pageIndex];
     const match = page.elements.find(
       (element) =>
         isTableElementType(element.type)
@@ -228,6 +235,7 @@ function remapSelectionAfterDocumentLayout(
     );
     if (match) {
       state.selectedElementIds = [match.id];
+      state.activePageIndex = pageIndex;
       return;
     }
   }

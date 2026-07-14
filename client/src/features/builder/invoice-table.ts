@@ -30,6 +30,7 @@ import {
   addRow,
   removeRow,
   applySerialNumbers,
+  allowsEmptyPaginationSegmentRows,
 } from './product-table';
 import { arrayMove } from '@dnd-kit/sortable';
 import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate, normalizeTaxDisplayMode } from './tax-settings';
@@ -448,7 +449,12 @@ export function getInvoiceGrandTotalFormatted(
   return formatInvoiceAmount(getInvoiceGrandTotal(rows, tax, columns, calcOptions));
 }
 
-function normalizeInvoiceRows(rows: ProductTableRow[], columns: ProductTableColumn[]): ProductTableRow[] {
+function normalizeInvoiceRows(
+  rows: ProductTableRow[],
+  columns: ProductTableColumn[],
+  allowEmpty = false
+): ProductTableRow[] {
+  if (rows.length === 0 && allowEmpty) return [];
   const source = rows.length > 0 ? rows : DEFAULT_INVOICE_TABLE_PROPS.rows;
   const normalized = source.map((row, index) => {
     const cells: Record<string, string> = {};
@@ -511,7 +517,8 @@ export function normalizeInvoiceTableProps(raw: Record<string, unknown> = {}): I
     taxDisplayMode,
     rows: normalizeInvoiceRows(
       Array.isArray(raw.rows) ? (raw.rows as ProductTableRow[]) : [],
-      columns
+      columns,
+      allowsEmptyPaginationSegmentRows(raw)
     ),
     showHeader: raw.showHeader !== false,
     headerHeightPx:
