@@ -7,6 +7,8 @@ import {
   OUTSTANDING_STATUSES,
   percentChange,
   resolveReportDateRange,
+  resolveSalesDateBasis,
+  type SalesDateBasis,
 } from '../utils/sales-report';
 import {
   getRevenueGroupFormat,
@@ -18,6 +20,9 @@ type InvoiceDoc = {
   customerId?: { toString(): string } | string | null;
   status: string;
   createdAt: Date;
+  issueDate?: Date | string | null;
+  sentAt?: Date | string | null;
+  paidAt?: Date | string | null;
   totals?: {
     subtotal?: number;
     discount?: number;
@@ -60,7 +65,8 @@ type CustomerAnalyticsRow = {
   growthPercent: number | null;
 };
 
-const INVOICE_SELECT = 'totals customerSnapshot status createdAt customerId templateSnapshot';
+const INVOICE_SELECT =
+  'totals customerSnapshot status createdAt issueDate sentAt paidAt customerId templateSnapshot';
 
 function periodKey(date: Date, format: string): string {
   const year = date.getFullYear();
@@ -68,6 +74,55 @@ function periodKey(date: Date, format: string): string {
   const day = String(date.getDate()).padStart(2, '0');
   if (format === '%Y-%m') return `${year}-${month}`;
   return `${year}-${month}-${day}`;
+}
+
+function asValidDate(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Invoice date shown on All Invoices (issue date / Date placeholder). */
+function resolveInvoiceDate(invoice: InvoiceDoc): Date {
+  const issue = asValidDate(invoice.issueDate);
+  if (issue) return issue;
+  const placeholder = invoice.customerSnapshot?.placeholders?.Date;
+  if (typeof placeholder === 'string' && placeholder.trim()) {
+    const parsed = asValidDate(placeholder);
+    if (parsed) return parsed;
+  }
+  return new Date(invoice.createdAt);
+}
+
+/**
+ * Graph date basis:
+ * - invoice → issue date
+ * - status → real time when Sent/Paid was clicked (sentAt / paidAt)
+ */
+function resolveTrendDate(invoice: InvoiceDoc, dateBasis: SalesDateBasis): Date {
+  if (dateBasis === 'status') {
+    if (invoice.status === InvoiceStatus.PAID) {
+      return asValidDate(invoice.paidAt) || asValidDate(invoice.sentAt) || resolveInvoiceDate(invoice);
+    }
+    if (invoice.status === InvoiceStatus.SENT) {
+      return asValidDate(invoice.sentAt) || resolveInvoiceDate(invoice);
+    }
+  }
+  return resolveInvoiceDate(invoice);
+}
+
+function isDateInRange(date: Date, from: Date, to: Date): boolean {
+  const t = date.getTime();
+  return t >= from.getTime() && t <= to.getTime();
+}
+
+function filterInvoicesByDateBasis(
+  invoices: InvoiceDoc[],
+  from: Date,
+  to: Date,
+  dateBasis: SalesDateBasis
+): InvoiceDoc[] {
+  return invoices.filter((invoice) => isDateInRange(resolveTrendDate(invoice, dateBasis), from, to));
 }
 
 function resolveCustomerKey(invoice: InvoiceDoc): string {
@@ -130,29 +185,42 @@ function buildCustomerSales(invoices: InvoiceDoc[]): CustomerRow[] {
   return [...rows.values()];
 }
 
-function buildSalesTrend(invoices: InvoiceDoc[], groupFormat: string) {
-  const totals = new Map<string, { totalSales: number; invoiceCount: number }>();
-  const paid = new Map<string, number>();
+function buildSalesTrend(
+  invoices: InvoiceDoc[],
+  groupFormat: string,
+  dateBasis: SalesDateBasis
+) {
+  const buckets = new Map<
+    string,
+    { actualRevenue: number; expectedRevenue: number; invoiceCount: number }
+  >();
 
   for (const invoice of invoices) {
-    const period = periodKey(new Date(invoice.createdAt), groupFormat);
+    const period = periodKey(resolveTrendDate(invoice, dateBasis), groupFormat);
     const amount = getInvoiceAmount(invoice);
-    const bucket = totals.get(period) ?? { totalSales: 0, invoiceCount: 0 };
-    bucket.totalSales += amount;
+    const bucket = buckets.get(period) ?? {
+      actualRevenue: 0,
+      expectedRevenue: 0,
+      invoiceCount: 0,
+    };
     bucket.invoiceCount += 1;
-    totals.set(period, bucket);
 
     if (invoice.status === InvoiceStatus.PAID) {
-      paid.set(period, (paid.get(period) ?? 0) + amount);
+      bucket.actualRevenue += amount;
     }
+    if (OUTSTANDING_STATUSES.includes(invoice.status as (typeof OUTSTANDING_STATUSES)[number])) {
+      bucket.expectedRevenue += amount;
+    }
+
+    buckets.set(period, bucket);
   }
 
-  return [...totals.entries()]
+  return [...buckets.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([period, bucket]) => ({
       period,
-      totalSales: bucket.totalSales,
-      paidSales: paid.get(period) ?? 0,
+      actualRevenue: bucket.actualRevenue,
+      expectedRevenue: bucket.expectedRevenue,
       invoiceCount: bucket.invoiceCount,
     }));
 }
@@ -187,21 +255,30 @@ export const adminSalesReportService = {
   async getSalesReport(companyId: string, query: Record<string, unknown>) {
     const { from, to } = resolveReportDateRange(query);
     const { prevFrom, prevTo } = getPreviousPeriod(from, to);
+    const dateBasis = resolveSalesDateBasis(query);
     const match = buildSalesInvoiceMatch(companyId, from, to, query);
     const prevMatch = buildSalesInvoiceMatch(companyId, prevFrom, prevTo, query);
 
     const groupBy = resolveRevenueGroupBy(query.groupBy, String(query.from || ''), String(query.to || ''));
     const groupFormat = getRevenueGroupFormat(groupBy);
 
-    const [company, currentInvoices, previousInvoices] = await Promise.all([
+    const [company, currentRaw, previousRaw] = await Promise.all([
       Company.findById(companyId).select('name'),
       Invoice.find(match).select(INVOICE_SELECT).lean<InvoiceDoc[]>(),
       Invoice.find(prevMatch).select(INVOICE_SELECT).lean<InvoiceDoc[]>(),
     ]);
 
+    const currentInvoices = filterInvoicesByDateBasis(currentRaw, from, to, dateBasis);
+    const previousInvoices = filterInvoicesByDateBasis(
+      previousRaw,
+      prevFrom,
+      prevTo,
+      dateBasis
+    );
+
     const currentSummary = summarizeSales(currentInvoices);
     const previousSummary = summarizeSales(previousInvoices);
-    const trend = buildSalesTrend(currentInvoices, groupFormat);
+    const trend = buildSalesTrend(currentInvoices, groupFormat, dateBasis);
     const currentCustomers = buildCustomerSales(currentInvoices);
     const previousCustomers = buildCustomerSales(previousInvoices);
 
@@ -251,6 +328,7 @@ export const adminSalesReportService = {
       from: from.toISOString(),
       to: to.toISOString(),
       groupBy,
+      dateBasis,
       summary: {
         totalSales: currentSummary.totalSales,
         totalSalesChange: percentChange(currentSummary.totalSales, previousSummary.totalSales),

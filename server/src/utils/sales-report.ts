@@ -91,16 +91,68 @@ export function percentChange(current: number, previous: number): number | null 
   return ((current - previous) / previous) * 100;
 }
 
+export type SalesDateBasis = 'invoice' | 'status';
+
+export function resolveSalesDateBasis(query: Record<string, unknown>): SalesDateBasis {
+  return String(query.dateBasis || '') === 'status' ? 'status' : 'invoice';
+}
+
+function invoiceDateRangeClause(from: Date, to: Date) {
+  return {
+    $or: [
+      { issueDate: { $gte: from, $lte: to } },
+      {
+        $and: [
+          { $or: [{ issueDate: null }, { issueDate: { $exists: false } }] },
+          { createdAt: { $gte: from, $lte: to } },
+        ],
+      },
+    ],
+  };
+}
+
+/** Match by sentAt/paidAt — the real time when status was set on All Invoices. */
+function statusDateRangeClause(from: Date, to: Date) {
+  return {
+    $or: [
+      { status: InvoiceStatus.PAID, paidAt: { $gte: from, $lte: to } },
+      { status: InvoiceStatus.SENT, sentAt: { $gte: from, $lte: to } },
+      {
+        status: InvoiceStatus.PAID,
+        $and: [
+          { $or: [{ paidAt: null }, { paidAt: { $exists: false } }] },
+          invoiceDateRangeClause(from, to),
+        ],
+      },
+      {
+        status: InvoiceStatus.SENT,
+        $and: [
+          { $or: [{ sentAt: null }, { sentAt: { $exists: false } }] },
+          invoiceDateRangeClause(from, to),
+        ],
+      },
+      // Drafts / other: still allow invoice-date fallback when status filter is "all"
+      {
+        status: { $nin: [InvoiceStatus.SENT, InvoiceStatus.PAID] },
+        ...invoiceDateRangeClause(from, to),
+      },
+    ],
+  };
+}
+
 export function buildSalesInvoiceMatch(
   companyId: string,
   from: Date,
   to: Date,
   query: Record<string, unknown>
 ) {
+  const dateBasis = resolveSalesDateBasis(query);
   const match: Record<string, unknown> = {
     companyId: toCompanyObjectId(companyId),
-    createdAt: { $gte: from, $lte: to },
-    $and: [EXCLUDE_PLATFORM_INVOICE_FILTER],
+    $and: [
+      EXCLUDE_PLATFORM_INVOICE_FILTER,
+      dateBasis === 'status' ? statusDateRangeClause(from, to) : invoiceDateRangeClause(from, to),
+    ],
   };
 
   const status = query.status ? String(query.status) : 'all';

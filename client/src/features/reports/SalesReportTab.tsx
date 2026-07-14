@@ -27,12 +27,16 @@ import {
   formatGrowthPercent,
   formatTrendLabel,
   getReportPresetRange,
-  INVOICE_STATUS_FILTERS,
   REPORT_DATE_PRESETS,
   type ReportDatePreset,
 } from '@/features/reports/report-filters';
 import { useReportCompany } from '@/features/reports/use-report-company';
 import { ReportStateFilter } from '@/features/reports/ReportStateFilter';
+import { ReportInvoiceStatusToggle } from '@/features/reports/ReportInvoiceStatusToggle';
+import {
+  ReportDateBasisToggle,
+  type ReportDateBasis,
+} from '@/features/reports/ReportDateBasisToggle';
 
 type SalesReportResponse = {
   companyName: string;
@@ -52,8 +56,8 @@ type SalesReportResponse = {
   };
   trend: Array<{
     period: string;
-    totalSales: number;
-    paidSales: number;
+    actualRevenue: number;
+    expectedRevenue: number;
     invoiceCount: number;
   }>;
   customers: Array<{
@@ -164,6 +168,7 @@ function exportCustomersCsv(rows: SalesReportResponse['customers'], companyName:
 export function SalesReportTab() {
   const [datePreset, setDatePreset] = useState<ReportDatePreset>('this_month');
   const [status, setStatus] = useState('all');
+  const [dateBasis, setDateBasis] = useState<ReportDateBasis>('invoice');
   const [state, setState] = useState('all');
   const [currency] = useState('INR');
   const [search, setSearch] = useState('');
@@ -175,13 +180,25 @@ export function SalesReportTab() {
   const { data: company } = useReportCompany();
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['admin-reports-sales', datePreset, range.from, range.to, status, state, search, page, sort],
+    queryKey: [
+      'admin-reports-sales',
+      datePreset,
+      range.from,
+      range.to,
+      status,
+      dateBasis,
+      state,
+      search,
+      page,
+      sort,
+    ],
     queryFn: async () => {
       const params: Record<string, string | number> = {
         preset: datePreset,
         from: range.from,
         to: range.to,
         status,
+        dateBasis,
         state,
         search,
         page,
@@ -231,20 +248,23 @@ export function SalesReportTab() {
           </FilterField>
 
           <FilterField label="Invoice Status" icon={<Timer className="h-3.5 w-3.5" />}>
-            <select
-              className={selectClassName}
+            <ReportInvoiceStatusToggle
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
+              onChange={(next) => {
+                setStatus(next);
                 setPage(1);
               }}
-            >
-              {INVOICE_STATUS_FILTERS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+            />
+          </FilterField>
+
+          <FilterField label="Graph date" icon={<CalendarRange className="h-3.5 w-3.5" />}>
+            <ReportDateBasisToggle
+              value={dateBasis}
+              onChange={(next) => {
+                setDateBasis(next);
+                setPage(1);
+              }}
+            />
           </FilterField>
 
           <FilterField label="Currency" icon={<IndianRupee className="h-3.5 w-3.5" />}>

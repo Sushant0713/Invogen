@@ -21,8 +21,12 @@ import {
 
 export type SalesTrendPoint = {
   period: string;
-  totalSales: number;
-  paidSales: number;
+  actualRevenue: number;
+  expectedRevenue: number;
+  /** @deprecated Prefer actualRevenue */
+  totalSales?: number;
+  /** @deprecated Prefer actualRevenue */
+  paidSales?: number;
   invoiceCount?: number;
 };
 
@@ -35,6 +39,19 @@ interface SalesTrendChartProps {
   height?: number;
 }
 
+function resolveActual(point: SalesTrendPoint): number {
+  return point.actualRevenue ?? point.paidSales ?? 0;
+}
+
+function resolveExpected(point: SalesTrendPoint): number {
+  if (point.expectedRevenue != null) return point.expectedRevenue;
+  // Legacy payloads used totalSales = all + paidSales = paid
+  if (point.totalSales != null) {
+    return Math.max(0, point.totalSales - (point.paidSales ?? 0));
+  }
+  return 0;
+}
+
 export function SalesTrendChart({
   title = 'Sales Value Trend',
   data,
@@ -43,23 +60,37 @@ export function SalesTrendChart({
   to,
   height = 320,
 }: SalesTrendChartProps) {
-  const totalGradientId = useId().replace(/:/g, '');
+  const actualGradientId = useId().replace(/:/g, '');
 
   const chartData = useMemo(() => {
-    const filled = fillRevenueSeriesGaps(
-      data.map((point) => ({ period: point.period, total: point.totalSales, count: point.invoiceCount ?? 0 })),
+    const filledActual = fillRevenueSeriesGaps(
+      data.map((point) => ({
+        period: point.period,
+        total: resolveActual(point),
+        count: point.invoiceCount ?? 0,
+      })),
       from,
       to,
       groupBy,
     );
 
-    const paidMap = new Map(data.map((point) => [point.period, point.paidSales]));
+    const filledExpected = fillRevenueSeriesGaps(
+      data.map((point) => ({
+        period: point.period,
+        total: resolveExpected(point),
+        count: point.invoiceCount ?? 0,
+      })),
+      from,
+      to,
+      groupBy,
+    );
+    const expectedMap = new Map(filledExpected.map((point) => [point.period, point.total]));
 
-    return filled.map((point) => ({
+    return filledActual.map((point) => ({
       name: formatRevenuePeriodLabel(point.period, groupBy),
       label: formatRevenuePeriodTooltip(point.period, groupBy),
-      totalSales: point.total,
-      paidSales: paidMap.get(point.period) ?? 0,
+      actualRevenue: point.total,
+      expectedRevenue: expectedMap.get(point.period) ?? 0,
       invoiceCount: point.count,
     }));
   }, [data, from, to, groupBy]);
@@ -67,7 +98,7 @@ export function SalesTrendChart({
   const yScale = useMemo(
     () =>
       getChartYAxisScale(
-        chartData.flatMap((point) => [point.totalSales, point.paidSales]),
+        chartData.flatMap((point) => [point.actualRevenue, point.expectedRevenue]),
       ),
     [chartData],
   );
@@ -81,9 +112,9 @@ export function SalesTrendChart({
         <ResponsiveContainer width="100%" height={height}>
           <LineChart data={chartData} margin={{ top: 12, right: 20, left: 4, bottom: 4 }}>
             <defs>
-              <linearGradient id={totalGradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#FF7700" stopOpacity={0.18} />
-                <stop offset="95%" stopColor="#FF7700" stopOpacity={0} />
+              <linearGradient id={actualGradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.18} />
+                <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -106,7 +137,7 @@ export function SalesTrendChart({
             <Tooltip
               formatter={(value: number, name) => [
                 formatCompactCurrency(value),
-                name === 'totalSales' ? 'Total Sales (₹)' : 'Paid Sales (₹)',
+                name === 'actualRevenue' ? 'Actual Revenue (₹)' : 'Expected Revenue (₹)',
               ]}
               labelFormatter={(_label, payload) => {
                 const point = payload?.[0]?.payload as { label?: string; name?: string } | undefined;
@@ -124,24 +155,24 @@ export function SalesTrendChart({
               height={28}
               iconType="circle"
               formatter={(value) =>
-                value === 'totalSales' ? 'Total Sales (₹)' : 'Paid Sales (₹)'
+                value === 'actualRevenue' ? 'Actual Revenue (₹)' : 'Expected Revenue (₹)'
               }
             />
             <Line
               type="monotone"
-              dataKey="totalSales"
-              stroke="#FF7700"
+              dataKey="actualRevenue"
+              stroke="#22c55e"
               strokeWidth={2.5}
-              dot={{ r: 3, fill: '#FF7700', strokeWidth: 0 }}
+              dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }}
               activeDot={{ r: 5 }}
             />
             <Line
               type="monotone"
-              dataKey="paidSales"
-              stroke="#22c55e"
+              dataKey="expectedRevenue"
+              stroke="#FF7700"
               strokeWidth={2}
               strokeDasharray="6 4"
-              dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }}
+              dot={{ r: 3, fill: '#FF7700', strokeWidth: 0 }}
               activeDot={{ r: 5 }}
             />
           </LineChart>
