@@ -13,6 +13,7 @@ import { InvoiceListStatusToggle } from '@/features/invoice-composer/InvoiceList
 import { resolveInvoiceTotal } from '@/features/invoice-composer/invoice-totals';
 import { deleteInvoicesApi } from '@/features/invoice-composer/invoice-share';
 import { confirmToast } from '@/lib/confirm-toast';
+import { getDueProximity } from '@/lib/invoice-due-proximity';
 import { toast } from 'sonner';
 
 const PAGE_SIZE = 10;
@@ -22,6 +23,7 @@ type InvoiceRow = Record<string, unknown> & {
   invoiceNumber?: string;
   status?: string;
   createdAt?: string;
+  dueDate?: string;
 };
 
 function isDeletableInvoice(row: InvoiceRow): boolean {
@@ -171,6 +173,12 @@ export default function AdminInvoices() {
         </Button>
       </div>
       <DataTable
+        getRowClassName={(r) =>
+          getDueProximity(r as InvoiceRow)
+            ? 'bg-red-50 text-red-900 hover:bg-red-100/80'
+            : undefined
+        }
+        getRowTitle={(r) => getDueProximity(r as InvoiceRow)?.message}
         columns={[
           { key: 'invoiceNumber', label: 'Invoice' },
           {

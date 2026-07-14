@@ -11,14 +11,16 @@ import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { formatRevenueRangeLabel, getPresetRange, type RevenuePreset } from '@/lib/revenue-chart';
 import { resolveInvoiceTotal } from '@/features/invoice-composer/invoice-totals';
+import { getDueProximity } from '@/lib/invoice-due-proximity';
 
 type InvoiceRow = {
   _id: string;
   invoiceNumber: string;
   status: string;
   createdAt: string;
+  dueDate?: string;
   totals?: { total?: number };
-  customerSnapshot?: { placeholders?: Record<string, unknown> };
+  customerSnapshot?: { placeholders?: Record<string, unknown>; DueDate?: string };
   companyId?: { name?: string; invoiceCode?: string } | string;
 };
 
@@ -180,6 +182,12 @@ export default function SuperAdminInvoices() {
       ) : null}
 
       <DataTable
+        getRowClassName={(row) =>
+          getDueProximity(row as InvoiceRow)
+            ? 'bg-red-50 text-red-900 hover:bg-red-100/80'
+            : undefined
+        }
+        getRowTitle={(row) => getDueProximity(row as InvoiceRow)?.message}
         columns={[
           {
             key: 'invoiceNumber',
@@ -226,6 +234,18 @@ export default function SuperAdminInvoices() {
             key: 'createdAt',
             label: 'Date',
             render: (row) => formatDate((row as InvoiceRow).createdAt),
+          },
+          {
+            key: 'dueDate',
+            label: 'Due date',
+            render: (row) => {
+              const invoice = row as InvoiceRow;
+              const value =
+                invoice.dueDate ||
+                (invoice.customerSnapshot?.placeholders?.DueDate as string | undefined) ||
+                '';
+              return value ? formatDate(value) : '—';
+            },
           },
           {
             key: 'actions',

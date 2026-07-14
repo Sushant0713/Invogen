@@ -3,6 +3,7 @@ import { connectDB } from './config/db';
 import { env } from './config/env';
 import { cashfreeService } from './services/cashfree.service';
 import { backfillMissingCompanyInvoiceCodes } from './utils/company-invoice-code';
+import { startSubscriptionExpiryReminderJob } from './jobs/subscription-expiry-reminders';
 
 const start = async () => {
   await connectDB();
@@ -11,6 +12,7 @@ const start = async () => {
       console.log(`[invoice-codes] Assigned codes to ${count} companies`);
     }
   });
+  startSubscriptionExpiryReminderJob();
   const server = app.listen(env.PORT, () => {
     console.log(`Server running on port ${env.PORT}`);
     if (env.NODE_ENV === 'development' && cashfreeService.isConfigured()) {

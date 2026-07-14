@@ -15,6 +15,7 @@ import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
 import { useNavigate } from 'react-router-dom';
 import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
 import { AdminNotificationBell } from '@/components/notifications/AdminNotificationBell';
+import { AdminPlanExpiryPopup } from '@/components/subscription/AdminPlanExpiryPopup';
 import {
   invalidateAdminPlanQueries,
   useSubscriptionStatus,
@@ -97,12 +98,18 @@ export default function AdminLayout() {
 
   return (
     <MadeWithInvogenProvider source="admin">
-      <AppLayout
-        navItems={adminNav}
-        title={pageTitle}
-        headerActions={<AdminNotificationBell />}
-        variant={isFullHeightWorkspacePath(location.pathname) ? 'builder' : 'default'}
-      />
+      <>
+        <AdminPlanExpiryPopup
+          active={Boolean(status?.active)}
+          subscription={status?.subscription}
+        />
+        <AppLayout
+          navItems={adminNav}
+          title={pageTitle}
+          headerActions={<AdminNotificationBell />}
+          variant={isFullHeightWorkspacePath(location.pathname) ? 'builder' : 'default'}
+        />
+      </>
     </MadeWithInvogenProvider>
   );
 }

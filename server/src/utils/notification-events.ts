@@ -80,6 +80,58 @@ export async function notifySubscriptionExpired(companyId: string, planName?: st
   );
 }
 
+export async function notifySubscriptionExpiringSoon(params: {
+  companyId: string;
+  companyName: string;
+  planName: string;
+  daysRemaining: number;
+  reminderDate: string;
+}) {
+  const { companyId, companyName, planName, daysRemaining, reminderDate } = params;
+  const dayLabel =
+    daysRemaining > 0
+      ? `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining`
+      : daysRemaining === 0
+        ? 'ends today'
+        : `${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) === 1 ? '' : 's'} overdue`;
+
+  await notificationService.notifyCompanyAdmins(
+    companyId,
+    {
+      title: 'Plan ending soon',
+      message:
+        daysRemaining >= 0
+          ? `Your ${planName} plan has ${dayLabel}. Renew to keep uninterrupted access.`
+          : `Your ${planName} plan ${dayLabel}. Renew to continue using Invogen.`,
+      type: 'warning',
+      link: '/admin/subscription',
+      metadata: {
+        kind: 'subscriptionExpiringSoon',
+        companyId,
+        reminderDate,
+        daysRemaining,
+        planName,
+      },
+    },
+    'subscriptionExpiringSoon'
+  );
+
+  await notificationService.notifySuperAdmins({
+    title: 'Client plan ending soon',
+    message: `${companyName}'s ${planName} plan has ${dayLabel}.`,
+    type: 'warning',
+    link: '/super-admin/clients',
+    metadata: {
+      kind: 'subscriptionExpiringSoon',
+      companyId,
+      reminderDate,
+      daysRemaining,
+      planName,
+      companyName,
+    },
+  });
+}
+
 export async function notifySupportTicketUpdated(params: {
   userId: string;
   companyId?: string | null;

@@ -90,6 +90,7 @@ interface NotificationSettings {
   paymentReceived: boolean;
   subscriptionRenewal: boolean;
   subscriptionExpired: boolean;
+  subscriptionExpiringSoon: boolean;
   supportTicketUpdates: boolean;
 }
 
@@ -136,6 +137,7 @@ const defaultNotificationSettings = (): NotificationSettings => ({
   paymentReceived: true,
   subscriptionRenewal: true,
   subscriptionExpired: true,
+  subscriptionExpiringSoon: true,
   supportTicketUpdates: true,
 });
 
@@ -817,6 +819,11 @@ function NotificationSettingPanel({
       key: 'subscriptionExpired',
       title: 'Subscription expired',
       description: 'In-app alert when a subscription lapses',
+    },
+    {
+      key: 'subscriptionExpiringSoon',
+      title: 'Subscription ending soon',
+      description: 'Daily 11:00 alert when a plan ends within 7 days (admins + super admins)',
     },
     {
       key: 'supportTicketUpdates',

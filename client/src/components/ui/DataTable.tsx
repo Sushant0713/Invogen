@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './Button';
 
@@ -12,6 +14,8 @@ interface DataTableProps<T> {
   data: T[];
   keyField?: string;
   loading?: boolean;
+  getRowClassName?: (item: T) => string | undefined;
+  getRowTitle?: (item: T) => string | undefined;
   pagination?: {
     page: number;
     totalPages: number;
@@ -31,9 +35,13 @@ export function DataTable<T extends Record<string, unknown>>({
   data,
   keyField = 'id',
   loading,
+  getRowClassName,
+  getRowTitle,
   pagination,
   selection,
 }: DataTableProps<T>) {
+  const [rowTip, setRowTip] = useState<{ text: string; x: number; y: number } | null>(null);
+
   if (loading) {
     return <div className="animate-pulse space-y-3">{[1, 2, 3].map((i) => (
       <div key={i} className="h-12 rounded-xl bg-gray-100" />
@@ -97,10 +105,28 @@ export function DataTable<T extends Record<string, unknown>>({
                   : true
                 : false;
 
+              const extraClass = getRowClassName?.(item);
+              const rowTitle = getRowTitle?.(item);
+
               return (
               <tr
                 key={rowId || idx}
-                className="group border-b border-gray-50 transition-colors hover:bg-primary-50/30"
+                className={`group border-b border-gray-50 transition-colors ${
+                  extraClass || 'hover:bg-primary-50/30'
+                }`}
+                onMouseEnter={(event) => {
+                  if (!rowTitle) {
+                    setRowTip(null);
+                    return;
+                  }
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setRowTip({
+                    text: rowTitle,
+                    x: Math.min(rect.left + 24, window.innerWidth - 280),
+                    y: Math.max(12, rect.top - 12),
+                  });
+                }}
+                onMouseLeave={() => setRowTip(null)}
               >
                 {selection ? (
                   <td className="px-4 py-3">
@@ -151,6 +177,18 @@ export function DataTable<T extends Record<string, unknown>>({
           </div>
         </div>
       )}
+      {rowTip &&
+        createPortal(
+          <div
+            role="tooltip"
+            className="pointer-events-none fixed z-[100] -translate-y-full rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xl"
+            style={{ left: rowTip.x, top: rowTip.y }}
+          >
+            {rowTip.text}
+            <span className="absolute left-6 top-full border-8 border-transparent border-t-red-600" />
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ export type PlatformNotificationSettings = {
   paymentReceived?: boolean;
   subscriptionRenewal?: boolean;
   subscriptionExpired?: boolean;
+  subscriptionExpiringSoon?: boolean;
   supportTicketUpdates?: boolean;
 };
 
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS: Required<PlatformNotificationSettings> = {
   paymentReceived: true,
   subscriptionRenewal: true,
   subscriptionExpired: true,
+  subscriptionExpiringSoon: true,
   supportTicketUpdates: true,
 };
 

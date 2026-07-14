@@ -876,7 +876,7 @@ export const adminService = {
       customerSnapshot: obj.customerSnapshot,
       lineItems: obj.lineItems,
       totals: obj.totals,
-      issueDate: new Date(),
+      issueDate: obj.issueDate,
       dueDate: obj.dueDate,
       notes: obj.notes,
       terms: obj.terms,
