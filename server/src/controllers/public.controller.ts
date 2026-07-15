@@ -1,4 +1,5 @@
 import { adminService } from '../services/admin.service';
+import { subscriptionService } from '../services/subscription.service';
 import { getPlatformInvoiceRenderPayload } from '../utils/platform-invoice-render-store';
 import { AppError } from '../utils/AppError';
 import { wrap, param } from '../utils/controller';
@@ -16,5 +17,9 @@ export const getPlatformInvoiceRender = wrap(async (req) => {
     pages: payload.pages,
     invoiceNumber: payload.invoiceNumber,
     branding: payload.branding,
+    tax: payload.tax,
   };
 });
+
+/** Public marketing / pricing catalog (plans marked visibleOnWebsite). */
+export const getPublicPlans = wrap(() => subscriptionService.getAvailablePlans());

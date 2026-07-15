@@ -64,7 +64,7 @@ async function renderFilledPages(input: BuildTemplatePdfInput): Promise<Template
 
   const context = buildSubscriptionInvoicePlaceholderContext(input);
   const lineItem = buildSubscriptionInvoiceTableLine(input);
-  // Keep authored positions; React print page runs fitPreviewCardLayout (same as Super Admin preview).
+  // Keep authored geometry; React print page runs table math + one Word reflow (same as live preview).
   return applyInvoiceContextToPages(cloneTemplatePages(template.pages), context, lineItem);
 }
 
@@ -95,12 +95,14 @@ async function launchBrowser() {
 async function pdfFromReactPrintPage(
   pages: TemplatePage[],
   branding: { logo?: string; signature?: string },
-  invoiceNumber: string
+  invoiceNumber: string,
+  tax?: { cgstRate: number; sgstRate: number }
 ): Promise<Buffer> {
   const token = createPlatformInvoiceRenderToken({
     pages,
     branding,
     invoiceNumber,
+    tax,
   });
   const url = `${clientPrintBase()}/platform-invoice/print/${token}`;
   const browser = await launchBrowser();
@@ -160,9 +162,12 @@ export async function buildPlatformInvoiceTemplatePdf(
   if (!pages?.length) return null;
 
   const branding = await loadCompanyBranding();
+  const cgstRate = typeof input.settings.cgstRate === 'number' ? input.settings.cgstRate : 9;
+  const sgstRate = typeof input.settings.sgstRate === 'number' ? input.settings.sgstRate : 9;
+  const tax = { cgstRate, sgstRate };
 
   try {
-    return await pdfFromReactPrintPage(pages, branding, input.invoiceNumber);
+    return await pdfFromReactPrintPage(pages, branding, input.invoiceNumber, tax);
   } catch (reactError) {
     console.warn(
       '[platform-invoice] React print PDF failed, falling back to server HTML:',

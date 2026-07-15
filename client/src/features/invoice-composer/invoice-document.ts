@@ -33,6 +33,11 @@ import type { PlaceholderContext } from '@/features/template-gallery/placeholder
 import { extractPlaceholderKeys, placeholderFieldLabel } from '@/features/template-gallery/placeholder-utils';
 import { getLayerLabel } from '@/features/builder/element-layers';
 import { getPageDimensions, getDefaultElementSize } from '@/features/builder/builder-dnd';
+import { normalizeDocumentFooters } from '@/features/builder/document-footer';
+import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
+import { reflowPagesForPreview } from '@/features/builder/document-layout';
+import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
+import { normalizeBuilderPagesForEditor } from '@/features/builder/preview-page-reflow';
 import {
   applyProductPickToTable,
   type ProductPick,
@@ -128,6 +133,31 @@ export function normalizeComposerPages(pages: TemplatePage[]): TemplatePage[] {
     end -= 1;
   }
   return cloned.slice(0, end);
+}
+
+/**
+ * Normalize template JSON the same way the builder does on open (footers, due dates, page tabs)
+ * before composer / platform invoice preview editing.
+ */
+export function hydrateComposerTemplatePages(pages: TemplatePage[]): TemplatePage[] {
+  const trimmed = normalizeComposerPages(pages);
+  return normalizeBuilderPagesForEditor(
+    enforceInvoiceDueDateOrderOnPages(normalizeDocumentFooters(trimmed)).pages
+  );
+}
+
+/**
+ * Word-style reflow + data-field fitting — shared by invoice composer, platform invoice preview, and PDF print.
+ * Keeps pagination/reflow; run once then pass to TemplatePreviewPages with autoReflow={false}.
+ */
+export function prepareInvoiceLivePreviewPages(
+  pages: TemplatePage[],
+  options: { trustTableProps?: boolean } = {}
+): TemplatePage[] {
+  if (!pages.length) return [];
+  const trustTableProps = options.trustTableProps ?? true;
+  const reflowed = reflowPagesForPreview(cloneTemplatePages(pages), { trustTableProps });
+  return fitOverflowingDataFields(reflowed);
 }
 
 export function deleteComposerPage(pages: TemplatePage[], pageId: string): TemplatePage[] {

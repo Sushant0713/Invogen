@@ -92,7 +92,7 @@ export const subscriptionService = {
       isPaused: false,
       visibleOnWebsite: true,
     })
-      .populate('planTypeId', 'name slug')
+      .populate('planTypeId', 'name slug description')
       .populate('featureIds', 'name')
       .sort({ price: 1 })
       .lean();

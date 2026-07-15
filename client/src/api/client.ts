@@ -41,7 +41,12 @@ const isPublicEndpoint = (url?: string) => !!url && url.includes('/public/');
 const isPublicAppPath = () => {
   if (typeof window === 'undefined') return false;
   const path = window.location.pathname;
-  return path.startsWith('/view/invoice') || path.startsWith('/platform-invoice');
+  return (
+    path.startsWith('/view/invoice') ||
+    path.startsWith('/platform-invoice') ||
+    path === '/plans' ||
+    path.startsWith('/plans/')
+  );
 };
 
 const isAppAuthFailure = (error: AxiosError) => {

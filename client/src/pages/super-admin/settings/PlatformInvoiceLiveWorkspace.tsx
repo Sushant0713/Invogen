@@ -5,8 +5,6 @@ import { Loader } from '@/components/ui/Loader';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
-import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
-import { useTaxSettingsQuery } from '@/features/builder/use-tax-settings-query';
 import { parseProductSettings } from '@/features/builder/product-settings';
 import { fetchTemplateDocument } from '@/features/template-gallery/template-loader';
 import { extractPlaceholderKeys, type PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
@@ -30,7 +28,8 @@ import {
   deleteComposerTermsItem,
   extractTablePlaceholderTotals,
   cloneTemplatePages,
-  normalizeComposerPages,
+  hydrateComposerTemplatePages,
+  prepareInvoiceLivePreviewPages,
   recalculatePagesTables,
   toggleComposerCardCustomField,
   toggleComposerCardStandardField,
@@ -81,7 +80,7 @@ export function PlatformInvoiceLiveWorkspace({
 
   useEffect(() => {
     if (!template?.pages?.length) return;
-    const normalized = normalizeComposerPages(template.pages);
+    const normalized = hydrateComposerTemplatePages(template.pages);
     const withPlan = applyPlatformPreviewPlanToPages(normalized, form);
     setWorkingPages(withPlan);
     const keys = extractPlaceholderKeys(withPlan);
@@ -309,10 +308,7 @@ export function PlatformInvoiceLiveWorkspace({
   );
 
   const pagesForPreview = useMemo(
-    () =>
-      filledPages.length
-        ? reflowPagesForPreview(cloneTemplatePages(filledPages), { trustTableProps: true })
-        : [],
+    () => (filledPages.length ? prepareInvoiceLivePreviewPages(filledPages) : []),
     [filledPages]
   );
 
@@ -364,7 +360,7 @@ export function PlatformInvoiceLiveWorkspace({
 
   return (
     <CompanyBrandingProvider scope="super-admin">
-      <TaxSettingsProvider scope="super-admin">
+      <TaxSettingsProvider scope="super-admin" override={taxSettings}>
         <ProductSettingsProvider>
           <div className="grid h-full min-h-0 grid-cols-1 gap-0 xl:grid-cols-[minmax(300px,360px)_1fr]">
             <div className="max-h-[40vh] overflow-auto border-b border-gray-200 bg-white p-3 xl:max-h-full xl:border-b-0 xl:border-r">

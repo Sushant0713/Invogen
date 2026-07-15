@@ -10,13 +10,16 @@ const TaxSettingsContext = createContext<TaxSettings>(EMPTY_TAX_SETTINGS);
 
 export function TaxSettingsProvider({
   scope,
+  override,
   children,
 }: {
   scope: TaxSettingsScope;
+  /** When set, skips the API query and uses these rates (e.g. platform invoice billing defaults). */
+  override?: TaxSettings;
   children: ReactNode;
 }) {
   const { data } = useTaxSettingsQuery(scope);
-  const value = useMemo(() => data ?? EMPTY_TAX_SETTINGS, [data]);
+  const value = useMemo(() => override ?? data ?? EMPTY_TAX_SETTINGS, [override, data]);
 
   return (
     <TaxSettingsContext.Provider value={value}>

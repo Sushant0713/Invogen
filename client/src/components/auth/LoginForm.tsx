@@ -17,6 +17,7 @@ import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { AuthWelcomeNotice } from '@/components/auth/AuthWelcomeNotice';
 import { useMaintenanceStatus } from '@/hooks/useMaintenanceStatus';
 import { loginPath, registerPath } from '@/lib/workspace-portal';
+import { checkoutPathForPlan, resolvePendingPlanId, storeCheckoutCart } from '@/lib/subscription-checkout';
 import { toast } from 'sonner';
 
 const schema = z.object({
@@ -50,8 +51,15 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
   const registeredNotice = searchParams.get('registered') === '1';
   const verifiedNotice = searchParams.get('verified') === '1';
   const pendingEmail = searchParams.get('email')?.trim() || '';
+  const pendingPlanId = resolvePendingPlanId(searchParams);
   const shouldShowWelcomeNotice =
     portal === 'admin' && (registeredNotice || verifiedNotice || showVerifyNotice);
+
+  useEffect(() => {
+    if (pendingPlanId) {
+      storeCheckoutCart({ planId: pendingPlanId });
+    }
+  }, [pendingPlanId]);
 
   useEffect(() => {
     if (searchParams.get('expired') === '1') {
@@ -103,9 +111,14 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
         getReturnPath(searchParams.toString(), '') ||
         (location.state as { from?: { pathname?: string } })?.from?.pathname ||
         '';
+      const planId = resolvePendingPlanId(searchParams);
 
       if (portal === 'admin' && subscriptionActive === false) {
-        navigate(returnPath.startsWith('/admin') ? returnPath : '/admin/subscription/plans');
+        if (planId) {
+          navigate(checkoutPathForPlan(planId));
+        } else {
+          navigate(returnPath.startsWith('/admin') ? returnPath : '/admin/subscription/plans');
+        }
       } else {
         navigate(returnPath || getDashboardPath(user.role));
       }
@@ -139,9 +152,14 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
         getReturnPath(searchParams.toString(), '') ||
         (location.state as { from?: { pathname?: string } })?.from?.pathname ||
         '';
+      const planId = resolvePendingPlanId(searchParams);
 
       if (subscriptionActive === false) {
-        navigate(returnPath.startsWith('/admin') ? returnPath : '/admin/subscription/plans');
+        if (planId) {
+          navigate(checkoutPathForPlan(planId));
+        } else {
+          navigate(returnPath.startsWith('/admin') ? returnPath : '/admin/subscription/plans');
+        }
       } else {
         navigate(returnPath || getDashboardPath(user.role));
       }
@@ -223,7 +241,10 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
       )}
       <p className="mt-4 text-center text-sm text-gray-500">
         Don&apos;t have an account?{' '}
-        <Link to={registerPath(portal)} className="text-primary font-medium hover:underline">
+        <Link
+          to={registerPath(portal, pendingPlanId ? { planId: pendingPlanId } : undefined)}
+          className="text-primary font-medium hover:underline"
+        >
           Create account
         </Link>
       </p>

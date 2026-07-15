@@ -9,6 +9,9 @@ export default function LandingPage() {
       <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <span className="text-2xl font-bold text-primary">Invogen</span>
         <div className="flex gap-3">
+          <Link to="/plans">
+            <Button size="sm" variant="outline">Pricing</Button>
+          </Link>
           <Link to="/login?portal=admin">
             <Button size="sm">Sign In</Button>
           </Link>
@@ -38,8 +41,8 @@ export default function LandingPage() {
           transition={{ delay: 0.2 }}
           className="mt-10 flex flex-wrap justify-center gap-4"
         >
-          <Link to="/login?portal=admin">
-            <Button size="lg">Sign In</Button>
+          <Link to="/plans">
+            <Button size="lg">View Plans</Button>
           </Link>
           <Link to="/register?portal=admin">
             <Button variant="outline" size="lg">Create Account</Button>

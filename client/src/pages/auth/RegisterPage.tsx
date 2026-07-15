@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -25,6 +25,11 @@ import { resolveMediaUrl } from '@/lib/media';
 import { getStatesForCountry } from '@/lib/location-data';
 import { validateFieldValue } from '@/lib/form-fields';
 import { loginPath } from '@/lib/workspace-portal';
+import {
+  checkoutPathForPlan,
+  resolvePendingPlanId,
+  storeCheckoutCart,
+} from '@/lib/subscription-checkout';
 import { toast } from 'sonner';
 
 const STEPS = [
@@ -79,12 +84,20 @@ const emptyForm = (): RegisterForm => ({
 export default function RegisterPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
+  const [searchParams] = useSearchParams();
+  const pendingPlanId = resolvePendingPlanId(searchParams);
   const [step, setStep] = useState<StepId>('account');
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<RegisterForm>(emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof RegisterForm, string>>>({});
   const [googleCredential, setGoogleCredential] = useState<string | null>(null);
   const [isGoogleSignup, setIsGoogleSignup] = useState(false);
+
+  useEffect(() => {
+    if (pendingPlanId) {
+      storeCheckoutCart({ planId: pendingPlanId });
+    }
+  }, [pendingPlanId]);
 
   const { data: branding } = useQuery({
     queryKey: ['auth-branding'],
@@ -203,7 +216,11 @@ export default function RegisterPage({ embedded = false }: { embedded?: boolean 
         const { user, accessToken, refreshToken, subscriptionActive } = res.data.data;
         dispatch(setCredentials({ user, accessToken, refreshToken }));
         toast.success('Account created with Google!');
-        navigate(subscriptionActive === false ? '/admin/subscription/plans' : '/admin');
+        if (subscriptionActive === false) {
+          navigate(pendingPlanId ? checkoutPathForPlan(pendingPlanId) : '/admin/subscription/plans');
+        } else {
+          navigate('/admin');
+        }
         return;
       }
 
@@ -214,7 +231,13 @@ export default function RegisterPage({ embedded = false }: { embedded?: boolean 
         confirmPassword: form.confirmPassword,
         agreeToTerms: true,
       });
-      navigate(loginPath('admin', { registered: '1', email: form.email.trim() }));
+      navigate(
+        loginPath('admin', {
+          registered: '1',
+          email: form.email.trim(),
+          ...(pendingPlanId ? { planId: pendingPlanId } : {}),
+        })
+      );
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(message || 'Registration failed');
@@ -546,7 +569,10 @@ export default function RegisterPage({ embedded = false }: { embedded?: boolean 
 
             <p className="mt-6 text-center text-sm text-gray-500">
               Already have an account?{' '}
-              <Link to={loginPath('admin')} className="text-primary font-medium hover:underline">
+              <Link
+                to={loginPath('admin', pendingPlanId ? { planId: pendingPlanId } : undefined)}
+                className="text-primary font-medium hover:underline"
+              >
                 Sign in
               </Link>
             </p>

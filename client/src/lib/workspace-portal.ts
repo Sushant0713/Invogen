@@ -36,6 +36,8 @@ export function loginPath(portal: WorkspacePortal, query?: Record<string, string
   return `/login?${params.toString()}`;
 }
 
-export function registerPath(portal: WorkspacePortal): string {
-  return `/register?portal=${portal}`;
+export function registerPath(portal: WorkspacePortal, query?: Record<string, string>): string {
+  const params = new URLSearchParams(query);
+  params.set('portal', portal);
+  return `/register?${params.toString()}`;
 }

@@ -30,7 +30,12 @@ export function isAccessTokenExpired(token: string, bufferSeconds = 30): boolean
 export function redirectToLogin(expired = false) {
   if (typeof window !== 'undefined') {
     const path = window.location.pathname;
-    if (path.startsWith('/view/invoice') || path.startsWith('/platform-invoice')) {
+    if (
+      path.startsWith('/view/invoice') ||
+      path.startsWith('/platform-invoice') ||
+      path === '/plans' ||
+      path.startsWith('/plans/')
+    ) {
       return;
     }
   }

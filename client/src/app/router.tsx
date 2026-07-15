@@ -7,6 +7,7 @@ import { MaintenanceGate } from '@/pages/MaintenancePage';
 import { UserRole } from '@invogen/shared';
 
 const LandingPage = lazy(() => import('@/pages/LandingPage'));
+const PublicPlansPage = lazy(() => import('@/pages/PublicPlansPage'));
 const PortalLoginPage = lazy(() => import('@/pages/auth/PortalLoginPage'));
 const PortalRegisterPage = lazy(() => import('@/pages/auth/PortalRegisterPage'));
 const SuperAdminLogin = lazy(() => import('@/pages/auth/SuperAdminLogin'));
@@ -106,6 +107,7 @@ export const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
   { path: '/', element: withSuspense(<LandingPage />) },
+  { path: '/plans', element: withSuspense(<PublicPlansPage />) },
   { path: '/login', element: withSuspense(<PortalLoginPage />) },
   { path: '/register', element: withSuspense(<PortalRegisterPage />) },
   { path: '/super-admin/login', element: withSuspense(<SuperAdminLogin />) },

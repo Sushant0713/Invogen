@@ -50,8 +50,6 @@ import {
   nativeSharePdf,
 } from '@/features/builder/template-share';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
-import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
-import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
 import type { PlaceholderContext } from '@/features/template-gallery/placeholder-utils';
 import type { TemplatePage } from '@invogen/shared';
 import { toast } from 'sonner';
@@ -60,8 +58,8 @@ import { deleteInvoiceApi } from './invoice-share';
 import { ShareInvoiceDialog } from './ShareInvoiceDialog';
 import {
   deleteComposerPage,
-  cloneTemplatePages,
-  normalizeComposerPages,
+  hydrateComposerTemplatePages,
+  prepareInvoiceLivePreviewPages,
   updateComposerTableCell,
   updateComposerProductPick,
   updateComposerTableDiscountMode,
@@ -205,7 +203,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
   useEffect(() => {
     if (!template || isEditing) return;
-    const normalized = normalizeComposerPages(template.pages);
+    const normalized = hydrateComposerTemplatePages(template.pages);
     setWorkingPages(normalized);
     const keys = extractPlaceholderKeys(normalized);
     setFormContext(buildInitialFormContext(keys, companyToDefaults(company), normalized));
@@ -516,12 +514,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
   );
 
   const pagesForPreview = useMemo(
-    () =>
-      filledPages.length
-        ? fitOverflowingDataFields(
-            reflowPagesForPreview(cloneTemplatePages(filledPages), { trustTableProps: true })
-          )
-        : [],
+    () => (filledPages.length ? prepareInvoiceLivePreviewPages(filledPages) : []),
     [filledPages]
   );
 

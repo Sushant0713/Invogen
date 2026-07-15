@@ -8,7 +8,12 @@ import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
-import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
+import {
+  cloneTemplatePages,
+  prepareInvoiceLivePreviewPages,
+  recalculatePagesTables,
+} from '@/features/invoice-composer/invoice-document';
+import { EMPTY_TAX_SETTINGS, type TaxSettings } from '@/features/builder/tax-settings';
 import { resolveMediaUrl } from '@/lib/media';
 import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
 
@@ -16,11 +21,29 @@ type RenderPayload = {
   pages: TemplatePage[];
   invoiceNumber: string;
   branding: { logo?: string; signature?: string };
+  tax?: {
+    cgstRate?: number;
+    sgstRate?: number;
+  };
 };
+
+function taxFromPayload(payload: RenderPayload | undefined): TaxSettings {
+  const cgst =
+    typeof payload?.tax?.cgstRate === 'number' ? payload.tax.cgstRate : EMPTY_TAX_SETTINGS.cgstRate;
+  const sgst =
+    typeof payload?.tax?.sgstRate === 'number' ? payload.tax.sgstRate : EMPTY_TAX_SETTINGS.sgstRate;
+  return {
+    ...EMPTY_TAX_SETTINGS,
+    cgstRate: cgst,
+    sgstRate: sgst,
+    gstRate: cgst + sgst,
+    igstRate: cgst + sgst,
+  };
+}
 
 /**
  * Headless print surface for platform subscription invoice PDFs.
- * Uses the same TemplatePreviewPages stack as Super Admin live preview.
+ * Mirrors Super Admin live preview: table math → one Word reflow → TemplatePreviewPages(autoReflow=false).
  */
 export default function PlatformInvoicePrintPage() {
   const { token = '' } = useParams();
@@ -43,9 +66,11 @@ export default function PlatformInvoicePrintPage() {
 
   const printPages = useMemo((): TemplatePage[] => {
     if (!data?.pages?.length) return [];
-    // Same Word-style pagination as builder / live preview.
-    return reflowPagesForPreview(data.pages, { trustTableProps: true });
-  }, [data?.pages]);
+    const tax = taxFromPayload(data);
+    // Same pipeline as PlatformInvoiceLiveWorkspace → InvoiceLivePreview.
+    const recalculated = recalculatePagesTables(cloneTemplatePages(data.pages), tax);
+    return prepareInvoiceLivePreviewPages(recalculated);
+  }, [data]);
 
   useEffect(() => {
     if (!printPages.length) return;
@@ -78,7 +103,7 @@ export default function PlatformInvoicePrintPage() {
     };
 
     // Allow React to paint fitted pages before sampling images.
-    const timer = window.setTimeout(waitForImages, 50);
+    const timer = window.setTimeout(waitForImages, 80);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -100,7 +125,7 @@ export default function PlatformInvoicePrintPage() {
                 pages={printPages}
                 useSampleData={false}
                 trustTableProps
-                autoReflow
+                autoReflow={false}
               />
             </div>
             <style>{`

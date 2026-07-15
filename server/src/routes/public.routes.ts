@@ -5,5 +5,6 @@ const router = Router();
 
 router.get('/invoices/view/:token', ctrl.getPublicInvoiceView);
 router.get('/platform-invoice-render/:token', ctrl.getPlatformInvoiceRender);
+router.get('/plans', ctrl.getPublicPlans);
 
 export default router;

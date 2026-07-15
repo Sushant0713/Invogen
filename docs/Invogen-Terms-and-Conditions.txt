@@ -1,0 +1,229 @@
+INVOGEN — TERMS AND CONDITIONS
+Version 2.0 | Effective date: 15 July 2026
+
+These Terms and Conditions (“Terms”) govern access to and use of the Invogen website, marketing pages, application, and related services (together, the “Service”).
+
+The Service is operated by Invogen Technologies Pvt. Ltd. (“Invogen”, “we”, “us”, or “our”).
+
+By creating an account, accepting these Terms during registration, purchasing a plan, or using the Service, you agree to these Terms on behalf of yourself and, if applicable, the business or organisation you represent (“you” or “Customer”).
+
+If you do not agree, do not use the Service.
+
+IMPORTANT NOTICE
+These Terms describe Invogen as a software platform for creating and managing business documents (including invoices and related commercial documents). Invogen is not a law firm, chartered accountant, tax advisor, or payment settlement service for your customers. Marketing phrases such as “GST-ready”, “GST templates”, or similar describe product features that help you prepare documents — they are not a guarantee of tax, legal, or regulatory compliance.
+
+
+1. WHO WE ARE AND HOW TO CONTACT US
+
+Legal entity: Invogen Technologies Pvt. Ltd.
+Product name: Invogen
+Email: hello@invogen.app
+Registered address: 123 Business Park, Bengaluru, Karnataka, India, 560001
+
+(Update the address, email, phone, and GSTIN above in Super Admin company profile before publishing if your live details differ.)
+
+
+2. DESCRIPTION OF THE SERVICE
+
+2.1 Invogen provides cloud software that allows eligible users to:
+(a) create and manage a company workspace;
+(b) design and customise invoice and related document templates (including tax invoice, proforma, quotation, estimate, purchase order, delivery challan, credit note, debit note, and recurring invoices, as made available);
+(c) manage customers, products, and related business records;
+(d) generate, export, share, or email documents produced in the workspace;
+(e) invite employees or team members with role-based permissions;
+(f) subscribe to paid plans that unlock or continue access to platform features.
+
+2.2 Invogen may also issue platform subscription invoices to Customers for fees owed to Invogen. Those platform invoices are separate from invoices you create for your own customers.
+
+2.3 Features, plan limits, templates, and integrations available to you depend on your active subscription, plan configuration, and account permissions. We may update, add, or remove features reasonably needed to operate or improve the Service, provided the core invoicing purpose remains available for active paid plans during the purchased term.
+
+
+3. ELIGIBILITY AND ACCOUNTS
+
+3.1 You must be legally capable of entering a binding contract under applicable Indian law. If you register for a business, you represent that you are authorised to bind that business.
+
+3.2 Account types include:
+(a) Admin — workspace owner or administrator for a company account;
+(b) Employee — user who joins a company workspace (for example via a join code) with limited permissions;
+(c) Platform operators (Super Admin) — Invogen personnel only; not a Customer product.
+
+3.3 You must provide accurate registration and profile information (including business name, address, tax identifiers such as GSTIN/PAN where you enter them, and contact details) and keep them updated.
+
+3.4 You are responsible for safeguarding login credentials and for all activity under your account and workspace, including actions by employees you invite. Notify us promptly of unauthorised access.
+
+3.5 We may require email verification or allow sign-in through Google OAuth where enabled. Use of Google sign-in is also subject to Google’s terms and privacy policy.
+
+
+4. WORKSPACES, CONTENT, AND YOUR CUSTOMERS
+
+4.1 Each Admin registration typically creates one company workspace. Data in a workspace (customers, products, templates, invoices, uploads, settings) is associated with that company.
+
+4.2 You retain ownership of content you upload or create in your workspace (“Customer Content”), including logos, signatures, customer data, and invoice content — subject to the licence in Clause 4.3.
+
+4.3 You grant Invogen a limited, worldwide, non-exclusive licence to host, process, transmit, display, and create derivative technical formats of Customer Content solely to provide, secure, support, and improve the Service (including PDF generation, email delivery, backups, and troubleshooting).
+
+4.4 You are solely responsible for:
+(a) the accuracy, legality, and completeness of Customer Content;
+(b) invoices and other documents you issue to your customers or third parties;
+(c) calculating, collecting, remitting, and reporting taxes (including GST) related to your own sales;
+(d) complying with tax, accounting, e-invoicing, consumer, and other laws applicable to your business;
+(e) obtaining any consents required to upload personal data of your customers, employees, or contacts.
+
+4.5 Invogen does not act as your agent, does not become a party to contracts between you and your customers, and does not collect or settle payments your customers owe you unless a separate written product feature expressly says otherwise. Sharing options (email, link, or WhatsApp method flags) are convenience tools only.
+
+4.6 “Made with Invogen” or similar attribution may appear on documents or templates where your plan or settings require it. You must not remove required platform branding where it is a condition of your plan.
+
+
+5. PLANS, FEES, TAXES, AND PAYMENTS
+
+5.1 Access to paid features requires an active subscription or lifetime plan as offered on our pricing pages or assigned by Invogen. Plan names, prices, billing cycles (monthly, yearly, lifetime), features, seats, and limits are as displayed at checkout or in your account at the time of purchase, and may change for future renewals with notice where required.
+
+5.2 Fees are generally quoted and charged in Indian Rupees (INR) unless we state otherwise. Applicable taxes (including GST on Invogen’s subscription fees) may be charged as configured on the platform and shown at checkout or on platform invoices.
+
+5.3 Payments for subscriptions and plans are processed through Razorpay or another payment partner we enable. Card/UPI/net-banking processing is handled by that partner under their terms. We do not store full payment card numbers.
+
+5.4 Promo codes or discounts apply only as stated for that code and may be withdrawn for abuse or error.
+
+5.5 Unless a specific offer explicitly states a free trial with a stated duration, registration alone does not create a free trial. Any trial access exists only if Invogen expressly grants it for your account.
+
+5.6 Failure to pay may result in suspension or limited access after the current paid period ends, as shown in your subscription status.
+
+
+6. CANCELLATION, PLAN CHANGES, AND REFUNDS
+
+6.1 You may request cancellation or plan changes through your account tools where available, or by contacting us at hello@invogen.app. Invogen may also cancel or change a subscription when you upgrade/switch plans, when payment fails, or for breach of these Terms.
+
+6.2 Upon cancellation, access generally continues until the end of the then-current paid period already paid for, unless we state otherwise or terminate earlier for misuse. Lifetime plans, if purchased, are licences to use the Service subject to these Terms, not a sale of the software, and remain subject to suspension for breach or non-payment of any applicable maintenance or platform charges stated at purchase.
+
+6.3 Fees are non-refundable except where:
+(a) Indian law requires a refund; or
+(b) Invogen expressly agrees in writing; or
+(c) a published offer states a refund window.
+
+Duplicate or failed charges should be reported promptly so we can investigate with the payment partner.
+
+6.4 If you cancel, we are not obligated to export your data beyond tools already available in the Service, except as required by law or our Privacy Policy.
+
+
+7. ACCEPTABLE USE
+
+You must not:
+(a) use the Service for unlawful, fraudulent, or harmful purposes;
+(b) upload malware, infringe IP rights, or misuse another person’s data;
+(c) attempt to break security, probe systems without authorisation, or reverse engineer the Service except as permitted by law;
+(d) resell, sublicense, or white-label the Service without our written consent;
+(e) scrape the Service in a way that overloads or harms operations;
+(f) misrepresent that Invogen has verified, certified, or audited your tax compliance;
+(g) use Invogen branding in a misleading way.
+
+We may suspend or terminate accounts that violate this Clause.
+
+
+8. SUPPORT, AVAILABILITY, AND MAINTENANCE
+
+8.1 Support is provided according to your plan description and our operational capacity. Mentions of “priority support” mean preferential handling relative to lower tiers where offered — not a guaranteed response time or 24×7 human availability unless we publish a specific SLA.
+
+8.2 We aim for high availability but do not guarantee uninterrupted or error-free operation. We may perform maintenance, and may enable maintenance mode that temporarily limits Customer portals while leaving certain public or legal pages available.
+
+8.3 Third-party services (Razorpay, Google, email/SMTP providers, hosting, browsers) may affect the Service. Their outages are outside our reasonable control.
+
+
+9. INTELLECTUAL PROPERTY
+
+9.1 Invogen and its licensors own the Service, software, design system, standard templates we supply, documentation, trademarks, and branding (excluding Customer Content).
+
+9.2 Subject to these Terms and an active eligible subscription, we grant you a limited, non-exclusive, non-transferable, revocable right to use the Service for your internal business purposes.
+
+9.3 Feedback you send us may be used freely to improve the Service without obligation to you.
+
+
+10. PRIVACY AND DATA
+
+Our collection and use of personal data is described in the Invogen Privacy Policy available at /legal/privacy (or the privacy link on our marketing site). By using the Service, you also acknowledge that processing necessary to run the Service (accounts, billing, logs, support, security) will occur as described there.
+
+You are the controller of personal data you store about your customers and employees in your workspace. Invogen processes such data to provide the Service to you.
+
+
+11. DISCLAIMERS (PLEASE READ)
+
+11.1 THE SERVICE IS PROVIDED ON AN “AS AVAILABLE” AND “AS IS” BASIS TO THE MAXIMUM EXTENT PERMITTED BY LAW.
+
+11.2 WITHOUT LIMITING CLAUSE 11.1, INVOGEN DOES NOT WARRANT THAT:
+(a) documents generated will be accepted by any tax authority, customer, bank, or auditor;
+(b) GST, HSN, tax rates, or calculations are complete or correct for your situation;
+(c) the Service will meet every legal requirement applicable to your industry or location;
+(d) templates labelled for freelancers, agencies, hospitals, export, or other categories constitute legal advice.
+
+11.3 You should obtain independent professional advice for tax, accounting, and legal compliance.
+
+
+12. LIMITATION OF LIABILITY
+
+12.1 To the maximum extent permitted by applicable law, Invogen shall not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages; loss of profits, revenue, goodwill, data, or business opportunities; or cost of substitute services — whether arising in contract, tort, or otherwise.
+
+12.2 To the maximum extent permitted by law, Invogen’s total aggregate liability arising out of or relating to the Service or these Terms shall not exceed the fees you paid to Invogen for the Service in the three (3) months immediately before the event giving rise to the claim (or, if you paid only a lifetime fee, one-twelfth of that lifetime fee).
+
+12.3 Nothing in these Terms excludes liability that cannot be excluded under Indian law (including for fraud or wilful misconduct where non-waivable).
+
+
+13. INDEMNITY
+
+You will indemnify and hold harmless Invogen and its directors, officers, and employees from claims, losses, and expenses (including reasonable legal fees) arising from: (a) your Customer Content; (b) your invoices or dealings with your customers; (c) your breach of these Terms or law; or (d) disputes between Admin and Employee users in your workspace.
+
+
+14. SUSPENSION AND TERMINATION
+
+14.1 We may suspend or terminate access for non-payment, security risk, legal requirement, or material breach.
+
+14.2 You may stop using the Service at any time. Provisions that by nature should survive (including ownership, disclaimers, liability limits, indemnity, and governing law) survive termination.
+
+
+15. CHANGES TO THE SERVICE OR TERMS
+
+15.1 We may update these Terms. The version and effective date will be shown at the top. Material changes will be posted on the Service or marketing site, and where required we may ask for renewed acceptance at login or registration.
+
+15.2 Continued use after the effective date of updated Terms constitutes acceptance, except where mandatory law requires a different process.
+
+
+16. MARKETING WEBSITES AND COMMUNICATIONS
+
+16.1 Public marketing pages (including landing and pricing pages) describe the Service generally. Plan-specific entitlements control if there is any conflict between marketing summaries and your checkout or account plan details.
+
+16.2 You may opt out of non-essential marketing emails where we provide an unsubscribe option. Transactional messages (security, billing, password reset, subscription notices) may still be sent.
+
+
+17. GOVERNING LAW AND DISPUTES
+
+These Terms are governed by the laws of India. Subject to mandatory consumer protections if applicable, courts at Bengaluru, Karnataka shall have exclusive jurisdiction over disputes arising out of these Terms or the Service.
+
+
+18. GENERAL
+
+18.1 These Terms, together with the Privacy Policy and any plan-specific checkout terms, are the entire agreement regarding the Service and supersede prior informal statements on the same subject.
+
+18.2 If any provision is unenforceable, the remainder stays in effect.
+
+18.3 You may not assign these Terms without our consent. We may assign them in connection with a merger, acquisition, or sale of assets.
+
+18.4 No waiver is effective unless in writing.
+
+18.5 The English version of these Terms controls if translations differ.
+
+
+19. CONTACT FOR LEGAL AND SUPPORT QUERIES
+
+Invogen Technologies Pvt. Ltd.
+Email: hello@invogen.app
+Address: 123 Business Park, Bengaluru, Karnataka, India, 560001
+
+For billing questions related to your Invogen subscription, use the support or billing contacts shown on your platform invoice or account page.
+
+
+END OF TERMS AND CONDITIONS
+
+---
+GUIDANCE FOR YOUR MARKETING SITE (not part of the legal contract)
+1. Link to this document as “Terms” / “Terms & Conditions” in footer, register checkbox, and /legal/terms.
+2. Do not promise “guaranteed GST compliance”, “tax filing”, “free trial”, or “24/7 support SLA” on marketing pages unless you also update these Terms and actually offer those commitments.
+3. Keep entity name, address, and contact identical across Terms, Privacy Policy, invoices, and footer.
+4. Have an Indian lawyer review before relying on this for high-stakes customers; this file is aligned to the Invogen product behaviour to reduce marketing vs product conflicts.

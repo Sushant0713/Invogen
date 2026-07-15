@@ -8,6 +8,11 @@ export type PlatformInvoiceRenderPayload = {
     logo?: string;
     signature?: string;
   };
+  /** Platform invoice CGST/SGST — used for the same table math as Super Admin live preview. */
+  tax?: {
+    cgstRate: number;
+    sgstRate: number;
+  };
   expiresAt: number;
 };
 

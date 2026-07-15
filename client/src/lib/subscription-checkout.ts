@@ -66,6 +66,26 @@ export function clearCheckoutCart() {
   sessionStorage.removeItem(CHECKOUT_CART_KEY);
 }
 
+/** Cart path used after login/register when a plan was chosen on the public plans page. */
+export function checkoutPathForPlan(planId: string, discountCode?: string) {
+  const params = new URLSearchParams({ planId });
+  if (discountCode) params.set('discountCode', discountCode);
+  return `/admin/subscription/cart?${params.toString()}`;
+}
+
+/** Prefer planId from URL, then session cart (set when choosing a plan while logged out). */
+export function resolvePendingPlanId(search?: string | URLSearchParams | null): string | null {
+  const params =
+    typeof search === 'string'
+      ? new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+      : search instanceof URLSearchParams
+        ? search
+        : null;
+  const fromUrl = params?.get('planId')?.trim();
+  if (fromUrl) return fromUrl;
+  return readCheckoutCart()?.planId ?? null;
+}
+
 export function billingCycleLabel(cycle: string) {
   if (cycle === 'monthly') return 'Monthly';
   if (cycle === 'yearly') return 'Yearly';

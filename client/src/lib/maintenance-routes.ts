@@ -45,7 +45,7 @@ export function shouldEnforceMaintenance(pathname: string): boolean {
   if (isMaintenanceExemptPath(pathname)) return false;
   if (isTenantPortalPath(pathname)) return true;
   if (isPortalAuthPath(pathname)) return true;
-  if (pathname === '/') return true;
+  if (pathname === '/' || pathname === '/plans' || pathname.startsWith('/plans/')) return true;
   return false;
 }
 
