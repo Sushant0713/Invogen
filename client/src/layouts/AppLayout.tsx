@@ -11,6 +11,8 @@ import { logout } from '@/store/slices/authSlice';
 import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
 import api from '@/api/client';
 import { Button } from '@/components/ui/Button';
+import invogenTextLogo from '@/assets/invogen-text-logo.png';
+import invogenIcon from '@/assets/invogen-icon.png';
 
 interface AppLayoutProps {
   navItems: NavItem[];
@@ -164,11 +166,17 @@ export function AppLayout({ navItems, title, variant = 'default', headerActions 
           )}
         >
           {isCompactSidebar ? (
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">
-              I
-            </span>
+            <img
+              src={invogenIcon}
+              alt="Invogen"
+              className="h-9 w-9 object-contain"
+            />
           ) : (
-            <span className="text-xl font-bold text-primary">Invogen</span>
+            <img
+              src={invogenTextLogo}
+              alt="Invogen"
+              className="h-8 w-auto max-w-[148px] object-contain object-left"
+            />
           )}
           {!isCompactSidebar && (
             <button className="lg:hidden" onClick={closeSidebar}>

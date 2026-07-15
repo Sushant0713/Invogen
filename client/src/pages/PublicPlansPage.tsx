@@ -10,6 +10,7 @@ import {
 } from '@/lib/subscription-checkout';
 import { loginPath, registerPath } from '@/lib/workspace-portal';
 import { Button } from '@/components/ui/Button';
+import invogenFullLogo from '@/assets/invogen-full-logo.png';
 
 export default function PublicPlansPage() {
   const navigate = useNavigate();
@@ -38,8 +39,12 @@ export default function PublicPlansPage() {
       onChoosePlan={handleChoosePlan}
       topBar={
         <div className="mx-auto mb-8 flex max-w-4xl items-center justify-between gap-4">
-          <Link to="/" className="text-xl font-bold text-primary">
-            Invogen
+          <Link to="/" className="inline-flex items-center">
+            <img
+              src={invogenFullLogo}
+              alt="Invogen"
+              className="h-9 w-auto max-w-[160px] object-contain object-left"
+            />
           </Link>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {isAdmin ? (
