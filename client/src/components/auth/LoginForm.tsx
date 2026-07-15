@@ -9,7 +9,7 @@ import api from '@/api/client';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import { setCredentials, logout as logoutAction } from '@/store/slices/authSlice';
 import { getDashboardPath } from '@/config/navigation';
-import { clearSession, getReturnPath } from '@/lib/auth-session';
+import { clearSession, getReturnPath, getSafePostLoginPath } from '@/lib/auth-session';
 import { rehydrateUserLocalPreferences } from '@/lib/user-preferences';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -19,6 +19,7 @@ import { useMaintenanceStatus } from '@/hooks/useMaintenanceStatus';
 import { loginPath, registerPath } from '@/lib/workspace-portal';
 import { checkoutPathForPlan, resolvePendingPlanId, storeCheckoutCart } from '@/lib/subscription-checkout';
 import { toast } from 'sonner';
+import invogenFullLogo from '@/assets/invogen-full-logo.png';
 
 const schema = z.object({
   email: z.string().email(),
@@ -107,10 +108,12 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
       dispatch(setCredentials({ user, accessToken, refreshToken }));
       rehydrateUserLocalPreferences();
       toast.success('Welcome back!');
-      const returnPath =
+      const returnPath = getSafePostLoginPath(
         getReturnPath(searchParams.toString(), '') ||
-        (location.state as { from?: { pathname?: string } })?.from?.pathname ||
-        '';
+          (location.state as { from?: { pathname?: string } })?.from?.pathname ||
+          '',
+        ''
+      );
       const planId = resolvePendingPlanId(searchParams);
 
       if (portal === 'admin' && subscriptionActive === false) {
@@ -148,10 +151,12 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
       dispatch(setCredentials({ user, accessToken, refreshToken }));
       rehydrateUserLocalPreferences();
       toast.success('Welcome back!');
-      const returnPath =
+      const returnPath = getSafePostLoginPath(
         getReturnPath(searchParams.toString(), '') ||
-        (location.state as { from?: { pathname?: string } })?.from?.pathname ||
-        '';
+          (location.state as { from?: { pathname?: string } })?.from?.pathname ||
+          '',
+        ''
+      );
       const planId = resolvePendingPlanId(searchParams);
 
       if (subscriptionActive === false) {
@@ -264,7 +269,11 @@ export function LoginForm({ portal, title, subtitle, embedded = false }: LoginFo
           className="max-w-md space-y-6 text-white"
         >
           <div>
-            <h1 className="text-4xl font-bold mb-4">Invogen</h1>
+            <img
+              src={invogenFullLogo}
+              alt="Invogen"
+              className="mb-4 h-12 w-auto max-w-[220px] object-contain brightness-0 invert"
+            />
             <p className="text-primary-100 text-lg">
               Premium invoice builder for modern businesses. Create, customize, and send professional invoices.
             </p>

@@ -40,17 +40,50 @@ export function redirectToLogin(expired = false) {
     }
   }
 
-  const loginPath = getLoginPathForPathname(window.location.pathname);
+  const pathname = window.location.pathname;
+  const loginPath = getLoginPathForPathname(pathname);
+  // Don't bounce back to auth pages after a successful login.
+  if (isAuthPath(pathname + window.location.search)) {
+    window.location.href = expired ? `${loginPath}?expired=1` : loginPath;
+    return;
+  }
+
   const returnTo = encodeURIComponent(
-    window.location.pathname + window.location.search + window.location.hash
+    pathname + window.location.search + window.location.hash
   );
   const suffix = expired ? `?expired=1&returnTo=${returnTo}` : `?returnTo=${returnTo}`;
   window.location.href = `${loginPath}${suffix}`;
+}
+
+function isAuthPath(pathWithSearch: string): boolean {
+  const path = (pathWithSearch.split('?')[0] || '').trim();
+  return (
+    path === '/login' ||
+    path.startsWith('/login/') ||
+    path === '/super-admin/login' ||
+    path === '/register' ||
+    path.startsWith('/register/') ||
+    path === '/forgot-password' ||
+    path === '/reset-password' ||
+    path === '/verify-email' ||
+    path === '/403' ||
+    path === '/maintenance'
+  );
+}
+
+export function getSafePostLoginPath(
+  candidate: string | undefined | null,
+  fallback: string
+): string {
+  if (!candidate || !candidate.startsWith('/')) return fallback;
+  if (isAuthPath(candidate)) return fallback;
+  return candidate;
 }
 
 export function getReturnPath(search: string, fallback: string): string {
   const params = new URLSearchParams(search);
   const returnTo = params.get('returnTo');
   if (!returnTo || !returnTo.startsWith('/')) return fallback;
+  if (isAuthPath(returnTo)) return fallback;
   return returnTo;
 }

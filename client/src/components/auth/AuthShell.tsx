@@ -5,6 +5,7 @@ import { Check } from 'lucide-react';
 import { AuthPortalSwitcher } from '@/components/auth/AuthPortalSwitcher';
 import type { WorkspacePortal } from '@/lib/workspace-portal';
 import { cn } from '@/lib/utils';
+import invogenFullLogo from '@/assets/invogen-full-logo.png';
 
 interface AuthShellProps {
   portal: WorkspacePortal;
@@ -48,7 +49,11 @@ export function AuthShell({
           className="max-w-md space-y-6 text-white"
         >
           <div>
-            <h1 className="text-4xl font-bold mb-4">Invogen</h1>
+            <img
+              src={invogenFullLogo}
+              alt="Invogen"
+              className="mb-4 h-12 w-auto max-w-[220px] object-contain brightness-0 invert"
+            />
             <p className="text-primary-100 text-lg leading-relaxed">
               {portal === 'admin'
                 ? 'Premium invoice builder for modern businesses. Create, customize, and send professional invoices.'
@@ -74,7 +79,11 @@ export function AuthShell({
           className={cn('w-full space-y-5', widthClass)}
         >
           <div className="text-center lg:hidden">
-            <h1 className="text-2xl font-bold text-primary">Invogen</h1>
+            <img
+              src={invogenFullLogo}
+              alt="Invogen"
+              className="mx-auto h-9 w-auto max-w-[160px] object-contain"
+            />
           </div>
 
           <AuthPortalSwitcher value={portal} onChange={onPortalChange} />

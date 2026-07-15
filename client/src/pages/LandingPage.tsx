@@ -2,12 +2,19 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FileText, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import invogenFullLogo from '@/assets/invogen-full-logo.png';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-primary-50">
       <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
-        <span className="text-2xl font-bold text-primary">Invogen</span>
+        <Link to="/" className="inline-flex items-center">
+          <img
+            src={invogenFullLogo}
+            alt="Invogen"
+            className="h-9 w-auto object-contain sm:h-10"
+          />
+        </Link>
         <div className="flex gap-3">
           <Link to="/plans">
             <Button size="sm" variant="outline">Pricing</Button>
