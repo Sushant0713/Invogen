@@ -1,10 +1,11 @@
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Users, CreditCard, DollarSign, FileText } from 'lucide-react';
 import api from '@/api/client';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
-import { formatCompactCurrency, formatCurrency, formatDate } from '@/lib/utils';
+import { formatCompactCurrency, formatCurrency, formatDate, cn } from '@/lib/utils';
 import { Loader } from '@/components/ui/Loader';
 import { ActivityListItem } from '@/components/dashboard/ActivityListItem';
 import type { ActivityUserRef } from '@/lib/activity';
@@ -13,7 +14,11 @@ type DailyRevenueBucket = {
   date: string;
   total: number;
   count: number;
+  sentInvoiceCount?: number;
+  paidInvoiceCount?: number;
 };
+
+type InvoiceCountMode = 'sent' | 'paid';
 
 type RecentPayment = {
   _id: string;
@@ -47,11 +52,18 @@ function formatCurrentWeekSubtitle(dailyRevenue: DailyRevenueBucket[]): string {
   return `This week · ${startLabel} – ${endLabel}`;
 }
 
-function buildWeeklyChartData(dailyRevenue: DailyRevenueBucket[]) {
+function buildWeeklyChartData(
+  dailyRevenue: DailyRevenueBucket[],
+  invoiceMode: InvoiceCountMode
+) {
   return dailyRevenue.map((day) => ({
     name: formatDayAxisLabel(day.date),
     value: day.total,
     label: formatDayTooltipLabel(day.date),
+    count:
+      invoiceMode === 'sent'
+        ? (day.sentInvoiceCount ?? 0)
+        : (day.paidInvoiceCount ?? 0),
   }));
 }
 
@@ -61,7 +73,47 @@ function getCompanyName(companyId: RecentPayment['companyId']): string {
   return companyId.name || 'Unknown company';
 }
 
+function InvoiceCountToggle({
+  value,
+  onChange,
+}: {
+  value: InvoiceCountMode;
+  onChange: (next: InvoiceCountMode) => void;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1"
+      role="group"
+      aria-label="Invoice count filter"
+    >
+      {([
+        { id: 'sent', label: 'Sent invoices' },
+        { id: 'paid', label: 'Paid invoices' },
+      ] as const).map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          data-active={value === option.id}
+          onClick={() => onChange(option.id)}
+          className={cn(
+            'rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            'text-gray-500 hover:text-gray-800',
+            option.id === 'sent' &&
+              'data-[active=true]:bg-blue-600 data-[active=true]:text-white',
+            option.id === 'paid' &&
+              'data-[active=true]:bg-green-600 data-[active=true]:text-white',
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function SuperAdminDashboard() {
+  const [invoiceCountMode, setInvoiceCountMode] = useState<InvoiceCountMode>('sent');
+
   const { data, isLoading } = useQuery({
     queryKey: ['super-admin-dashboard'],
     queryFn: async () => {
@@ -70,11 +122,26 @@ export default function SuperAdminDashboard() {
     },
   });
 
+  const weeklyRevenue = (data?.weeklyRevenue || []) as DailyRevenueBucket[];
+  const weeklyChartData = useMemo(
+    () => buildWeeklyChartData(weeklyRevenue, invoiceCountMode),
+    [weeklyRevenue, invoiceCountMode]
+  );
+
+  const weekInvoiceTotal = useMemo(() => {
+    return weeklyRevenue.reduce(
+      (sum, day) =>
+        sum
+        + (invoiceCountMode === 'sent'
+          ? (day.sentInvoiceCount ?? 0)
+          : (day.paidInvoiceCount ?? 0)),
+      0
+    );
+  }, [weeklyRevenue, invoiceCountMode]);
+
   if (isLoading) return <Loader />;
 
   const stats = data?.stats || {};
-  const weeklyRevenue = (data?.weeklyRevenue || []) as DailyRevenueBucket[];
-  const weeklyChartData = buildWeeklyChartData(weeklyRevenue);
   const recentPayments = (data?.recentPayments || []) as RecentPayment[];
 
   return (
@@ -94,10 +161,16 @@ export default function SuperAdminDashboard() {
         <div className="space-y-4">
           <ChartCard
             title="This Week's Revenue"
-            subtitle={formatCurrentWeekSubtitle(weeklyRevenue)}
-            data={weeklyChartData.length ? weeklyChartData : [{ name: 'No data', value: 0 }]}
+            subtitle={`${formatCurrentWeekSubtitle(weeklyRevenue)} · ${weekInvoiceTotal} ${
+              invoiceCountMode === 'sent' ? 'sent' : 'paid'
+            } client invoice${weekInvoiceTotal === 1 ? '' : 's'}`}
+            data={weeklyChartData.length ? weeklyChartData : [{ name: 'No data', value: 0, count: 0 }]}
             valueFormatter={formatCurrency}
             axisValueFormatter={formatCompactCurrency}
+            countNoun={invoiceCountMode === 'sent' ? 'sent invoice' : 'paid invoice'}
+            headerActions={
+              <InvoiceCountToggle value={invoiceCountMode} onChange={setInvoiceCountMode} />
+            }
           />
           <Card>
             <CardHeader>

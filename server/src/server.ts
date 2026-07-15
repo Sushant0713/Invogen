@@ -1,7 +1,7 @@
 import app from './app';
 import { connectDB } from './config/db';
 import { env } from './config/env';
-import { cashfreeService } from './services/cashfree.service';
+import { razorpayService } from './services/razorpay.service';
 import { backfillMissingCompanyInvoiceCodes } from './utils/company-invoice-code';
 import { startSubscriptionExpiryReminderJob } from './jobs/subscription-expiry-reminders';
 
@@ -15,12 +15,12 @@ const start = async () => {
   startSubscriptionExpiryReminderJob();
   const server = app.listen(env.PORT, () => {
     console.log(`Server running on port ${env.PORT}`);
-    if (env.NODE_ENV === 'development' && cashfreeService.isConfigured()) {
-      cashfreeService.getConnectionStatus().then((status) => {
+    if (env.NODE_ENV === 'development' && razorpayService.isConfigured()) {
+      razorpayService.getConnectionStatus().then((status) => {
         if (!status.connected) {
-          console.warn('[cashfree] API check failed:', status.message);
+          console.warn('[razorpay] API check failed:', status.message);
         } else {
-          console.log('[cashfree] Connected (' + status.environment + ')');
+          console.log('[razorpay] Connected (' + status.environment + ')');
         }
       });
     }

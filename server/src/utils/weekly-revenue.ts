@@ -28,22 +28,32 @@ export type DailyRevenueBucket = {
   date: string;
   total: number;
   count: number;
+  /** Client invoices with status=sent attributed to this day. */
+  sentInvoiceCount: number;
+  /** Client invoices with status=paid attributed to this day. */
+  paidInvoiceCount: number;
 };
 
-export function buildDailyRevenueSeriesForCurrentWeek(
-  capturedPayments: { createdAt: Date; amount: number }[],
-): DailyRevenueBucket[] {
+function emptyWeekBuckets(): DailyRevenueBucket[] {
   const weekStart = startOfWeekMonday(new Date());
   const buckets: DailyRevenueBucket[] = [];
-
   for (let i = 0; i < 7; i++) {
     const day = addDays(weekStart, i);
     buckets.push({
       date: toLocalDateKey(day),
       total: 0,
       count: 0,
+      sentInvoiceCount: 0,
+      paidInvoiceCount: 0,
     });
   }
+  return buckets;
+}
+
+export function buildDailyRevenueSeriesForCurrentWeek(
+  capturedPayments: { createdAt: Date; amount: number }[],
+): DailyRevenueBucket[] {
+  const buckets = emptyWeekBuckets();
 
   for (const payment of capturedPayments) {
     const dayKey = toLocalDateKey(new Date(payment.createdAt));
@@ -55,4 +65,49 @@ export function buildDailyRevenueSeriesForCurrentWeek(
   }
 
   return buckets;
+}
+
+type InvoiceDaySource = {
+  status: string;
+  createdAt?: Date | null;
+  sentAt?: Date | null;
+  paidAt?: Date | null;
+};
+
+function asDate(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function invoiceDayKey(invoice: InvoiceDaySource, status: 'sent' | 'paid'): string | null {
+  if (status === 'sent') {
+    const at = asDate(invoice.sentAt) ?? asDate(invoice.createdAt);
+    return at ? toLocalDateKey(at) : null;
+  }
+  const at = asDate(invoice.paidAt) ?? asDate(invoice.createdAt);
+  return at ? toLocalDateKey(at) : null;
+}
+
+/** Merge client invoice counts into an existing this-week revenue series (same dates). */
+export function attachWeeklyClientInvoiceCounts(
+  buckets: DailyRevenueBucket[],
+  invoices: InvoiceDaySource[],
+): DailyRevenueBucket[] {
+  const next = buckets.map((bucket) => ({ ...bucket }));
+  const byDate = new Map(next.map((bucket) => [bucket.date, bucket]));
+
+  for (const invoice of invoices) {
+    if (invoice.status === 'sent') {
+      const key = invoiceDayKey(invoice, 'sent');
+      const bucket = key ? byDate.get(key) : undefined;
+      if (bucket) bucket.sentInvoiceCount += 1;
+    } else if (invoice.status === 'paid') {
+      const key = invoiceDayKey(invoice, 'paid');
+      const bucket = key ? byDate.get(key) : undefined;
+      if (bucket) bucket.paidInvoiceCount += 1;
+    }
+  }
+
+  return next;
 }

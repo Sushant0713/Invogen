@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { getChartYAxisScale } from '@/lib/chart-scale';
 import {
@@ -27,6 +27,10 @@ interface ChartCardProps {
   valueFormatter?: (value: number) => string;
   axisValueFormatter?: (value: number) => string;
   valueLabel?: string;
+  /** Noun used with optional point.count in the tooltip (default: payment). */
+  countNoun?: string;
+  /** Optional control rendered opposite the title (e.g. a filter toggle). */
+  headerActions?: ReactNode;
   height?: number;
   variant?: 'area' | 'bar';
 }
@@ -38,6 +42,8 @@ export function ChartCard({
   valueFormatter,
   axisValueFormatter,
   valueLabel = 'Revenue',
+  countNoun = 'payment',
+  headerActions,
   height = 250,
   variant = 'area',
 }: ChartCardProps) {
@@ -56,8 +62,10 @@ export function ChartCard({
       formatter={(value: number, _name, item) => {
         const point = item?.payload as ChartDataPoint | undefined;
         const amount = formatValue(value);
-        if (typeof point?.count === 'number' && point.count > 0) {
-          return [`${amount} (${point.count} payment${point.count === 1 ? '' : 's'})`, valueLabel];
+        if (typeof point?.count === 'number') {
+          const noun =
+            point.count === 1 ? countNoun : countNoun.endsWith('s') ? countNoun : `${countNoun}s`;
+          return [`${amount} · ${point.count} ${noun}`, valueLabel];
         }
         return [amount, valueLabel];
       }}
@@ -99,8 +107,13 @@ export function ChartCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        {subtitle ? <p className="text-sm text-muted-foreground mt-1">{subtitle}</p> : null}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>{title}</CardTitle>
+            {subtitle ? <p className="text-sm text-muted-foreground mt-1">{subtitle}</p> : null}
+          </div>
+          {headerActions ? <div className="shrink-0">{headerActions}</div> : null}
+        </div>
       </CardHeader>
       <div className="px-2 pb-4">
         <ResponsiveContainer width="100%" height={height}>

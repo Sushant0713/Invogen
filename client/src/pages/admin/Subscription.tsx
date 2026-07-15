@@ -327,7 +327,7 @@ export default function AdminSubscription() {
   const { data: paymentConfig, isLoading: configLoading } = useQuery({
     queryKey: ['admin-payment-config'],
     queryFn: async () => (await api.get('/admin/subscription/payment-config')).data.data as {
-      cashfreeEnabled: boolean;
+      razorpayEnabled: boolean;
     },
     staleTime: 0,
   });
@@ -346,7 +346,7 @@ export default function AdminSubscription() {
     staleTime: 0,
   });
 
-  const cashfreeEnabled = paymentConfig?.cashfreeEnabled ?? false;
+  const razorpayEnabled = paymentConfig?.razorpayEnabled ?? false;
   const hasActivePlan = status?.active ?? false;
   const needsPlan = !hasActivePlan;
   const planGroups = useMemo(() => groupPlans(plans || []), [plans]);
@@ -452,7 +452,7 @@ export default function AdminSubscription() {
               />
             </div>
 
-            {!cashfreeEnabled && (
+            {!razorpayEnabled && (
               <p className="mt-6 text-[11px] uppercase tracking-widest text-gray-400">
                 Sandbox · Instant activation
               </p>
@@ -502,10 +502,10 @@ export default function AdminSubscription() {
 
           {/* Footer */}
           <footer className="mt-12 flex flex-col items-center gap-5 border-t border-gray-100 pt-10">
-            {cashfreeEnabled && (
+            {razorpayEnabled && (
               <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-gray-400">
                 <Lock className="h-3.5 w-3.5" />
-                Encrypted · Cashfree Secure
+                Encrypted · Razorpay Secure
               </p>
             )}
             <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-xs text-gray-400">

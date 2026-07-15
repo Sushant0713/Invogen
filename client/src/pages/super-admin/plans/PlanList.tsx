@@ -209,13 +209,13 @@ export default function PlanListPage() {
         .data as SystemTemplateOption[],
   });
 
-  const { data: cashfreeStatus } = useQuery({
-    queryKey: ['cashfree-status'],
+  const { data: razorpayStatus } = useQuery({
+    queryKey: ['razorpay-status'],
     queryFn: async () =>
-      (await api.get('/super-admin/plans/cashfree-status')).data.data as {
+      (await api.get('/super-admin/plans/razorpay-status')).data.data as {
         configured: boolean;
         connected: boolean;
-        appIdPrefix: string | null;
+        keyIdPrefix: string | null;
         environment: string | null;
         message: string;
       },
@@ -530,22 +530,22 @@ export default function PlanListPage() {
     <div className="space-y-4">
       <PlanStatsBar stats={stats} />
 
-      {cashfreeStatus && cashfreeStatus.configured && cashfreeStatus.connected && (
+      {razorpayStatus && razorpayStatus.configured && razorpayStatus.connected && (
         <Card className="border-green-200 bg-green-50/80">
-          <p className="text-sm text-green-900">{cashfreeStatus.message}</p>
+          <p className="text-sm text-green-900">{razorpayStatus.message}</p>
           <p className="mt-1 text-xs text-green-800">
-            App ID: {cashfreeStatus.appIdPrefix}... · environment: {cashfreeStatus.environment}
+            Key ID: {razorpayStatus.keyIdPrefix}... · environment: {razorpayStatus.environment}
           </p>
         </Card>
       )}
 
-      {cashfreeStatus && (!cashfreeStatus.configured || !cashfreeStatus.connected) && (
+      {razorpayStatus && (!razorpayStatus.configured || !razorpayStatus.connected) && (
         <Card className="border-red-200 bg-red-50/80">
-          <p className="text-sm font-medium text-red-950">Cashfree connection issue</p>
-          <p className="mt-1 text-sm text-red-900">{cashfreeStatus.message}</p>
-          {cashfreeStatus.configured && (
+          <p className="text-sm font-medium text-red-950">Razorpay connection issue</p>
+          <p className="mt-1 text-sm text-red-900">{razorpayStatus.message}</p>
+          {razorpayStatus.configured && (
             <p className="mt-2 text-xs text-red-800">
-              Loaded App ID: {cashfreeStatus.appIdPrefix}... · environment: {cashfreeStatus.environment}
+              Loaded Key ID: {razorpayStatus.keyIdPrefix}... · environment: {razorpayStatus.environment}
             </p>
           )}
           <p className="mt-2 text-xs text-red-800">

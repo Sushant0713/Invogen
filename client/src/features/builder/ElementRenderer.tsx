@@ -51,6 +51,7 @@ import {
   isStructuredContentType,
   isAutoHeightTextType,
 } from './structured-content-layout';
+import { resolvePaginatedTextDisplayProps } from './text-box-pagination';
 import { getElementRotation, supportsElementRotation } from './element-rotation';
 import { getDividerLineSvgTransform } from './divider-rotation';
 import { TextWithPlaceholderChips, readContentEditablePlainText } from './TextWithPlaceholderChips';
@@ -746,7 +747,9 @@ export function ElementRenderer({
   const inlineTextEditable = !previewMode && !isDataField && isInlineCanvasEditable(element.type) && !element.locked;
   const inlineFieldEditable = !previewMode && isDataField && !element.locked;
   const usesCanvasEdit = inlineTextEditable || inlineFieldEditable;
-  const props = (element.props ?? {}) as Record<string, unknown>;
+  const props = resolvePaginatedTextDisplayProps(
+    (element.props ?? {}) as Record<string, unknown>
+  );
   const elementRotation = getElementRotation(props);
   const isRotatable = supportsElementRotation(element.type);
   const showCanvasSelectionInset =

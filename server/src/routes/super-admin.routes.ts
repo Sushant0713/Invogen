@@ -22,7 +22,7 @@ router.get('/plans', ctrl.getPlans);
 router.post('/plans', ctrl.createPlan);
 router.patch('/plans/:id', ctrl.updatePlan);
 router.delete('/plans/:id', ctrl.deletePlan);
-router.get('/plans/cashfree-status', ctrl.getCashfreeStatus);
+router.get('/plans/razorpay-status', ctrl.getRazorpayStatus);
 
 router.get('/plan-types', ctrl.getPlanTypes);
 router.post('/plan-types', ctrl.createPlanType);

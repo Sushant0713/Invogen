@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -28,24 +28,21 @@ import {
 } from '@/lib/subscription-checkout';
 import { BillingCycleToggle } from '@/components/subscription/BillingCycleToggle';
 import {
-  openCashfreeCheckout,
-  readPendingCheckout,
+  openRazorpayCheckout,
   clearPendingCheckout,
-  type CashfreeCheckoutSession,
-} from '@/lib/cashfree';
+  type RazorpayCheckoutSession,
+} from '@/lib/razorpay';
 
 export default function SubscriptionPayment() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const authUser = useAppSelector((s) => s.auth.user);
 
   const planId = searchParams.get('planId');
   const discountCode = searchParams.get('discountCode') || undefined;
-  const orderIdFromReturn = searchParams.get('order_id');
 
   const [paying, setPaying] = useState(false);
-  const verifyingReturnRef = useRef(false);
 
   useEffect(() => {
     if (planId) {
@@ -56,7 +53,7 @@ export default function SubscriptionPayment() {
   const { data: paymentConfig, isLoading: configLoading } = useQuery({
     queryKey: ['admin-payment-config'],
     queryFn: async () => (await api.get('/admin/subscription/payment-config')).data.data as {
-      cashfreeEnabled: boolean;
+      razorpayEnabled: boolean;
     },
     staleTime: 0,
   });
@@ -76,7 +73,7 @@ export default function SubscriptionPayment() {
     retry: false,
   });
 
-  const cashfreeEnabled = paymentConfig?.cashfreeEnabled ?? false;
+  const razorpayEnabled = paymentConfig?.razorpayEnabled ?? false;
 
   const invalidateSubscription = () => {
     queryClient.invalidateQueries({ queryKey: ['admin-subscription-status'] });
@@ -87,8 +84,13 @@ export default function SubscriptionPayment() {
   };
 
   const verifyMutation = useMutation({
-    mutationFn: (payload: { planId: string; orderId: string; discountCode?: string }) =>
-      api.post('/admin/subscription/verify', payload),
+    mutationFn: (payload: {
+      planId: string;
+      orderId: string;
+      paymentId?: string;
+      signature?: string;
+      discountCode?: string;
+    }) => api.post('/admin/subscription/verify', payload),
     onSuccess: () => {
       clearPendingCheckout();
       clearCheckoutCart();
@@ -118,24 +120,10 @@ export default function SubscriptionPayment() {
     onSettled: () => setPaying(false),
   });
 
-  useEffect(() => {
-    if (!orderIdFromReturn || verifyingReturnRef.current || verifyMutation.isPending) return;
-    const pending = readPendingCheckout(orderIdFromReturn);
-    const resolvedPlanId = pending?.planId || cart?.planId;
-    if (!resolvedPlanId) return;
-    verifyingReturnRef.current = true;
-    verifyMutation.mutate({
-      planId: resolvedPlanId,
-      orderId: orderIdFromReturn,
-      discountCode: pending?.discountCode || cart?.discountCode,
-    });
-    setSearchParams({}, { replace: true });
-  }, [orderIdFromReturn, cart?.planId, cart?.discountCode, setSearchParams, verifyMutation.isPending]);
-
   const handlePay = async () => {
     if (!cart?.planId || !authUser) return;
 
-    if (!cashfreeEnabled) {
+    if (!razorpayEnabled) {
       setPaying(true);
       selectPlanMutation.mutate(cart.planId);
       return;
@@ -147,12 +135,23 @@ export default function SubscriptionPayment() {
         planId: cart.planId,
         discountCode: cart.discountCode,
       });
-      await openCashfreeCheckout(res.data.data as CashfreeCheckoutSession);
+      const session = res.data.data as RazorpayCheckoutSession;
+      const payment = await openRazorpayCheckout(session);
+      verifyMutation.mutate({
+        planId: cart.planId,
+        orderId: payment.razorpay_order_id,
+        paymentId: payment.razorpay_payment_id,
+        signature: payment.razorpay_signature,
+        discountCode: session.discountCode || cart.discountCode,
+      });
     } catch (err: unknown) {
       clearPendingCheckout();
       setPaying(false);
       const statusCode = (err as { response?: { status?: number } })?.response?.status;
-      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        (err instanceof Error ? err.message : undefined);
+      if (message === 'Payment cancelled') return;
       if (statusCode === 401) toast.error(message || 'Session expired');
       else if (statusCode === 502) toast.error(message || 'Payment gateway error');
       else toast.error(message || 'Checkout failed');
@@ -160,10 +159,10 @@ export default function SubscriptionPayment() {
   };
 
   useEffect(() => {
-    if (!cart?.planId && !orderIdFromReturn) {
+    if (!cart?.planId) {
       navigate('/admin/subscription/plans', { replace: true });
     }
-  }, [cart?.planId, orderIdFromReturn, navigate]);
+  }, [cart?.planId, navigate]);
 
   const switchBillingCycle = async (cycle: 'monthly' | 'yearly') => {
     if (!quote?.billingOptions || !cart?.planId) return;
@@ -252,7 +251,7 @@ export default function SubscriptionPayment() {
         <div className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Complete payment</h1>
           <p className="mt-2 text-sm text-gray-500">
-            Review your order and pay securely{cashfreeEnabled ? ' via Cashfree' : ''}.
+            Review your order and pay securely{razorpayEnabled ? ' via Razorpay' : ''}.
           </p>
         </div>
 
@@ -270,7 +269,7 @@ export default function SubscriptionPayment() {
               <div>
                 <h2 className="font-semibold text-gray-900">Payment method</h2>
                 <p className="text-sm text-gray-500">
-                  {cashfreeEnabled
+                  {razorpayEnabled
                     ? 'UPI, cards, net banking & wallets'
                     : 'Development mode — instant activation'}
                 </p>
@@ -286,7 +285,7 @@ export default function SubscriptionPayment() {
                 <p className="text-sm text-gray-500">{authUser?.email}</p>
               </div>
 
-              {cashfreeEnabled ? (
+              {razorpayEnabled ? (
                 <div className="grid gap-3 sm:grid-cols-3">
                   {['UPI', 'Cards', 'Net Banking'].map((method) => (
                     <div
@@ -327,7 +326,7 @@ export default function SubscriptionPayment() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Processing…
                   </>
-                ) : cashfreeEnabled ? (
+                ) : razorpayEnabled ? (
                   <>
                     <Lock className="h-4 w-4" />
                     Pay {formatCurrency(quote.pricing.total, currency)}
@@ -338,10 +337,10 @@ export default function SubscriptionPayment() {
               </button>
             </div>
 
-            {cashfreeEnabled && (
+            {razorpayEnabled && (
               <p className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-400">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                256-bit SSL · PCI DSS compliant · Cashfree Secure
+                256-bit SSL · PCI DSS compliant · Razorpay Secure
               </p>
             )}
           </motion.div>

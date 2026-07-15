@@ -2,7 +2,7 @@ import { UserStatus, SubscriptionStatus, InvoiceStatus } from '@invogen/shared';
 import { superAdminService } from '../services/super-admin.service';
 import { planManagementService } from '../services/plan-management.service';
 import { superAdminDiscountReportService } from '../services/super-admin-discount-report.service';
-import { cashfreeService } from '../services/cashfree.service';
+import { razorpayService } from '../services/razorpay.service';
 import { wrap, param } from '../utils/controller';
 
 export const getDashboard = wrap(() => superAdminService.getDashboard());
@@ -30,7 +30,7 @@ export const updatePlan = wrap((req) => planManagementService.updatePlan(param(r
 export const deletePlan = wrap(async (req) => {
   await planManagementService.deletePlan(param(req.params.id));
 });
-export const getCashfreeStatus = wrap(() => cashfreeService.getConnectionStatus());
+export const getRazorpayStatus = wrap(() => razorpayService.getConnectionStatus());
 
 export const getPlanTypes = wrap(() => planManagementService.getPlanTypes());
 export const createPlanType = wrap((req) => planManagementService.createPlanType(req.body));

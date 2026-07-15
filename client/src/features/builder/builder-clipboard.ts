@@ -7,6 +7,10 @@ import {
   PREVIEW_PAGINATION_TABLE_ID_KEY,
   isTableElementType,
 } from './product-table';
+import {
+  isPaginatedTextBoxType,
+  stripTextPaginationMeta,
+} from './text-box-pagination';
 
 const CLIPBOARD_KEY = 'invogen-builder-clipboard-v1';
 
@@ -77,11 +81,18 @@ export function hasBuilderClipboard(): boolean {
   return readBuilderClipboard().length > 0;
 }
 
-/** Tables become standalone on paste — drop cross-page pagination segment metadata. */
+/** Tables/text become standalone on paste — drop cross-page pagination segment metadata. */
 export function sanitizeClipboardElementForPaste(element: CanvasElement): CanvasElement {
   const next = JSON.parse(JSON.stringify(element)) as CanvasElement;
   next.locked = false;
-  if (!isTableElementType(next.type) || !next.props) return next;
+  if (!next.props) return next;
+
+  if (isPaginatedTextBoxType(next.type)) {
+    next.props = stripTextPaginationMeta({ ...(next.props as Record<string, unknown>) });
+    return next;
+  }
+
+  if (!isTableElementType(next.type)) return next;
 
   const props = { ...(next.props as Record<string, unknown>) };
   const showTotals = props[PREVIEW_PAGINATION_SHOW_TOTALS_KEY];

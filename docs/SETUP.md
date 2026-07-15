@@ -11,6 +11,7 @@ Copy `.env.example` to `.env` and configure:
 | `JWT_REFRESH_SECRET` | JWT refresh token secret |
 | `RAZORPAY_KEY_ID` | Razorpay API key |
 | `RAZORPAY_KEY_SECRET` | Razorpay API secret |
+| `RAZORPAY_WEBHOOK_SECRET` | Razorpay webhook secret |
 | `API_PUBLIC_URL` | Public base URL for uploaded file links |
 | `SMTP_*` | Email configuration (optional in dev) |
 
@@ -85,3 +86,5 @@ Serve client `dist/` via nginx or CDN.
 Configure webhook URL: `https://your-domain.com/api/v1/webhooks/razorpay`
 
 Events: `payment.captured`, `subscription.activated`, `subscription.cancelled`
+
+Also set `RAZORPAY_WEBHOOK_SECRET` in `.env` to the webhook secret from the Razorpay Dashboard.

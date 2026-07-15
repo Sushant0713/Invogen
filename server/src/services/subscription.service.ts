@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { SubscriptionStatus, BillingCycle } from '@invogen/shared';
 import { Subscription, Plan, Payment } from '../models';
 import { AppError } from '../utils/AppError';
-import { cashfreeService } from './cashfree.service';
+import { razorpayService } from './razorpay.service';
 import { notificationService } from './notification.service';
 import { notifySubscriptionExpired } from '../utils/notification-events';
 
@@ -147,8 +147,8 @@ export const subscriptionService = {
   },
 
   async selectPlan(companyId: string, planId: string) {
-    if (cashfreeService.isConfigured()) {
-      throw new AppError('Payment is required. Please complete checkout via Cashfree.', 402);
+    if (razorpayService.isConfigured()) {
+      throw new AppError('Payment is required. Please complete checkout via Razorpay.', 402);
     }
 
     const plan = await Plan.findById(planId);

@@ -395,7 +395,7 @@ This policy is governed by the laws of Karnataka.`,
       scope: 'system',
       description: 'Platform payment configuration',
       value: {
-        provider: 'cashfree',
+        provider: 'razorpay',
         keyId: '',
         testMode: true,
         autoCapture: true,

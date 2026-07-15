@@ -35,7 +35,7 @@ import { resolveInitialTemplatePages } from '../utils/resolve-initial-template-p
 import { cloneTemplatePagesExact } from '../utils/clone-template-pages';
 import { InvoiceStatus, SubscriptionStatus } from '@invogen/shared';
 import type { TemplatePage } from '@invogen/shared';
-import { cashfreeService } from './cashfree.service';
+import { razorpayService } from './razorpay.service';
 import { ensureCompanyInvoiceCode } from '../utils/company-invoice-code';
 import { assignNextCompanyInvoiceNumber } from '../utils/company-invoice-number';
 import { applyForwardInvoiceStatus } from '../utils/invoice-status';
@@ -1132,7 +1132,7 @@ export const adminService = {
   },
 
   async getPaymentConfig() {
-    return cashfreeService.getPublicConfig();
+    return razorpayService.getPublicConfig();
   },
 
   async getCheckoutQuote(planId: string, discountCode?: string) {
@@ -1142,7 +1142,7 @@ export const adminService = {
   async createCheckout(companyId: string, userId: string, planId: string, discountCode?: string) {
     const plan = await Plan.findById(planId).populate('planTypeId');
     if (!plan || !plan.isActive) throw new AppError('Plan not found', 404);
-    if (!cashfreeService.isConfigured()) throw new AppError('Payment gateway not configured', 503);
+    if (!razorpayService.isConfigured()) throw new AppError('Payment gateway not configured', 503);
 
     const user = await User.findById(userId);
     if (!user) throw new AppError('User not found', 404);
@@ -1153,7 +1153,7 @@ export const adminService = {
       throw new AppError('Plan amount must be at least ₹1 for checkout', 400);
     }
 
-    return cashfreeService.createOrder({
+    return razorpayService.createOrder({
       companyId,
       planId: plan._id.toString(),
       billingCycle: plan.billingCycle,
@@ -1174,6 +1174,8 @@ export const adminService = {
     data: {
       planId: string;
       orderId: string;
+      paymentId?: string;
+      signature?: string;
       discountCode?: string;
     }
   ) {
@@ -1218,8 +1220,15 @@ export const adminService = {
     if (!data.orderId) {
       throw new AppError('Order ID is required', 400);
     }
+    if (!data.paymentId || !data.signature) {
+      throw new AppError('Payment ID and signature are required', 400);
+    }
 
-    await cashfreeService.confirmOrderPayment(data.orderId, total);
+    if (!razorpayService.verifyPaymentSignature(data.orderId, data.paymentId, data.signature)) {
+      throw new AppError('Invalid payment signature', 400);
+    }
+
+    await razorpayService.confirmOrderPayment(data.orderId, total);
 
     await Subscription.updateMany(
       {
@@ -1235,7 +1244,7 @@ export const adminService = {
       companyId,
       amount: total,
       currency: plan.currency,
-      razorpayPaymentId: data.orderId,
+      razorpayPaymentId: data.paymentId,
       razorpayOrderId: data.orderId,
       status: 'captured',
       metadata: discountMeta,

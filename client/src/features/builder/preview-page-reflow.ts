@@ -18,6 +18,22 @@ import {
   estimateTextBlockHeight,
   isStructuredContentType,
 } from './structured-content-layout';
+import {
+  findTextSplitEnd,
+  hasTextPaginationMeta,
+  isPaginatedTextBoxType,
+  isTextContinuationSegment,
+  resolveFullTextContent,
+  resolveFullTextRuns,
+  resolvePaginationTextBoxId,
+  PREVIEW_TEXT_BOX_ID_KEY,
+  PREVIEW_TEXT_CONTENT_KEY,
+  PREVIEW_TEXT_RANGE_END_KEY,
+  PREVIEW_TEXT_RANGE_START_KEY,
+  PREVIEW_TEXT_RUNS_KEY,
+  textPropsForPageSegment,
+  sliceTextRuns,
+} from './text-box-pagination';
 import { isTextStylable } from './text-styles';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import {
@@ -1004,6 +1020,200 @@ function makeTableContinuationElement(
   };
 }
 
+function makeTextContinuationElement(
+  source: CanvasElement,
+  sourceProps: Record<string, unknown>,
+  fullContent: string,
+  start: number,
+  end: number,
+  height: number
+): CanvasElement {
+  const boxId = resolvePaginationTextBoxId(sourceProps, source.id);
+  const fullRuns = resolveFullTextRuns(sourceProps);
+  return {
+    ...source,
+    id: uuidv4(),
+    y: source.y,
+    height,
+    props: textPropsForPageSegment(sourceProps, fullContent, fullRuns, boxId, start, end),
+  };
+}
+
+/**
+ * Split TEXT / HEADING / NOTES across pages the same way tables split rows —
+ * head stays on this page; remaining content becomes a continuation element.
+ */
+function paginateTextInDocumentFlow(
+  element: CanvasElement,
+  cursorY: number,
+  contentBottom: number
+): { onPage: CanvasElement | null; overflow: CanvasElement[] } {
+  const elementProps = (element.props ?? {}) as Record<string, unknown>;
+  const fullContent = resolveFullTextContent(elementProps);
+  const fullRuns = resolveFullTextRuns(elementProps);
+  const boxId = resolvePaginationTextBoxId(elementProps, element.id);
+
+  let baseStart =
+    typeof elementProps[PREVIEW_TEXT_RANGE_START_KEY] === 'number'
+      ? Math.floor(elementProps[PREVIEW_TEXT_RANGE_START_KEY] as number)
+      : 0;
+  let baseEnd =
+    typeof elementProps[PREVIEW_TEXT_RANGE_END_KEY] === 'number'
+      ? Math.floor(elementProps[PREVIEW_TEXT_RANGE_END_KEY] as number)
+      : fullContent.length;
+
+  if (baseStart < 0) baseStart = 0;
+  if (baseEnd > fullContent.length) baseEnd = fullContent.length;
+  if (baseStart > baseEnd) {
+    baseStart = 0;
+    baseEnd = fullContent.length;
+  }
+
+  const spaceLeft = contentBottom - cursorY;
+  const segmentContent = fullContent.slice(baseStart, baseEnd);
+  const segmentHeight = estimateTextBlockHeight(
+    element.type,
+    {
+      ...elementProps,
+      content: segmentContent,
+      textRuns: sliceTextRuns(fullRuns, baseStart, baseEnd),
+    },
+    element.width
+  );
+
+  if (!segmentContent && baseEnd <= baseStart) {
+    return { onPage: null, overflow: [] };
+  }
+
+  if (spaceLeft <= PUSH_TOLERANCE_PX) {
+    return {
+      onPage: null,
+      overflow: [
+        makeTextContinuationElement(
+          element,
+          elementProps,
+          fullContent,
+          baseStart,
+          baseEnd,
+          Math.max(element.height, segmentHeight)
+        ),
+      ],
+    };
+  }
+
+  if (segmentHeight <= spaceLeft + PUSH_TOLERANCE_PX) {
+    const overflow: CanvasElement[] = [];
+    if (baseEnd < fullContent.length) {
+      const restHeight = estimateTextBlockHeight(
+        element.type,
+        {
+          ...elementProps,
+          content: fullContent.slice(baseEnd),
+          textRuns: sliceTextRuns(fullRuns, baseEnd, fullContent.length),
+        },
+        element.width
+      );
+      overflow.push(
+        makeTextContinuationElement(
+          element,
+          elementProps,
+          fullContent,
+          baseEnd,
+          fullContent.length,
+          restHeight
+        )
+      );
+    }
+    return {
+      onPage: {
+        ...element,
+        y: cursorY,
+        height: segmentHeight,
+        props: textPropsForPageSegment(
+          elementProps,
+          fullContent,
+          fullRuns,
+          boxId,
+          baseStart,
+          baseEnd
+        ),
+      },
+      overflow,
+    };
+  }
+
+  const splitEnd = findTextSplitEnd(
+    element.type,
+    elementProps,
+    fullContent,
+    element.width,
+    spaceLeft,
+    baseStart,
+    baseEnd
+  );
+
+  if (splitEnd <= baseStart) {
+    return {
+      onPage: null,
+      overflow: [
+        makeTextContinuationElement(
+          element,
+          elementProps,
+          fullContent,
+          baseStart,
+          baseEnd,
+          segmentHeight
+        ),
+      ],
+    };
+  }
+
+  const headHeight = estimateTextBlockHeight(
+    element.type,
+    {
+      ...elementProps,
+      content: fullContent.slice(baseStart, splitEnd),
+      textRuns: sliceTextRuns(fullRuns, baseStart, splitEnd),
+    },
+    element.width
+  );
+  const restHeight = estimateTextBlockHeight(
+    element.type,
+    {
+      ...elementProps,
+      content: fullContent.slice(splitEnd, baseEnd),
+      textRuns: sliceTextRuns(fullRuns, splitEnd, baseEnd),
+    },
+    element.width
+  );
+
+  return {
+    onPage: {
+      ...element,
+      y: cursorY,
+      height: headHeight,
+      props: textPropsForPageSegment(
+        elementProps,
+        fullContent,
+        fullRuns,
+        boxId,
+        baseStart,
+        splitEnd
+      ),
+    },
+    overflow: [
+      makeTextContinuationElement(
+        element,
+        elementProps,
+        fullContent,
+        splitEnd,
+        baseEnd,
+        restHeight
+      ),
+    ],
+  };
+}
+
 /** Word/Canva-style flow: stack top-to-bottom, split table rows when the stack hits the page bottom. */
 function paginateTableInDocumentFlow(
   element: CanvasElement,
@@ -1478,6 +1688,36 @@ function layoutPageDocumentFlow(
       continue;
     }
 
+    if (isPaginatedTextBoxType(element.type)) {
+      const paginated = paginateTextInDocumentFlow(element, cursorY, contentBottom);
+      if (paginated.onPage === null) {
+        for (const spill of paginated.overflow) {
+          overflow.push(withLogicalFlowY(spill, contentTop));
+        }
+        const spillFrom =
+          paginated.overflow.length > 0 ? flowIndex + unit.length : flowIndex;
+        spillRemainingFlow(flow, spillFrom, contentTop, overflow);
+        break;
+      }
+
+      const placed = withLogicalFlowY(paginated.onPage, cursorY);
+      onPage.push(placed);
+      cursorY = placed.y + placed.height + FLOW_GAP_PX;
+      flowIndex += unit.length;
+
+      for (const spill of paginated.overflow) {
+        overflow.push(withLogicalFlowY(spill, cursorY));
+      }
+
+      if (unitIndex + 1 < units.length) {
+        if (!unitsFitAt(cursorY, units.slice(unitIndex + 1), contentBottom)) {
+          spillRemainingFlow(flow, flowIndex, cursorY, overflow);
+          break;
+        }
+      }
+      continue;
+    }
+
     if (!unitsFitAt(cursorY, units.slice(unitIndex), contentBottom)) {
       spillRemainingFlow(flow, flowIndex, cursorY, overflow);
       break;
@@ -1628,6 +1868,85 @@ function tableHasContinuationInOverflow(
   return overflow.some(
     (item) => paginationGroupKey((item.props ?? {}) as Record<string, unknown>) === key
   );
+}
+
+/** Merge split text-box segments back into one box before re-paginating. */
+function consolidatePaginatedTextBoxesForReflow(pages: TemplatePage[]): TemplatePage[] {
+  type Segment = { pageIndex: number; element: CanvasElement };
+  const groups = new Map<string, Segment[]>();
+
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    for (const element of pages[pageIndex].elements) {
+      if (!isPaginatedTextBoxType(element.type) || element.visible === false) continue;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (!hasTextPaginationMeta(props)) continue;
+      const key = resolvePaginationTextBoxId(props, element.id);
+      const list = groups.get(key) ?? [];
+      list.push({ pageIndex, element });
+      groups.set(key, list);
+    }
+  }
+
+  if (groups.size === 0) return pages;
+
+  const next = cloneTemplatePages(pages);
+
+  for (const [boxId, segments] of groups) {
+    segments.sort((a, b) => a.pageIndex - b.pageIndex || a.element.y - b.element.y);
+
+    const hasCrossPageContinuation =
+      segments.length > 1
+      || segments.some((segment) =>
+        isTextContinuationSegment((segment.element.props ?? {}) as Record<string, unknown>)
+      );
+    if (!hasCrossPageContinuation) continue;
+
+    const primary =
+      segments.find((segment) => segment.pageIndex === 0)
+      ?? segments.find(
+        (segment) =>
+          !isTextContinuationSegment((segment.element.props ?? {}) as Record<string, unknown>)
+      )
+      ?? segments[0];
+
+    const primaryProps = (primary.element.props ?? {}) as Record<string, unknown>;
+    const fullContent = resolveFullTextContent(primaryProps);
+    const fullRuns = resolveFullTextRuns(primaryProps);
+    const fittedHeight = estimateTextBlockHeight(
+      primary.element.type,
+      { ...primaryProps, content: fullContent, textRuns: fullRuns ?? undefined },
+      primary.element.width
+    );
+
+    for (let pageIndex = 0; pageIndex < next.length; pageIndex += 1) {
+      next[pageIndex].elements = next[pageIndex].elements.filter((element) => {
+        if (!isPaginatedTextBoxType(element.type)) return true;
+        const props = (element.props ?? {}) as Record<string, unknown>;
+        return resolvePaginationTextBoxId(props, element.id) !== boxId;
+      });
+    }
+
+    const mergedProps: Record<string, unknown> = {
+      ...primaryProps,
+      content: fullContent,
+      [PREVIEW_TEXT_CONTENT_KEY]: fullContent,
+      [PREVIEW_TEXT_BOX_ID_KEY]: boxId,
+    };
+    if (fullRuns) {
+      mergedProps[PREVIEW_TEXT_RUNS_KEY] = fullRuns;
+      mergedProps.textRuns = fullRuns;
+    }
+    delete mergedProps[PREVIEW_TEXT_RANGE_START_KEY];
+    delete mergedProps[PREVIEW_TEXT_RANGE_END_KEY];
+
+    next[primary.pageIndex].elements.push({
+      ...primary.element,
+      height: fittedHeight,
+      props: mergedProps,
+    });
+  }
+
+  return next;
 }
 
 /** Merge split table segments back into one table before re-paginating. */
@@ -1817,9 +2136,11 @@ function fitPaginatedTableAnchorWithoutContinuation(pages: TemplatePage[]): Temp
   return [{ ...page, elements }, ...next.slice(1)];
 }
 
-/** Merge split table rows onto Page 1 after a continuation page tab is removed. */
+/** Merge split table/text segments onto Page 1 after a continuation page tab is removed. */
 export function absorbPaginationAfterPageDelete(pages: TemplatePage[]): TemplatePage[] {
-  const consolidated = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
+  const consolidated = consolidatePaginatedTextBoxesForReflow(
+    consolidatePaginatedTablesForReflow(cloneTemplatePages(pages))
+  );
   return fitPaginatedTableAnchorWithoutContinuation(consolidated);
 }
 
@@ -2478,18 +2799,19 @@ export function layoutBuilderPages(pages: TemplatePage[]): TemplatePage[] {
   return reflowPagesForPreview(pages, { trustTableProps: true });
 }
 
-/** True when a page only holds auto table-continuations (or is empty aside from footers). */
+/** True when a page only holds auto table/text continuations (or is empty aside from footers). */
 function pageIsPureAutoContinuation(page: TemplatePage): boolean {
   if (page.userAuthored === true) return false;
   const flow = page.elements.filter(
     (element) => element.visible !== false && !isPinnedPreviewElement(element)
   );
   if (flow.length === 0) return true;
-  return flow.every(
-    (element) =>
-      isTableElementType(element.type)
-      && isTableContinuationSegment((element.props ?? {}) as Record<string, unknown>)
-  );
+  return flow.every((element) => {
+    const props = (element.props ?? {}) as Record<string, unknown>;
+    if (isTableElementType(element.type) && isTableContinuationSegment(props)) return true;
+    if (isPaginatedTextBoxType(element.type) && isTextContinuationSegment(props)) return true;
+    return false;
+  });
 }
 
 /**
@@ -3119,7 +3441,8 @@ export function reflowPagesForPreview(
 ): TemplatePage[] {
   if (pages.length === 0) return pages;
 
-  const consolidated = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
+  const consolidatedTables = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
+  const consolidated = consolidatePaginatedTextBoxesForReflow(consolidatedTables);
   const tableOptions: PreviewReflowOptions = { trustTableProps: true, ...options };
   const withCardHeights = expandPreviewCardHeights(consolidated);
 

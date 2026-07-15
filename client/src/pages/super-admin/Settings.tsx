@@ -77,7 +77,7 @@ interface TaxSettings {
 }
 
 interface PaymentSettings {
-  provider: 'cashfree';
+  provider: 'razorpay';
   keyId: string;
   testMode: boolean;
   autoCapture: boolean;
@@ -124,7 +124,7 @@ const defaultTaxSettings = (): TaxSettings => ({
 });
 
 const defaultPaymentSettings = (): PaymentSettings => ({
-  provider: 'cashfree',
+  provider: 'razorpay',
   keyId: '',
   testMode: true,
   autoCapture: true,
@@ -200,10 +200,10 @@ export default function SuperAdminSettings() {
     const row = settings?.find((s) => s.key === 'invoice_settings');
     return hydrateInvoiceSettings(row?.value as Partial<InvoiceSettings> | undefined);
   }, [settings]);
-  const paymentFromApi = useMemo(
-    () => getSettingValue(settings, 'payment_settings', defaultPaymentSettings()),
-    [settings]
-  );
+  const paymentFromApi = useMemo(() => {
+    const raw = getSettingValue(settings, 'payment_settings', defaultPaymentSettings());
+    return { ...raw, provider: 'razorpay' as const };
+  }, [settings]);
   const notificationFromApi = useMemo(
     () => getSettingValue(settings, 'notification_settings', defaultNotificationSettings()),
     [settings]
@@ -670,13 +670,13 @@ function PaymentSettingPanel({
   const update = (field: keyof PaymentSettings, value: string | boolean) =>
     onChange({ ...form, [field]: value });
 
-  const { data: cashfreeStatus } = useQuery({
-    queryKey: ['cashfree-status'],
+  const { data: razorpayStatus } = useQuery({
+    queryKey: ['razorpay-status'],
     queryFn: async () =>
-      (await api.get('/super-admin/plans/cashfree-status')).data.data as {
+      (await api.get('/super-admin/plans/razorpay-status')).data.data as {
         configured: boolean;
         connected: boolean;
-        appIdPrefix: string | null;
+        keyIdPrefix: string | null;
         environment: string | null;
         message: string;
       },
@@ -687,26 +687,26 @@ function PaymentSettingPanel({
       <div>
         <h2 className="text-lg font-semibold text-gray-900">Payment setting</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Platform payment preferences. Cashfree API credentials are loaded from the server{' '}
+          Platform payment preferences. Razorpay API credentials are loaded from the server{' '}
           <code className="text-xs">.env</code> file — not from this form.
         </p>
       </div>
 
-      {cashfreeStatus && (
+      {razorpayStatus && (
         <Card
           className={
-            cashfreeStatus.connected
+            razorpayStatus.connected
               ? 'border-green-200 bg-green-50/80'
-              : cashfreeStatus.configured
+              : razorpayStatus.configured
                 ? 'border-amber-200 bg-amber-50/80'
                 : 'border-red-200 bg-red-50/80'
           }
         >
-          <p className="text-sm font-medium text-gray-900">Active Cashfree credentials (.env)</p>
-          <p className="mt-1 text-sm text-gray-700">{cashfreeStatus.message}</p>
-          {cashfreeStatus.configured && (
+          <p className="text-sm font-medium text-gray-900">Active Razorpay credentials (.env)</p>
+          <p className="mt-1 text-sm text-gray-700">{razorpayStatus.message}</p>
+          {razorpayStatus.configured && (
             <p className="mt-2 text-xs text-gray-600">
-              App ID: {cashfreeStatus.appIdPrefix}... · environment: {cashfreeStatus.environment}
+              Key ID: {razorpayStatus.keyIdPrefix}... · environment: {razorpayStatus.environment}
             </p>
           )}
         </Card>
@@ -718,7 +718,7 @@ function PaymentSettingPanel({
             Payment provider
           </label>
           <select id="payment-provider" className={selectClass} value={form.provider} disabled>
-            <option value="cashfree">Cashfree</option>
+            <option value="razorpay">Razorpay</option>
           </select>
         </div>
         <Input label="Default currency" value={form.defaultCurrency} onChange={(e) => update('defaultCurrency', e.target.value)} />
@@ -726,30 +726,29 @@ function PaymentSettingPanel({
 
       <SettingToggle
         title="Test mode (preference)"
-        description="Display label only — actual mode follows CASHFREE_ENV in .env (sandbox vs production)"
+        description="Display label only — actual mode follows RAZORPAY_KEY_ID in .env (rzp_test_ vs rzp_live_)"
         checked={form.testMode}
         onChange={(v) => update('testMode', v)}
       />
       <SettingToggle
         title="Auto capture (preference)"
-        description="Saved for future use; checkout currently uses Cashfree defaults"
+        description="Saved for future use; checkout currently uses Razorpay defaults"
         checked={form.autoCapture}
         onChange={(v) => update('autoCapture', v)}
       />
 
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600 space-y-2">
-        <p className="font-medium text-gray-800">Where to set Cashfree keys</p>
+        <p className="font-medium text-gray-800">Where to set Razorpay keys</p>
         <p>
           Edit <code>.env</code> in the project root:
         </p>
-        <pre className="text-xs bg-white border border-gray-200 rounded-lg p-3 overflow-x-auto">{`CASHFREE_APP_ID=your_app_id
-CASHFREE_SECRET_KEY=your_secret_key
-CASHFREE_ENV=sandbox
-CASHFREE_WEBHOOK_SECRET=...`}</pre>
+        <pre className="text-xs bg-white border border-gray-200 rounded-lg p-3 overflow-x-auto">{`RAZORPAY_KEY_ID=rzp_test_xxxx
+RAZORPAY_KEY_SECRET=your_secret_key
+RAZORPAY_WEBHOOK_SECRET=...`}</pre>
         <p className="text-xs">
-          Get sandbox credentials from{' '}
-          <a href="https://merchant.cashfree.com/merchants/pg/developers/api-keys" className="text-primary underline" target="_blank" rel="noreferrer">
-            Cashfree Developer Dashboard
+          Get test credentials from{' '}
+          <a href="https://dashboard.razorpay.com/app/keys" className="text-primary underline" target="_blank" rel="noreferrer">
+            Razorpay Dashboard
           </a>
           . Keys in <code>.env</code> are the only source the server reads.
         </p>

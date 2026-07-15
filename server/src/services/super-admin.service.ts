@@ -32,8 +32,10 @@ import { cloneTemplatePagesExact } from '../utils/clone-template-pages';
 import { ensureCompanyInvoiceCode } from '../utils/company-invoice-code';
 import {
   buildDailyRevenueSeriesForCurrentWeek,
+  attachWeeklyClientInvoiceCounts,
   getCurrentWeekStart,
 } from '../utils/weekly-revenue';
+import { EXCLUDE_PLATFORM_INVOICE_FILTER } from '../utils/sales-report';
 import {
   buildRevenueDateMatch,
   getRevenueGroupFormat,
@@ -128,7 +130,7 @@ export const superAdminService = {
 
     const currentWeekStart = getCurrentWeekStart();
 
-    const [recentPayments, paymentsThisWeek] = await Promise.all([
+    const [recentPayments, paymentsThisWeek, clientInvoicesThisWeek] = await Promise.all([
       Payment.find({ status: 'captured' })
         .sort({ createdAt: -1 })
         .limit(5)
@@ -139,9 +141,27 @@ export const superAdminService = {
       })
         .select('amount createdAt')
         .lean(),
+      Invoice.find({
+        status: { $in: [InvoiceStatus.SENT, InvoiceStatus.PAID] },
+        $and: [
+          EXCLUDE_PLATFORM_INVOICE_FILTER,
+          {
+            $or: [
+              { createdAt: { $gte: currentWeekStart } },
+              { sentAt: { $gte: currentWeekStart } },
+              { paidAt: { $gte: currentWeekStart } },
+            ],
+          },
+        ],
+      })
+        .select('status createdAt sentAt paidAt')
+        .lean(),
     ]);
 
-    const weeklyRevenue = buildDailyRevenueSeriesForCurrentWeek(paymentsThisWeek);
+    const weeklyRevenue = attachWeeklyClientInvoiceCounts(
+      buildDailyRevenueSeriesForCurrentWeek(paymentsThisWeek),
+      clientInvoicesThisWeek
+    );
 
     const activities = await ActivityLog.find()
       .sort({ createdAt: -1 })

@@ -40,6 +40,13 @@ import {
   estimateTextBlockHeight,
   isAutoHeightTextType,
 } from '@/features/builder/structured-content-layout';
+import {
+  hasTextPaginationMeta,
+  isPaginatedTextBoxType,
+  resolvePaginationTextBoxId,
+  syncPaginatedTextContentAcrossSegments,
+} from '@/features/builder/text-box-pagination';
+import { getTextRuns } from '@/features/builder/text-styles';
 
 export interface SelectedTableCell {
   elementId: string;
@@ -682,12 +689,39 @@ const builderSlice = createSlice({
               : restChanges;
           const shouldLayout = shouldTriggerDocumentLayout(layoutChanges, skipLayout);
           if (shouldLayout) {
-            const plain = clonePages(state.pages);
+            let plain = clonePages(state.pages);
             const pageIdx = targetPageIndex;
             const elIdx = plain[pageIdx]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
             if (elIdx >= 0) {
               plain[pageIdx].elements[elIdx] = next;
             }
+
+            // Paginated text boxes: splice edits into shared full content, then reflow
+            // (same idea as syncPaginatedTableRowsAcrossSegments — table path untouched).
+            const nextProps = (next.props ?? {}) as Record<string, unknown>;
+            if (
+              isPaginatedTextBoxType(next.type)
+              && hasTextPaginationMeta(nextProps)
+              && propsPatch !== undefined
+              && (typeof propsPatch.content === 'string' || propsPatch.textRuns !== undefined)
+            ) {
+              const boxId = resolvePaginationTextBoxId(nextProps, next.id);
+              const segmentContent =
+                typeof propsPatch.content === 'string'
+                  ? propsPatch.content
+                  : typeof nextProps.content === 'string'
+                    ? (nextProps.content as string)
+                    : '';
+              const segmentRuns = getTextRuns(nextProps);
+              plain = syncPaginatedTextContentAcrossSegments(
+                plain,
+                boxId,
+                next.id,
+                segmentContent,
+                segmentRuns
+              ) as TemplatePage[];
+            }
+
             commitDocumentLayout(state, plain);
           } else {
             applyManualElementUpdate(elements, idx, next);

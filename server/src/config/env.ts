@@ -25,18 +25,17 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   JWT_REFRESH_REMEMBER_EXPIRES_IN: z.string().default('30d'),
-  CASHFREE_APP_ID: z
+  RAZORPAY_KEY_ID: z
     .string()
     .optional()
     .default('')
     .transform((v) => v.trim()),
-  CASHFREE_SECRET_KEY: z
+  RAZORPAY_KEY_SECRET: z
     .string()
     .optional()
     .default('')
     .transform((v) => v.trim()),
-  CASHFREE_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
-  CASHFREE_WEBHOOK_SECRET: z
+  RAZORPAY_WEBHOOK_SECRET: z
     .string()
     .optional()
     .default('')
