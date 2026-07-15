@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
-  CalendarRange,
   CircleDollarSign,
   Download,
   Hexagon,
@@ -24,13 +23,11 @@ import { toDateInputValue } from '@/lib/revenue-chart';
 import { ProductSalesTrendChart } from '@/features/reports/ProductSalesTrendChart';
 import { ProductRevenueDonut } from '@/features/reports/ProductRevenueDonut';
 import { ProductVolumeBarChart } from '@/features/reports/ProductVolumeBarChart';
+import { formatGrowthPercent, formatTrendLabel } from '@/features/reports/report-filters';
 import {
-  formatGrowthPercent,
-  formatTrendLabel,
-  getReportPresetRange,
-  REPORT_DATE_PRESETS,
-  type ReportDatePreset,
-} from '@/features/reports/report-filters';
+  ReportDateRangeFilters,
+  useReportDateRangeState,
+} from '@/features/reports/ReportDateRangeFilters';
 
 type ProductsReportResponse = {
   from: string;
@@ -117,9 +114,6 @@ function KpiCard({ title, value, trend, trendPositive, subtitle, icon, accent }:
   );
 }
 
-const selectClassName =
-  'w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20';
-
 function exportLedgerCsv(rows: ProductsReportResponse['ledger'], from: string, to: string) {
   const headers = ['Product', 'Units Sold', 'Total Revenue', '% of Total Sales', 'Growth %'];
   const lines = rows.map((row) => [
@@ -150,33 +144,33 @@ const SORT_COLUMNS = [
 ] as const;
 
 export function ProductsReportTab() {
-  const [datePreset, setDatePreset] = useState<ReportDatePreset>('this_quarter');
+  const { datePreset, fromDate, toDate, applyPreset, changeFrom, changeTo } =
+    useReportDateRangeState('this_quarter');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState('revenue');
 
-  const range = useMemo(() => getReportPresetRange(datePreset), [datePreset]);
-
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['admin-reports-products', datePreset, range.from, range.to, search, page, sort],
+    queryKey: ['admin-reports-products', datePreset, fromDate, toDate, search, page, sort],
     queryFn: async () => {
       const params: Record<string, string | number> = {
-        preset: datePreset,
-        from: range.from,
-        to: range.to,
+        from: fromDate,
+        to: toDate,
         status: 'paid',
         search,
         page,
         limit: 8,
         sort,
       };
+      if (datePreset !== 'custom') params.preset = datePreset;
       return (await api.get('/admin/reports/products', { params })).data.data as ProductsReportResponse;
     },
+    enabled: Boolean(fromDate && toDate),
   });
 
-  const fromDate = data?.from ? toDateInputValue(new Date(data.from)) : range.from;
-  const toDate = data?.to ? toDateInputValue(new Date(data.to)) : range.to;
+  const chartFrom = data?.from ? toDateInputValue(new Date(data.from)) : fromDate;
+  const chartTo = data?.to ? toDateInputValue(new Date(data.to)) : toDate;
 
   if (isLoading && !data) return <Loader />;
 
@@ -188,26 +182,23 @@ export function ProductsReportTab() {
     <div className="space-y-5">
       <Card glass={false} className="border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-4">
-          <label className="block min-w-[180px] flex-1">
-            <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              <CalendarRange className="h-3.5 w-3.5" />
-              Date Range
-            </span>
-            <select
-              className={selectClassName}
-              value={datePreset}
-              onChange={(event) => {
-                setDatePreset(event.target.value as ReportDatePreset);
-                setPage(1);
-              }}
-            >
-              {REPORT_DATE_PRESETS.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ReportDateRangeFilters
+            datePreset={datePreset}
+            fromDate={fromDate}
+            toDate={toDate}
+            onPresetChange={(preset) => {
+              applyPreset(preset);
+              setPage(1);
+            }}
+            onFromChange={(next) => {
+              changeFrom(next);
+              setPage(1);
+            }}
+            onToChange={(next) => {
+              changeTo(next);
+              setPage(1);
+            }}
+          />
 
           <label className="block min-w-[260px] flex-[2]">
             <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
@@ -286,8 +277,8 @@ export function ProductsReportTab() {
         <ProductSalesTrendChart
           data={data?.trend ?? []}
           groupBy={data?.groupBy ?? 'month'}
-          from={fromDate}
-          to={toDate}
+          from={chartFrom}
+          to={chartTo}
         />
         <ProductRevenueDonut
           distribution={

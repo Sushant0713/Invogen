@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDown,
   ArrowUp,
   Building2,
-  CalendarRange,
   Download,
   FileText,
   IndianRupee,
@@ -26,13 +25,14 @@ import {
   CURRENCY_FILTERS,
   formatGrowthPercent,
   formatTrendLabel,
-  getReportPresetRange,
-  REPORT_DATE_PRESETS,
-  type ReportDatePreset,
 } from '@/features/reports/report-filters';
 import { useReportCompany } from '@/features/reports/use-report-company';
 import { ReportStateFilter } from '@/features/reports/ReportStateFilter';
 import { ReportInvoiceStatusToggle } from '@/features/reports/ReportInvoiceStatusToggle';
+import {
+  ReportDateRangeFilters,
+  useReportDateRangeState,
+} from '@/features/reports/ReportDateRangeFilters';
 import { getSalesDateBasis } from '@/lib/sales-date-basis';
 import { useAppSelector } from '@/hooks/useAppDispatch';
 
@@ -165,7 +165,8 @@ function exportCustomersCsv(rows: SalesReportResponse['customers'], companyName:
 
 export function SalesReportTab() {
   const companyId = useAppSelector((s) => s.auth.user?.companyId);
-  const [datePreset, setDatePreset] = useState<ReportDatePreset>('this_month');
+  const { datePreset, fromDate, toDate, applyPreset, changeFrom, changeTo } =
+    useReportDateRangeState('this_month');
   const [status, setStatus] = useState('all');
   const [dateBasis, setDateBasis] = useState(() => getSalesDateBasis(companyId));
   const [state, setState] = useState('all');
@@ -182,15 +183,14 @@ export function SalesReportTab() {
     return () => window.removeEventListener('invogen:sales-date-basis-changed', onChange);
   }, [companyId]);
 
-  const range = useMemo(() => getReportPresetRange(datePreset), [datePreset]);
   const { data: company } = useReportCompany();
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [
       'admin-reports-sales',
       datePreset,
-      range.from,
-      range.to,
+      fromDate,
+      toDate,
       status,
       dateBasis,
       state,
@@ -200,9 +200,8 @@ export function SalesReportTab() {
     ],
     queryFn: async () => {
       const params: Record<string, string | number> = {
-        preset: datePreset,
-        from: range.from,
-        to: range.to,
+        from: fromDate,
+        to: toDate,
         status,
         dateBasis,
         state,
@@ -211,12 +210,16 @@ export function SalesReportTab() {
         limit: 5,
         sort,
       };
+      if (datePreset !== 'custom') {
+        params.preset = datePreset;
+      }
       return (await api.get('/admin/reports/sales', { params })).data.data as SalesReportResponse;
     },
+    enabled: Boolean(fromDate && toDate),
   });
 
-  const fromDate = data?.from ? toDateInputValue(new Date(data.from)) : range.from;
-  const toDate = data?.to ? toDateInputValue(new Date(data.to)) : range.to;
+  const chartFrom = data?.from ? toDateInputValue(new Date(data.from)) : fromDate;
+  const chartTo = data?.to ? toDateInputValue(new Date(data.to)) : toDate;
 
   if (isLoading && !data) return <Loader />;
 
@@ -230,22 +233,23 @@ export function SalesReportTab() {
     <div className="space-y-5">
       <Card glass={false} className="border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-4">
-          <FilterField label="Date Range" icon={<CalendarRange className="h-3.5 w-3.5" />}>
-            <select
-              className={selectClassName}
-              value={datePreset}
-              onChange={(event) => {
-                setDatePreset(event.target.value as ReportDatePreset);
-                setPage(1);
-              }}
-            >
-              {REPORT_DATE_PRESETS.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
+          <ReportDateRangeFilters
+            datePreset={datePreset}
+            fromDate={fromDate}
+            toDate={toDate}
+            onPresetChange={(preset) => {
+              applyPreset(preset);
+              setPage(1);
+            }}
+            onFromChange={(next) => {
+              changeFrom(next);
+              setPage(1);
+            }}
+            onToChange={(next) => {
+              changeTo(next);
+              setPage(1);
+            }}
+          />
 
           <FilterField label="Company" icon={<Building2 className="h-3.5 w-3.5" />}>
             <select className={selectClassName} value={reportCompanyId}>
@@ -319,8 +323,8 @@ export function SalesReportTab() {
       <SalesTrendChart
         data={data?.trend ?? []}
         groupBy={data?.groupBy ?? 'month'}
-        from={fromDate}
-        to={toDate}
+        from={chartFrom}
+        to={chartTo}
       />
 
       <Card glass={false} className="overflow-hidden border border-gray-100 bg-white shadow-sm">

@@ -1,10 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   BadgeCheck,
   Building2,
-  CalendarRange,
   CircleDollarSign,
   Clock3,
   Download,
@@ -21,13 +20,12 @@ import { Loader } from '@/components/ui/Loader';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { toDateInputValue } from '@/lib/revenue-chart';
 import { GstTrendChart } from '@/features/reports/GstTrendChart';
-import {
-  formatTrendLabel,
-  getReportPresetRange,
-  REPORT_DATE_PRESETS,
-  type ReportDatePreset,
-} from '@/features/reports/report-filters';
+import { formatTrendLabel } from '@/features/reports/report-filters';
 import { useReportCompany } from '@/features/reports/use-report-company';
+import {
+  ReportDateRangeFilters,
+  useReportDateRangeState,
+} from '@/features/reports/ReportDateRangeFilters';
 
 type GstReportResponse = {
   companyName: string;
@@ -140,32 +138,33 @@ function exportGstCsv(rows: GstReportResponse['register'], companyName: string) 
 }
 
 export function GstReportTab() {
-  const [datePreset, setDatePreset] = useState<ReportDatePreset>('this_month');
+  const { datePreset, fromDate, toDate, applyPreset, changeFrom, changeTo } =
+    useReportDateRangeState('this_month');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
 
-  const range = useMemo(() => getReportPresetRange(datePreset), [datePreset]);
   const { data: company } = useReportCompany();
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['admin-reports-gst', datePreset, range.from, range.to, search, page],
+    queryKey: ['admin-reports-gst', datePreset, fromDate, toDate, search, page],
     queryFn: async () => {
       const params: Record<string, string | number> = {
-        preset: datePreset,
-        from: range.from,
-        to: range.to,
+        from: fromDate,
+        to: toDate,
         status: 'paid',
         search,
         page,
         limit: 10,
       };
+      if (datePreset !== 'custom') params.preset = datePreset;
       return (await api.get('/admin/reports/gst', { params })).data.data as GstReportResponse;
     },
+    enabled: Boolean(fromDate && toDate),
   });
 
-  const fromDate = data?.from ? toDateInputValue(new Date(data.from)) : range.from;
-  const toDate = data?.to ? toDateInputValue(new Date(data.to)) : range.to;
+  const chartFrom = data?.from ? toDateInputValue(new Date(data.from)) : fromDate;
+  const chartTo = data?.to ? toDateInputValue(new Date(data.to)) : toDate;
 
   if (isLoading && !data) return <Loader />;
 
@@ -179,26 +178,23 @@ export function GstReportTab() {
     <div className="space-y-5">
       <Card glass={false} className="border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-4">
-          <label className="block min-w-[180px] flex-1">
-            <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              <CalendarRange className="h-3.5 w-3.5" />
-              Date Range
-            </span>
-            <select
-              className={selectClassName}
-              value={datePreset}
-              onChange={(event) => {
-                setDatePreset(event.target.value as ReportDatePreset);
-                setPage(1);
-              }}
-            >
-              {REPORT_DATE_PRESETS.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ReportDateRangeFilters
+            datePreset={datePreset}
+            fromDate={fromDate}
+            toDate={toDate}
+            onPresetChange={(preset) => {
+              applyPreset(preset);
+              setPage(1);
+            }}
+            onFromChange={(next) => {
+              changeFrom(next);
+              setPage(1);
+            }}
+            onToChange={(next) => {
+              changeTo(next);
+              setPage(1);
+            }}
+          />
 
           <label className="block min-w-[180px] flex-1">
             <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
@@ -273,8 +269,8 @@ export function GstReportTab() {
       <GstTrendChart
         data={data?.trend ?? []}
         groupBy={data?.groupBy ?? 'month'}
-        from={fromDate}
-        to={toDate}
+        from={chartFrom}
+        to={chartTo}
       />
 
       <Card glass={false} className="overflow-hidden border border-gray-100 bg-white shadow-sm">
