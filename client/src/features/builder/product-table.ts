@@ -1228,7 +1228,13 @@ export function createEmptyColumn(
 export function createEmptyRow(columns: ProductTableColumn[], index: number): ProductTableRow {
   const cells: Record<string, string> = {};
   columns.forEach((col) => {
-    cells[col.id] = isSerialColumn(col) ? String(index) : '';
+    if (isSerialColumn(col)) {
+      cells[col.id] = String(index);
+    } else if (col.id === 'col_units' || col.id === 'col_qty') {
+      cells[col.id] = '1';
+    } else {
+      cells[col.id] = '';
+    }
   });
   return { id: uuidv4(), name: `Row ${index}`, cells, heightPx: DEFAULT_ROW_HEIGHT_PX };
 }

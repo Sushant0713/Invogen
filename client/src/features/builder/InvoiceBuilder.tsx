@@ -27,6 +27,7 @@ import { TemplatePreviewModal } from './TemplatePreviewModal';
 import { TemplateRenameDialog } from './TemplateRenameDialog';
 import { TemplateDuplicateDialog } from './TemplateDuplicateDialog';
 import { suggestTemplateName } from '@/features/template-gallery/CustomizeTemplateDialog';
+import { TemplateSaveOptionsDialog } from './TemplateSaveOptionsDialog';
 import {
   invalidateTemplateCache,
   publishSavedTemplateDocument,
@@ -44,6 +45,8 @@ interface InvoiceBuilderProps {
   allowRename?: boolean;
   /** Show duplicate control when the user may create/add templates. */
   allowDuplicate?: boolean;
+  isSystem?: boolean;
+  category?: string;
 }
 
 export function InvoiceBuilder({
@@ -54,6 +57,8 @@ export function InvoiceBuilder({
   onSave,
   allowRename = false,
   allowDuplicate = false,
+  isSystem = false,
+  category = 'invoice',
 }: InvoiceBuilderProps) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -70,6 +75,7 @@ export function InvoiceBuilder({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [saveOptionsOpen, setSaveOptionsOpen] = useState(false);
 
   const listNamesEnabled = allowRename || allowDuplicate;
   const { data: companyTemplates = [] } = useQuery({
@@ -159,6 +165,43 @@ export function InvoiceBuilder({
     }
   }, [apiBase, templateId, pages, templateName, dispatch, onSave, saving, queryClient]);
 
+  const saveAsNewTemplate = useCallback(async (newName: string) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await api.post(apiBase, {
+        name: newName,
+        category,
+        sourceTemplateId: templateId,
+        pages: JSON.parse(JSON.stringify(pages)) as typeof pages,
+      });
+      const created = res.data?.data as TemplateDocument | undefined;
+      if (!created?._id) {
+        throw new Error('Failed to save template');
+      }
+      dispatch(markClean());
+      clearBuilderDraft(templateId);
+      toast.success('Template saved');
+      setSaveOptionsOpen(false);
+      onSave?.();
+
+      const listBase = templatesListPath ?? backTo;
+      navigate(`${listBase}/${created._id}/edit`, {
+        replace: true,
+        state: { freshTemplate: created },
+      });
+    } catch (error) {
+      const message =
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      toast.error(message || 'Failed to save template');
+    } finally {
+      setSaving(false);
+    }
+  }, [apiBase, templateId, category, pages, dispatch, onSave, saving, templatesListPath, backTo, navigate]);
+
   const duplicateTemplate = useCallback(
     async (payload: { name: string; description: string }) => {
       if (duplicating) return;
@@ -206,12 +249,22 @@ export function InvoiceBuilder({
     [apiBase, templateId, pages, duplicating, queryClient, navigate, backTo, templatesListPath]
   );
 
+  const isClientSystem = isSystem && apiBase !== '/super-admin/templates';
+
+  const handleSaveTrigger = useCallback(() => {
+    if (apiBase === '/super-admin/templates') {
+      void saveTemplate();
+    } else {
+      setSaveOptionsOpen(true);
+    }
+  }, [apiBase, saveTemplate]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && key === 's') {
         event.preventDefault();
-        void saveTemplate();
+        handleSaveTrigger();
         return;
       }
       if ((event.ctrlKey || event.metaKey) && key === 'z' && !event.shiftKey) {
@@ -226,7 +279,7 @@ export function InvoiceBuilder({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [saveTemplate, canUndo, canRedo, dispatch]);
+  }, [handleSaveTrigger, canUndo, canRedo, dispatch]);
 
   // Auto-save draft to sessionStorage so tab switches don't lose work
   useEffect(() => {
@@ -366,7 +419,7 @@ export function InvoiceBuilder({
             Duplicate
           </Button>
         ) : null}
-        <Button size="sm" onClick={() => void saveTemplate()} loading={saving} disabled={saving}>
+        <Button size="sm" onClick={handleSaveTrigger} loading={saving} disabled={saving}>
           <Save className="h-4 w-4" />
           Save
         </Button>
@@ -410,6 +463,22 @@ export function InvoiceBuilder({
       loading={duplicating}
       onClose={() => setDuplicateOpen(false)}
       onConfirm={(payload) => void duplicateTemplate(payload)}
+    />
+    <TemplateSaveOptionsDialog
+      open={saveOptionsOpen}
+      currentName={templateName}
+      takenNames={takenTemplateNames}
+      loading={saving}
+      isSystemTemplate={isClientSystem}
+      suggestedName={suggestedDuplicateName}
+      onClose={() => setSaveOptionsOpen(false)}
+      onSaveOverwrite={() => {
+        void saveTemplate();
+        setSaveOptionsOpen(false);
+      }}
+      onSaveCopy={(newName) => {
+        void saveAsNewTemplate(newName);
+      }}
     />
     </CompanyBrandingProvider>
   );

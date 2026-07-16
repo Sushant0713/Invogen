@@ -28,6 +28,7 @@ const canvasElementSchema = new Schema(
     props: Schema.Types.Mixed,
     locked: Boolean,
     visible: { type: Boolean, default: true },
+    pinned: Boolean,
   },
   { _id: false }
 );

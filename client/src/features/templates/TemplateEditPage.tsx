@@ -54,15 +54,13 @@ export function TemplateEditPage({
   });
 
   const resolvedTemplate = freshTemplate ?? data;
-  const editableTemplate =
-    resolvedTemplate && !resolvedTemplate.isSystem ? resolvedTemplate : undefined;
-  const { isReady } = useHydrateTemplateBuilder(editableTemplate, id);
+  const { isReady } = useHydrateTemplateBuilder(resolvedTemplate, id);
 
   const { data: allTemplates = [] } = useQuery({
     queryKey: [queryKey, 'all'],
     queryFn: async () =>
       (await api.get(apiBase, { params: { limit: 200 } })).data.data as TemplateSummary[],
-    enabled: Boolean(resolvedTemplate?.isSystem && canForkSystemTemplates),
+    enabled: !!resolvedTemplate,
     ...planSyncOptions,
   });
 
@@ -74,69 +72,9 @@ export function TemplateEditPage({
     [allTemplates]
   );
 
-  useEffect(() => {
-    if (!resolvedTemplate?.isSystem || freshTemplate || forkStartedRef.current) return;
+  // No automatic client-side forking on mount; we let them customize and save-as inside the builder instead.
 
-    if (!canForkSystemTemplates) {
-      toast.error(
-        'You do not have permission to create a custom copy of this system template'
-      );
-      navigate(templatesListPath, { replace: true });
-      return;
-    }
-
-    forkStartedRef.current = true;
-
-    void (async () => {
-      try {
-        const res = await api.post(apiBase, {
-          name: suggestTemplateName(resolvedTemplate.name, companyTemplateNames),
-          category: resolvedTemplate.category,
-          sourceTemplateId: resolvedTemplate._id,
-          description: resolvedTemplate.description || undefined,
-        });
-        const created = res.data.data as TemplateDocument;
-        queryClient.invalidateQueries({ queryKey: [queryKey] });
-        queryClient.invalidateQueries({ queryKey: [queryKey, 'all'] });
-        queryClient.invalidateQueries({ queryKey: [queryKey, 'system'] });
-        if (created.pages?.length) {
-          primeTemplateCache(created);
-        }
-        if (created._id) {
-          navigate(`${templatesListPath}/${created._id}/edit`, {
-            replace: true,
-            state: { freshTemplate: created },
-          });
-        }
-      } catch (error) {
-        const message =
-          error
-          && typeof error === 'object'
-          && 'response' in error
-          && (error as { response?: { data?: { message?: string } } }).response?.data?.message;
-        toast.error(message || 'Could not open this system template for editing');
-        navigate(templatesListPath, { replace: true });
-      }
-    })();
-  }, [
-    resolvedTemplate,
-    freshTemplate,
-    companyTemplateNames,
-    navigate,
-    queryClient,
-    apiBase,
-    templatesListPath,
-    queryKey,
-    canForkSystemTemplates,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      forkStartedRef.current = false;
-    };
-  }, [id]);
-
-  if ((!freshTemplate && isLoading) || !id || resolvedTemplate?.isSystem || !isReady) {
+  if ((!freshTemplate && isLoading) || !id || !resolvedTemplate || !isReady) {
     return <Loader fullScreen />;
   }
 
@@ -146,8 +84,10 @@ export function TemplateEditPage({
       apiBase={apiBase}
       backTo={templatesListPath}
       templatesListPath={templatesListPath}
-      allowRename
+      allowRename={!resolvedTemplate?.isSystem}
       allowDuplicate={allowDuplicate}
+      isSystem={resolvedTemplate?.isSystem}
+      category={resolvedTemplate?.category}
     />
   );
 }

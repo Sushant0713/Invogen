@@ -22,6 +22,8 @@ export interface IPlan extends Document {
   canAddTemplate?: boolean;
   /** When true, templateIds + canAddTemplate are enforced for clients on this plan. */
   templateAccessConfigured?: boolean;
+  maxUsers?: number;
+  maxInvoices?: number;
   /**
    * When true, invoices/templates for companies on this plan show a
    * "Made with Invogen" advertisement badge at the bottom-right.
@@ -49,6 +51,8 @@ const planSchema = new Schema<IPlan>(
     templateIds: [{ type: Schema.Types.ObjectId, ref: 'InvoiceTemplate' }],
     canAddTemplate: { type: Boolean },
     templateAccessConfigured: { type: Boolean },
+    maxUsers: { type: Number },
+    maxInvoices: { type: Number },
     showMadeWithInvogen: { type: Boolean, default: false },
     description: String,
   },

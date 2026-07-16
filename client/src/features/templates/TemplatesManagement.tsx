@@ -245,10 +245,6 @@ export function TemplatesManagement({
   };
 
   const handleEditTemplate = (template: TemplateSummary) => {
-    if (template.isSystem) {
-      forkSystemTemplateForEdit(template);
-      return;
-    }
     if (!canEditTemplates) {
       toast.error('You do not have permission to edit templates');
       return;

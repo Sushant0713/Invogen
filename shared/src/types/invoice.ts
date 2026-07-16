@@ -28,6 +28,8 @@ export interface CanvasElement {
   props: Record<string, unknown>;
   locked?: boolean;
   visible?: boolean;
+  /** When true, element stays at its authored position and does not participate in document flow. */
+  pinned?: boolean;
 }
 
 export interface TemplatePage {

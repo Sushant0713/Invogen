@@ -156,8 +156,9 @@ export function prepareInvoiceLivePreviewPages(
 ): TemplatePage[] {
   if (!pages.length) return [];
   const trustTableProps = options.trustTableProps ?? true;
+  const originalElements = pages.flatMap((p) => p.elements);
   const reflowed = reflowPagesForPreview(cloneTemplatePages(pages), { trustTableProps });
-  return fitOverflowingDataFields(reflowed);
+  return fitOverflowingDataFields(reflowed, originalElements);
 }
 
 export function deleteComposerPage(pages: TemplatePage[], pageId: string): TemplatePage[] {

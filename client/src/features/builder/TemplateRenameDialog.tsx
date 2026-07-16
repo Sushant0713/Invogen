@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
@@ -28,8 +29,8 @@ export function TemplateRenameDialog({
   const trimmed = value.trim();
   const nameTaken = Boolean(trimmed) && takenNames.has(trimmed);
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
         <h3 className="text-base font-semibold text-gray-900">Rename template</h3>
         <p className="mt-1 text-sm text-gray-500">
@@ -60,6 +61,7 @@ export function TemplateRenameDialog({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

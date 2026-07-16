@@ -149,7 +149,8 @@ export function TemplatePreviewPages({
       ? reflowPagesForPreview(cloned, { trustTableProps })
       : applyPreviewPageNumbers(cloned);
     // Keep long live values (invoice #, dates) clear of logos/neighbors in every preview.
-    const fitted = fitOverflowingDataFields(laidOut);
+    const originalElements = cloned.flatMap((p) => p.elements);
+    const fitted = fitOverflowingDataFields(laidOut, originalElements);
     return enforceInvoiceDueDateOrderOnPages(fitted).pages;
   }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow]);
 

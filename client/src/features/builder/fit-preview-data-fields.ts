@@ -6,6 +6,24 @@ import { getDisplayText, getTextElementStyle, isDataFieldType } from './text-sty
 
 const FLOW_GAP_PX = 10;
 
+function didOverlapOriginally(
+  aId: string,
+  bId: string,
+  originalElements: CanvasElement[]
+): boolean {
+  const a = originalElements.find((el) => el.id === aId);
+  const b = originalElements.find((el) => el.id === bId);
+  if (!a || !b) return false;
+
+  const aBottom = a.y + a.height;
+  const bBottom = b.y + b.height;
+  const PUSH_TOLERANCE_PX = 2;
+  return (
+    a.y < bBottom - PUSH_TOLERANCE_PX &&
+    b.y < aBottom - PUSH_TOLERANCE_PX
+  );
+}
+
 function estimateTextWidth(text: string, fontSize: number): number {
   return Math.ceil(Math.max(1, text.length) * fontSize * 0.58) + 6;
 }
@@ -17,12 +35,14 @@ function verticallyOverlaps(a: CanvasElement, b: CanvasElement, pad = 4): boolea
 function rightLimitForField(
   field: CanvasElement,
   elements: CanvasElement[],
-  pageRight: number
+  pageRight: number,
+  originalElements?: CanvasElement[]
 ): number {
   let maxRight = pageRight;
 
   for (const other of elements) {
     if (other.id === field.id || other.visible === false) continue;
+    if (originalElements && didOverlapOriginally(field.id, other.id, originalElements)) continue;
     if (!verticallyOverlaps(field, other)) continue;
 
     const isMedia = isImageComponentType(other.type);
@@ -51,7 +71,10 @@ function rightLimitForField(
  * - Widen when live values are longer than the template sample box
  * - Wrap + grow height when horizontal space is still too tight
  */
-export function fitOverflowingDataFields(pages: TemplatePage[]): TemplatePage[] {
+export function fitOverflowingDataFields(
+  pages: TemplatePage[],
+  originalElements?: CanvasElement[]
+): TemplatePage[] {
   return pages.map((page) => {
     const { width: pageWidth } = getPageDimensions(page);
     const pageRight = pageWidth - page.margins.right;
@@ -68,7 +91,7 @@ export function fitOverflowingDataFields(pages: TemplatePage[]): TemplatePage[] 
       const fontSize =
         typeof style.fontSize === 'number' && style.fontSize > 0 ? style.fontSize : 14;
 
-      const maxRight = rightLimitForField(element, elements, pageRight);
+      const maxRight = rightLimitForField(element, elements, pageRight, originalElements);
       const available = Math.max(48, maxRight - element.x);
       const overlapsBlocker = element.x + element.width > maxRight + 1;
       const neededWidth = text.trim()

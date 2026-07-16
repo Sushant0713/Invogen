@@ -15,6 +15,7 @@ export interface LayerRowProps {
   onContextMenu: (element: CanvasElement, event: MouseEvent) => void;
   onToggleVisible: (id: string) => void;
   onToggleLock: (id: string) => void;
+  onTogglePin: (id: string) => void;
   onRenameChange: (value: string) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
@@ -30,6 +31,7 @@ function LayerRowInner({
   onContextMenu,
   onToggleVisible,
   onToggleLock,
+  onTogglePin,
   onRenameChange,
   onRenameCommit,
   onRenameCancel,
@@ -96,6 +98,7 @@ function LayerRowInner({
         setActivatorRef={setActivatorNodeRef}
         onToggleVisible={onToggleVisible}
         onToggleLock={onToggleLock}
+        onTogglePin={onTogglePin}
         onRenameChange={onRenameChange}
         onRenameCommit={onRenameCommit}
         onRenameCancel={onRenameCancel}
@@ -134,6 +137,7 @@ export function DragLayerPreview({
         isDragOverlay
         onToggleVisible={() => {}}
         onToggleLock={() => {}}
+        onTogglePin={() => {}}
         onRenameChange={() => {}}
         onRenameCommit={() => {}}
         onRenameCancel={() => {}}

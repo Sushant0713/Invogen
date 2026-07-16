@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Lock, LockOpen } from 'lucide-react';
+import { Eye, EyeOff, Lock, LockOpen, Pin, PinOff } from 'lucide-react';
 import type { CanvasElement } from '@invogen/shared';
 import { getLayerLabel } from '../element-layers';
 import { LayerDragDots } from './LayerDragDots';
@@ -14,6 +14,7 @@ interface ContentProps {
   setActivatorRef?: (node: HTMLButtonElement | null) => void;
   onToggleVisible: (id: string) => void;
   onToggleLock: (id: string) => void;
+  onTogglePin: (id: string) => void;
   onRenameChange: (value: string) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
@@ -30,6 +31,7 @@ export function LayerRowContent({
   setActivatorRef,
   onToggleVisible,
   onToggleLock,
+  onTogglePin,
   onRenameChange,
   onRenameCommit,
   onRenameCancel,
@@ -39,6 +41,7 @@ export function LayerRowContent({
   const label = getLayerLabel(element);
   const hidden = element.visible === false;
   const locked = !!element.locked;
+  const pinned = !!element.pinned;
 
   return (
     <div
@@ -99,6 +102,19 @@ export function LayerRowContent({
           }}
         >
           {hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all hover:bg-white/80 hover:text-gray-600 ${
+            pinned ? 'text-blue-600 opacity-100' : 'text-gray-400 opacity-0 group-hover/layer:opacity-100 focus:opacity-100'
+          }`}
+          aria-label={pinned ? 'Unpin layer' : 'Pin layer'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin(element.id);
+          }}
+        >
+          {pinned ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
         </button>
         <button
           type="button"

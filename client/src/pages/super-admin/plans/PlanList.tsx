@@ -101,6 +101,8 @@ const emptyForm = () => ({
   /** False for legacy plans that never configured templates (all system templates allowed). */
   templatesConfigured: false,
   canAddTemplate: false,
+  maxUsers: '',
+  maxInvoices: '',
   showMadeWithInvogen: false,
   price: '',
   maintenanceCharge: '',
@@ -437,6 +439,8 @@ export default function PlanListPage() {
       canAddTemplate: templatesConfigured
         ? plan.canAddTemplate === true
         : true,
+      maxUsers: plan.maxUsers !== undefined ? String(plan.maxUsers) : '',
+      maxInvoices: plan.maxInvoices !== undefined ? String(plan.maxInvoices) : '',
       showMadeWithInvogen: plan.showMadeWithInvogen === true,
       price: String(plan.price),
       maintenanceCharge: plan.maintenanceCharge ? String(plan.maintenanceCharge) : '',
@@ -469,6 +473,8 @@ export default function PlanListPage() {
         form.billingCycle === 'lifetime' && form.maintenanceCharge
           ? Number(form.maintenanceCharge)
           : undefined,
+      maxUsers: form.maxUsers ? Number(form.maxUsers) : undefined,
+      maxInvoices: form.maxInvoices ? Number(form.maxInvoices) : undefined,
       isActive: form.isActive,
       visibleOnWebsite: form.visibleOnWebsite,
       visibleOnSuperAdmin: form.visibleOnSuperAdmin,
@@ -653,6 +659,22 @@ export default function PlanListPage() {
                 className="md:col-span-2"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
+              <Input
+                label="Max Users"
+                type="number"
+                min="0"
+                placeholder="Unlimited"
+                value={form.maxUsers}
+                onChange={(e) => setForm({ ...form, maxUsers: e.target.value })}
+              />
+              <Input
+                label="Max Invoices"
+                type="number"
+                min="0"
+                placeholder="Unlimited"
+                value={form.maxInvoices}
+                onChange={(e) => setForm({ ...form, maxInvoices: e.target.value })}
               />
             </div>
 

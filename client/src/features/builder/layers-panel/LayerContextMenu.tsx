@@ -12,6 +12,8 @@ import {
   Group,
   Lock,
   LockOpen,
+  Pin,
+  PinOff,
   Pencil,
   Trash2,
   Ungroup,
@@ -33,6 +35,7 @@ interface Props {
   onDuplicate: (id: string) => void;
   onToggleVisible: (id: string) => void;
   onToggleLock: (id: string) => void;
+  onTogglePin: (id: string) => void;
   onDelete: (id: string) => void;
   onMoveLayer: (id: string, layer: number) => void;
   layerIndex: number;
@@ -47,6 +50,7 @@ export function LayerContextMenu({
   onDuplicate,
   onToggleVisible,
   onToggleLock,
+  onTogglePin,
   onDelete,
   onMoveLayer,
   layerIndex,
@@ -120,6 +124,11 @@ export function LayerContextMenu({
             menu.element.locked ? 'Unlock' : 'Lock',
             menu.element.locked ? <LockOpen className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />,
             () => onToggleLock(menu.element.id)
+          )}
+          {item(
+            menu.element.pinned ? 'Unpin' : 'Pin to position',
+            menu.element.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />,
+            () => onTogglePin(menu.element.id)
           )}
           {item('Delete', <Trash2 className="h-3.5 w-3.5" />, () => onDelete(menu.element.id), !!menu.element.locked)}
         </motion.div>

@@ -140,6 +140,8 @@ import {
   sanitizeEmployeePermissions,
   validateJoinCodeFormat,
 } from '../utils/employee-settings';
+import { User, UserRole } from '../models/User.model';
+import { Employee } from '../models/Employee.model';
 
 export const adminService = {
   async getDashboard(companyId: string) {
@@ -170,6 +172,50 @@ export const adminService = {
       .populate('planId')
       .sort({ createdAt: -1 });
 
+    const usedInvoices = [...paidInvoices, ...sentInvoices];
+    const totalUsedInvoices = usedInvoices.length;
+
+    // Group by createdBy
+    const invoiceCountsByEmployee: Record<string, number> = {};
+    for (const inv of usedInvoices) {
+      if (inv.createdBy) {
+        const idStr = inv.createdBy.toString();
+        invoiceCountsByEmployee[idStr] = (invoiceCountsByEmployee[idStr] || 0) + 1;
+      }
+    }
+
+    // Get company owner
+    const company = await Company.findById(companyId).select('ownerId');
+    const ownerId = company?.ownerId.toString() || '';
+    
+    // Get all employees and the owner
+    const [employees, ownerUser] = await Promise.all([
+      Employee.find({ companyId }).populate('userId', 'firstName lastName role'),
+      ownerId ? User.findById(ownerId).select('firstName lastName role') : null,
+    ]);
+
+    const employeeInvoiceStats: any[] = [];
+    if (ownerUser) {
+      employeeInvoiceStats.push({
+        userId: ownerUser._id.toString(),
+        name: `${ownerUser.firstName} ${ownerUser.lastName} (Admin)`,
+        role: ownerUser.role,
+        invoiceCount: invoiceCountsByEmployee[ownerUser._id.toString()] || 0,
+      });
+    }
+
+    for (const emp of employees) {
+      const user = emp.userId as any;
+      if (user) {
+        employeeInvoiceStats.push({
+          userId: user._id.toString(),
+          name: `${user.firstName} ${user.lastName}`,
+          role: user.role,
+          invoiceCount: invoiceCountsByEmployee[user._id.toString()] || 0,
+        });
+      }
+    }
+
     return {
       stats: {
         customers,
@@ -183,6 +229,8 @@ export const adminService = {
         enrichInvoiceWithTotals(invoice.toObject())
       ),
       subscription,
+      totalUsedInvoices,
+      employeeInvoiceStats,
     };
   },
 

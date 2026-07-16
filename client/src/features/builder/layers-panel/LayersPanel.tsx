@@ -27,6 +27,7 @@ import {
   setElementLayer,
   toggleElementLock,
   toggleElementVisible,
+  toggleElementPin,
   updateElement,
 } from '@/store/slices/builderSlice';
 import { writeBuilderClipboard } from '@/features/builder/builder-clipboard';
@@ -214,6 +215,7 @@ export function LayersPanel() {
             onContextMenu={handleContextMenu}
             onToggleVisible={(id) => dispatch(toggleElementVisible(id))}
             onToggleLock={(id) => dispatch(toggleElementLock(id))}
+            onTogglePin={(id) => dispatch(toggleElementPin(id))}
             onRenameChange={setRenameValue}
             onRenameCommit={commitRename}
             onRenameCancel={cancelRename}
@@ -241,6 +243,7 @@ export function LayersPanel() {
         onDuplicate={(id) => dispatch(duplicateElement(id))}
         onToggleVisible={(id) => dispatch(toggleElementVisible(id))}
         onToggleLock={(id) => dispatch(toggleElementLock(id))}
+        onTogglePin={(id) => dispatch(toggleElementPin(id))}
         onDelete={(id) => dispatch(deleteElement(id))}
         onMoveLayer={(id, layer) => dispatch(setElementLayer({ id, layer }))}
         layerIndex={contextLayerIndex}

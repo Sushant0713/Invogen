@@ -366,13 +366,11 @@ export function InvoiceComposerForm({
         terms={formModel.terms}
         showPageNames={pageList.length > 1}
         onChange={onElementTextChange}
-        onAddFooter={onAddFooter}
         onDeleteFooter={onDeleteFooter}
         onTermsTitleChange={onTermsTitleChange}
         onTermsItemChange={onTermsItemChange}
         onAddTermsItem={onAddTermsItem}
         onDeleteTermsItem={onDeleteTermsItem}
-        onAddTerms={onAddTerms}
         onDeleteTerms={onDeleteTerms}
       />
     </div>

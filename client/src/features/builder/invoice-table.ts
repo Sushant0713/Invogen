@@ -33,7 +33,7 @@ import {
   allowsEmptyPaginationSegmentRows,
 } from './product-table';
 import { arrayMove } from '@dnd-kit/sortable';
-import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate, normalizeTaxDisplayMode, resolveLineTaxSettings } from './tax-settings';
+import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate, normalizeTaxDisplayMode, resolveLineTaxSettings, PRODUCT_GST_RATE_KEY } from './tax-settings';
 import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceDiscountMode = 'amount' | 'percent';
@@ -746,11 +746,34 @@ export function setInvoiceColumnVisible(
   return recalculateInvoiceTable({ ...props, columns }, tax);
 }
 
+function inheritLastRowGstRate(rows: ProductTableRow[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (row && PRODUCT_GST_RATE_KEY in row.cells) {
+      const val = row.cells[PRODUCT_GST_RATE_KEY];
+      if (val != null && val !== '') return val;
+    }
+  }
+  return null;
+}
+
 export function addInvoiceRow(
   props: InvoiceTableProps,
   tax: TaxSettings = EMPTY_TAX_SETTINGS
 ): InvoiceTableProps {
-  return recalculateInvoiceTable(addRow(props), tax);
+  const base = addRow(props);
+  const gstRate = inheritLastRowGstRate(props.rows);
+  if (gstRate != null) {
+    const newRowIndex = base.rows.length - 1;
+    base.rows[newRowIndex] = {
+      ...base.rows[newRowIndex],
+      cells: {
+        ...base.rows[newRowIndex].cells,
+        [PRODUCT_GST_RATE_KEY]: gstRate,
+      },
+    };
+  }
+  return recalculateInvoiceTable(base, tax);
 }
 
 /** Invoice-aware cell update (recalculates taxable/total). */

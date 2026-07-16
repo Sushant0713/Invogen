@@ -939,6 +939,15 @@ const builderSlice = createSlice({
         pushHistory(state);
       }
     },
+    toggleElementPin: (state, action: PayloadAction<string>) => {
+      const elements = state.pages[state.activePageIndex].elements;
+      const idx = elements.findIndex((e) => e.id === action.payload);
+      if (idx !== -1) {
+        elements[idx] = { ...elements[idx], pinned: !elements[idx].pinned };
+        state.isDirty = true;
+        pushHistory(state);
+      }
+    },
     toggleElementVisible: (state, action: PayloadAction<string>) => {
       const elements = state.pages[state.activePageIndex].elements;
       const idx = elements.findIndex((e) => e.id === action.payload);
@@ -1210,6 +1219,7 @@ export const {
   pasteElements,
   selectAllElementsOnActivePage,
   toggleElementLock,
+  toggleElementPin,
   toggleElementVisible,
   setElementsLocked,
   toggleSelectedElementsLock,

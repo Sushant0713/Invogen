@@ -1,8 +1,8 @@
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
-import { updateElement, deleteElement, deleteSelectedElements, selectElement, toggleElementLock, setElementsLocked } from '@/store/slices/builderSlice';
+import { updateElement, deleteElement, deleteSelectedElements, selectElement, toggleElementLock, toggleElementPin, setElementsLocked } from '@/store/slices/builderSlice';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { Lock, LockOpen } from 'lucide-react';
+import { Lock, LockOpen, Pin, PinOff } from 'lucide-react';
 import { ProductTableProperties } from './ProductTableProperties';
 import { InvoiceTableProperties } from './InvoiceTableProperties';
 import { CardProperties } from './CardProperties';
@@ -365,6 +365,39 @@ export function PropertiesPanel() {
         >
           <Lock className="h-4 w-4" />
           Lock component
+        </Button>
+      )}
+
+      {element.pinned ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+          <div className="flex items-start gap-2">
+            <Pin className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
+            <div>
+              <p className="text-sm font-medium text-blue-900">Pinned to position</p>
+              <p className="mt-1 text-xs text-blue-800/80">
+                This component won't move in live preview. It stays exactly here, even if tables above it change size.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-blue-700 hover:text-blue-800 hover:bg-blue-100 border-blue-200"
+            onClick={() => dispatch(toggleElementPin(element.id))}
+          >
+            <PinOff className="h-4 w-4" />
+            Unpin component (allow flow)
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-gray-600"
+          onClick={() => dispatch(toggleElementPin(element.id))}
+        >
+          <Pin className="h-4 w-4" />
+          Pin to position
         </Button>
       )}
 

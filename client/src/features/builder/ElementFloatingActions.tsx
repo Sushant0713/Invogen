@@ -1,5 +1,5 @@
 import { useId, useState, type MouseEvent, type ReactNode } from 'react';
-import { CopyPlus, Copy, Crop, Lock, LockOpen, Move, TextCursor, Trash2 } from 'lucide-react';
+import { CopyPlus, Copy, Crop, Lock, LockOpen, Move, TextCursor, Trash2, Pin, PinOff } from 'lucide-react';
 import type { CanvasElement } from '@invogen/shared';
 import { toast } from 'sonner';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
@@ -10,6 +10,7 @@ import {
   updateElement,
   setImageCropMode,
   setShapeCropMode,
+  toggleElementPin,
 } from '@/store/slices/builderSlice';
 import { writeBuilderClipboard } from './builder-clipboard';
 import { isShapeComponentType } from './shape-components';
@@ -65,6 +66,7 @@ export function ElementFloatingActions({
 }: Props) {
   const dispatch = useAppDispatch();
   const locked = !!element.locked;
+  const pinned = !!element.pinned;
   const isShape = isShapeComponentType(element.type);
   const isTable = isTableElementType(element.type);
   const isImage = isImageComponentType(element.type);
@@ -181,6 +183,14 @@ export function ElementFloatingActions({
             onClick={() => dispatch(toggleElementLock(element.id))}
           >
             {locked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+          </FloatingIconButton>
+
+          <FloatingIconButton
+            title={pinned ? 'Unpin (allow flow)' : 'Pin to position'}
+            active={pinned}
+            onClick={() => dispatch(toggleElementPin(element.id))}
+          >
+            {pinned ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
           </FloatingIconButton>
 
           <FloatingIconButton

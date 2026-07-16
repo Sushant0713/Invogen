@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { isTemplateNameTaken } from '@/features/template-gallery/CustomizeTemplateDialog';
@@ -36,8 +37,8 @@ export function TemplateDuplicateDialog({
   const trimmed = name.trim();
   const nameTaken = isTemplateNameTaken(trimmed, takenNames);
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
         <h3 className="text-base font-semibold text-gray-900">Duplicate template</h3>
         <p className="mt-1 text-sm text-gray-500">
@@ -73,6 +74,7 @@ export function TemplateDuplicateDialog({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

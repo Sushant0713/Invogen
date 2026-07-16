@@ -93,6 +93,7 @@ export function isPinnedPreviewElement(element: CanvasElement): boolean {
   if (element.visible === false) return false;
   if (element.type === ComponentType.WATERMARK) return true;
   if (isDocumentFooterElement(element)) return true;
+  if (element.type === ComponentType.PAGE_NUMBER) return true;
   if (
     element.type === ComponentType.IMAGE
     || element.type === ComponentType.LOGO
@@ -100,6 +101,7 @@ export function isPinnedPreviewElement(element: CanvasElement): boolean {
   ) {
     return true;
   }
+  if (element.pinned === true) return true;
   const props = (element.props ?? {}) as Record<string, unknown>;
   // Opt-in: template authors can pin other elements with fixedInFlow.
   if (props.fixedInFlow === true) return true;
@@ -559,6 +561,23 @@ function elementsShareColumn(a: CanvasElement, b: CanvasElement): boolean {
   return overlap > Math.min(a.width, b.width) * 0.15;
 }
 
+function didOverlapOriginally(
+  aId: string,
+  bId: string,
+  originalElements: CanvasElement[]
+): boolean {
+  const a = originalElements.find((el) => el.id === aId);
+  const b = originalElements.find((el) => el.id === bId);
+  if (!a || !b) return false;
+
+  const aBottom = a.y + a.height;
+  const bBottom = b.y + b.height;
+  return (
+    a.y < bBottom - PUSH_TOLERANCE_PX &&
+    b.y < aBottom - PUSH_TOLERANCE_PX
+  );
+}
+
 function isStackedBelow(anchor: CanvasElement, element: CanvasElement): boolean {
   if (element.id === anchor.id || element.visible === false) return false;
   if (isPinnedPreviewElement(element)) return false;
@@ -671,7 +690,8 @@ function expandVerticalContent(elements: CanvasElement[]): CanvasElement[] {
 function pushStackedElementsBelowAnchor(
   elements: CanvasElement[],
   anchorIndex: number,
-  heightDelta: number
+  heightDelta: number,
+  originalElements?: CanvasElement[]
 ): { elements: CanvasElement[]; changed: boolean } {
   const anchor = elements[anchorIndex];
   const anchorBottom = anchor.y + anchor.height;
@@ -683,9 +703,15 @@ function pushStackedElementsBelowAnchor(
   if (below.length === 0) return { elements, changed: false };
 
   const needsOverlapFix = below.some(
-    (element) =>
-      element.y < anchorBottom - PUSH_TOLERANCE_PX
-      && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+    (element) => {
+      if (originalElements && didOverlapOriginally(anchor.id, element.id, originalElements)) {
+        return false;
+      }
+      return (
+        element.y < anchorBottom - PUSH_TOLERANCE_PX
+        && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+      );
+    }
   );
   // Still resolve overlaps when height was already expanded in a prior pass.
   if (Math.abs(heightDelta) <= PUSH_TOLERANCE_PX && !needsOverlapFix) {
@@ -702,9 +728,15 @@ function pushStackedElementsBelowAnchor(
 
     // Resolve overlap only — preserve authored spacing when already clear.
     const overlapsAnchor = row.some(
-      (element) =>
-        element.y < anchorBottom - PUSH_TOLERANCE_PX
-        && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+      (element) => {
+        if (originalElements && didOverlapOriginally(anchor.id, element.id, originalElements)) {
+          return false;
+        }
+        return (
+          element.y < anchorBottom - PUSH_TOLERANCE_PX
+          && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+        );
+      }
     );
     const projectedTop = rowTop + rowDelta;
     if (overlapsAnchor || projectedTop < minYBelowAnchor - PUSH_TOLERANCE_PX) {
@@ -736,7 +768,8 @@ function snapshotElementGeometry(elements: CanvasElement[]): Map<string, Element
 /** Push rows below each table after page-aware split — avoids gap from expand-then-split. */
 function pushBelowTablesFromBaselines(
   elements: CanvasElement[],
-  baselines: Map<string, ElementGeometry>
+  baselines: Map<string, ElementGeometry>,
+  originalElements?: CanvasElement[]
 ): CanvasElement[] {
   let result = elements;
   const tables = result
@@ -750,7 +783,7 @@ function pushBelowTablesFromBaselines(
     if (!baseline) continue;
     const current = result[index];
     const heightDelta = current.height - baseline.height;
-    const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+    const push = pushStackedElementsBelowAnchor(result, index, heightDelta, originalElements);
     result = push.elements;
   }
 
@@ -759,7 +792,8 @@ function pushBelowTablesFromBaselines(
 
 function expandTablesAndPushBelow(
   elements: CanvasElement[],
-  options: { measureMode?: TableMeasureMode } = {}
+  options: { measureMode?: TableMeasureMode } = {},
+  originalElements: CanvasElement[] = elements
 ): CanvasElement[] {
   let result = cloneElements(elements);
 
@@ -797,7 +831,7 @@ function expandTablesAndPushBelow(
         changed = true;
       }
 
-      const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+      const push = pushStackedElementsBelowAnchor(result, index, heightDelta, originalElements);
       result = push.elements;
       if (push.changed) changed = true;
     }
@@ -808,7 +842,10 @@ function expandTablesAndPushBelow(
   return result;
 }
 
-function expandCardsAndPushBelow(elements: CanvasElement[]): CanvasElement[] {
+function expandCardsAndPushBelow(
+  elements: CanvasElement[],
+  originalElements: CanvasElement[] = elements
+): CanvasElement[] {
   let result = cloneElements(elements);
 
   for (let pass = 0; pass < 16; pass += 1) {
@@ -835,7 +872,7 @@ function expandCardsAndPushBelow(elements: CanvasElement[]): CanvasElement[] {
         changed = true;
       }
 
-      const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+      const push = pushStackedElementsBelowAnchor(result, index, heightDelta, originalElements);
       result = push.elements;
       if (push.changed) changed = true;
     }
@@ -846,7 +883,10 @@ function expandCardsAndPushBelow(elements: CanvasElement[]): CanvasElement[] {
   return result;
 }
 
-function expandStructuredBlocksAndPushBelow(elements: CanvasElement[]): CanvasElement[] {
+function expandStructuredBlocksAndPushBelow(
+  elements: CanvasElement[],
+  originalElements: CanvasElement[] = elements
+): CanvasElement[] {
   let result = cloneElements(elements);
 
   for (let pass = 0; pass < 16; pass += 1) {
@@ -873,7 +913,7 @@ function expandStructuredBlocksAndPushBelow(elements: CanvasElement[]): CanvasEl
         changed = true;
       }
 
-      const push = pushStackedElementsBelowAnchor(result, index, heightDelta);
+      const push = pushStackedElementsBelowAnchor(result, index, heightDelta, originalElements);
       result = push.elements;
       if (push.changed) changed = true;
     }
@@ -885,7 +925,10 @@ function expandStructuredBlocksAndPushBelow(elements: CanvasElement[]): CanvasEl
 }
 
 /** Ensure stacked elements sit below each table — fixes overlap when Y was never reflowed. */
-function enforceStackGapBelowTables(elements: CanvasElement[]): CanvasElement[] {
+function enforceStackGapBelowTables(
+  elements: CanvasElement[],
+  originalElements?: CanvasElement[]
+): CanvasElement[] {
   let result = cloneElements(elements);
   const tables = result
     .filter((element) => element.visible !== false && isTableElementType(element.type))
@@ -902,6 +945,7 @@ function enforceStackGapBelowTables(elements: CanvasElement[]): CanvasElement[] 
       if (elementIndex === index) continue;
       const element = result[elementIndex];
       if (element.visible === false || isPinnedPreviewElement(element)) continue;
+      if (originalElements && didOverlapOriginally(anchor.id, element.id, originalElements)) continue;
       if (!isStackedBelow(anchor, element)) continue;
       if (element.y + PUSH_TOLERANCE_PX < minYBelow) {
         result[elementIndex] = withLogicalFlowY({ ...element, y: minYBelow }, minYBelow);
@@ -1611,7 +1655,8 @@ function layoutPageDocumentFlow(
   page: TemplatePage,
   elements: CanvasElement[],
   startY?: number,
-  preplaced: CanvasElement[] = []
+  preplaced: CanvasElement[] = [],
+  originalElements: CanvasElement[] = elements
 ): { page: TemplatePage; overflow: CanvasElement[] } {
   const contentTop = page.margins.top;
   const contentBottom = getFlowContentBottomLimit(page);
@@ -1622,7 +1667,7 @@ function layoutPageDocumentFlow(
   const preplacedIds = new Set(preplaced.map((el) => el.id));
   const pinnedCount = pinned.length + preplaced.length;
   const flow = sortDocumentFlowElements(elements)
-    .filter((element) => !preplacedIds.has(element.id))
+    .filter((element) => !preplacedIds.has(element.id) && !isPinnedPreviewElement(element))
     .map(measureElementForLayout);
 
   const onPage: CanvasElement[] = [...pinned, ...preplaced];
@@ -1643,18 +1688,39 @@ function layoutPageDocumentFlow(
       cursorY = Math.max(contentTop, authoredY);
     }
   }
-  if (preplaced.length > 0) {
-    const preBottom = Math.max(...preplaced.map((el) => el.y + el.height));
-    cursorY = Math.max(cursorY, preBottom + FLOW_GAP_PX);
-  }
   // Clamp: if cursor is already past usable area, reset to top (continuation page).
   if (cursorY >= contentBottom - PUSH_TOLERANCE_PX) {
     cursorY = contentTop;
   }
   let flowIndex = 0;
 
+  const blockingElements = [...pinned, ...preplaced].filter(
+    (p) => !isDocumentFooterElement(p) && p.type !== ComponentType.WATERMARK
+  );
+
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
     const unit = units[unitIndex];
+    
+    let overlapFound = true;
+    while (overlapFound) {
+      overlapFound = false;
+      for (const p of blockingElements) {
+        for (const el of unit) {
+          if (!elementsShareColumn(p, el)) continue;
+          if (originalElements && didOverlapOriginally(p.id, el.id, originalElements)) continue;
+          if (
+            cursorY < p.y + p.height + FLOW_GAP_PX &&
+            cursorY + el.height > p.y - PUSH_TOLERANCE_PX
+          ) {
+            cursorY = p.y + p.height + FLOW_GAP_PX;
+            overlapFound = true;
+            break;
+          }
+        }
+        if (overlapFound) break;
+      }
+    }
+
     const element = unit[0];
 
     if (isTableElementType(element.type)) {
@@ -1753,7 +1819,8 @@ function splitOverflowElements(
   const pinned = elements.filter(
     (element) => element.visible !== false && isPinnedPreviewElement(element)
   );
-  const flow = sortDocumentFlowElements(elements);
+  const flow = sortDocumentFlowElements(elements)
+    .filter((element) => element.visible !== false && !isPinnedPreviewElement(element));
 
   const staying: CanvasElement[] = [...hidden, ...pinned];
   const overflow: CanvasElement[] = [];
@@ -2701,10 +2768,11 @@ function reflowSinglePage(
   const contentBottomLimit = getFlowContentBottomLimit(page, footerSource);
 
   let elements = cloneElements(page.elements);
+  const originalElements = cloneElements(page.elements);
 
   // Expand non-table blocks first (headers/cards above the table stay put).
-  elements = expandCardsAndPushBelow(elements);
-  elements = expandStructuredBlocksAndPushBelow(elements);
+  elements = expandCardsAndPushBelow(elements, originalElements);
+  elements = expandStructuredBlocksAndPushBelow(elements, originalElements);
 
   // Snapshot after card growth so table split push uses the right baselines.
   const baselines = snapshotElementGeometry(elements);
@@ -2713,8 +2781,8 @@ function reflowSinglePage(
   // (that made the table cover the page and spilled headers with it).
   const tableSplit = splitOverflowTables(elements, contentBottomLimit);
   elements = tableSplit.elements;
-  elements = pushBelowTablesFromBaselines(elements, baselines);
-  elements = enforceStackGapBelowTables(elements);
+  elements = pushBelowTablesFromBaselines(elements, baselines, originalElements);
+  elements = enforceStackGapBelowTables(elements, originalElements);
 
   const spill = splitOverflowElements(elements, contentBottomLimit);
   return {
@@ -2735,7 +2803,7 @@ function layoutPageElements(
   elements: CanvasElement[],
   startY?: number
 ): { page: TemplatePage; overflow: CanvasElement[] } {
-  return layoutPageDocumentFlow(page, elements, startY);
+  return layoutPageDocumentFlow(page, elements, startY, [], elements);
 }
 
 /** Grow tables vertically (fixed width) and push stacked content below — preview-only. */
@@ -3243,6 +3311,8 @@ function reflowPagesWordStyle(
   }
 
   const { elements: gathered } = gatherReflowElements(flowSourcePages);
+  const allOriginalElements = source.flatMap((p) => p.elements);
+
   if (gathered.length === 0 && preservedTail.length === 0) {
     return applyPreviewPageNumbers(dropEmptyTrailingPages(source));
   }
@@ -3274,8 +3344,8 @@ function reflowPagesWordStyle(
     firstTableIndex >= 0 ? sortedGathered.slice(firstTableIndex) : sortedGathered;
 
   // Grow cards / structured blocks in the flowing body before pagination.
-  body = expandCardsAndPushBelow(body);
-  body = expandStructuredBlocksAndPushBelow(body);
+  body = expandCardsAndPushBelow(body, allOriginalElements);
+  body = expandStructuredBlocksAndPushBelow(body, allOriginalElements);
   body = sortDocumentFlowElements(body);
 
   const tableStartY =
@@ -3341,7 +3411,8 @@ function reflowPagesWordStyle(
       layoutPage.elements,
       // Page 2+ must start at the top margin — never reuse spilled page-1 Y.
       isFirst ? bodyStartY : master.margins.top,
-      preplaced
+      preplaced,
+      allOriginalElements
     );
 
     result.push(page);

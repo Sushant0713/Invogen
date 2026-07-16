@@ -38,7 +38,7 @@ import {
   type InvoiceDiscountMode,
   type InvoiceTaxDisplayMode,
 } from './invoice-table';
-import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate } from './tax-settings';
+import { type TaxSettings, EMPTY_TAX_SETTINGS, getCombinedGstRate, getIgstRate, PRODUCT_GST_RATE_KEY } from './tax-settings';
 import { normalizeShowProductSku } from './product-settings';
 
 export type InvoiceTable2Props = ProductTableProps & {
@@ -1006,11 +1006,34 @@ export function setInvoice2ColumnVisible(
   return recalculateInvoiceTable2({ ...props, columns }, tax);
 }
 
+function inheritLastRowGstRate(rows: ProductTableRow[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (row && PRODUCT_GST_RATE_KEY in row.cells) {
+      const val = row.cells[PRODUCT_GST_RATE_KEY];
+      if (val != null && val !== '') return val;
+    }
+  }
+  return null;
+}
+
 export function addInvoice2Row(
   props: InvoiceTable2Props,
   tax: TaxSettings = EMPTY_TAX_SETTINGS
 ): InvoiceTable2Props {
-  return recalculateInvoiceTable2(addRow(props), tax);
+  const base = addRow(props);
+  const gstRate = inheritLastRowGstRate(props.rows);
+  if (gstRate != null) {
+    const newRowIndex = base.rows.length - 1;
+    base.rows[newRowIndex] = {
+      ...base.rows[newRowIndex],
+      cells: {
+        ...base.rows[newRowIndex].cells,
+        [PRODUCT_GST_RATE_KEY]: gstRate,
+      },
+    };
+  }
+  return recalculateInvoiceTable2(base, tax);
 }
 
 export { updateInvoice2Cell as updateCell };
