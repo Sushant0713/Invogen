@@ -48,6 +48,20 @@ import {
   notifyInvoiceStatusIfPaid,
   notifySubscriptionRenewed,
 } from '../utils/notification-events';
+import { checkoutPricingService } from './checkout-pricing.service';
+import { platformInvoiceService } from './platform-invoice.service';
+import { adminSalesReportService } from './admin-sales-report.service';
+import { adminGstReportService } from './admin-gst-report.service';
+import { adminCustomersReportService } from './admin-customers-report.service';
+import { adminProductsReportService } from './admin-products-report.service';
+import {
+  defaultEmployeeSettings,
+  generateEmployeeJoinCode,
+  normalizeJoinCode,
+  parseEmployeeSettings,
+  sanitizeEmployeePermissions,
+  validateJoinCodeFormat,
+} from '../utils/employee-settings';
 
 function toCompanyObjectId(companyId: string): mongoose.Types.ObjectId {
   if (!mongoose.Types.ObjectId.isValid(companyId)) {
@@ -126,22 +140,6 @@ async function resolveJoinCode(
 
   return normalized;
 }
-import { checkoutPricingService } from './checkout-pricing.service';
-import { platformInvoiceService } from './platform-invoice.service';
-import { adminSalesReportService } from './admin-sales-report.service';
-import { adminGstReportService } from './admin-gst-report.service';
-import { adminCustomersReportService } from './admin-customers-report.service';
-import { adminProductsReportService } from './admin-products-report.service';
-import {
-  defaultEmployeeSettings,
-  generateEmployeeJoinCode,
-  normalizeJoinCode,
-  parseEmployeeSettings,
-  sanitizeEmployeePermissions,
-  validateJoinCodeFormat,
-} from '../utils/employee-settings';
-import { User, UserRole } from '../models/User.model';
-import { Employee } from '../models/Employee.model';
 
 export const adminService = {
   async getDashboard(companyId: string) {
