@@ -62,7 +62,7 @@ type ClientsReportResponse = {
     revenueCollected: number;
     outstanding: number;
     lastInvoiceDate: string | null;
-    lifetimeCollected: number;
+    allTimeCollected: number;
   }>;
   ledgerMeta: {
     page: number;

@@ -7,6 +7,7 @@ export interface IEmployee extends Document {
   createdBy: mongoose.Types.ObjectId;
   department?: string;
   designation?: string;
+  suspendedBySystem?: boolean;
 }
 
 const employeeSchema = new Schema<IEmployee>(
@@ -17,6 +18,7 @@ const employeeSchema = new Schema<IEmployee>(
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     department: String,
     designation: String,
+    suspendedBySystem: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -16,30 +16,15 @@ const PLAN_TYPE_OPTIONS = [
 ] as const;
 
 type PlanTypeKey = (typeof PLAN_TYPE_OPTIONS)[number]['value'];
-type PricingModel = 'subscription' | 'lifetime' | 'both';
-
-const pricingModelFromFlags = (hasSubscription: boolean, hasLifetime: boolean): PricingModel | null => {
-  if (hasSubscription && hasLifetime) return 'both';
-  if (hasSubscription) return 'subscription';
-  if (hasLifetime) return 'lifetime';
-  return null;
-};
-
-const flagsFromPricingModel = (model?: PricingModel) => ({
-  hasSubscription: model === 'subscription' || model === 'both',
-  hasLifetime: model === 'lifetime' || model === 'both',
-});
 
 interface PlanType {
   _id: string;
   name: string;
   slug: string;
   description?: string;
-  pricingModel: PricingModel;
+  pricingModel: 'subscription';
   monthlyPrice: number;
   yearlyPrice: number;
-  lifetimePrice: number;
-  maintenanceCharge?: number;
   currency: string;
   featureIds: { _id: string; name: string }[];
   isActive: boolean;
@@ -55,12 +40,8 @@ const emptyForm = () => ({
   typeKey: 'business' as PlanTypeKey,
   customName: '',
   description: '',
-  hasSubscription: true,
-  hasLifetime: false,
   monthlyPrice: '',
   yearlyPrice: '',
-  lifetimePrice: '',
-  maintenanceCharge: '',
   featureIds: [] as string[],
 });
 
@@ -128,17 +109,13 @@ export default function PlanTypesPage() {
 
   const handleEdit = (pt: PlanType) => {
     const typeKey = inferTypeKey(pt.name);
-    const flags = flagsFromPricingModel(pt.pricingModel);
     setEditingId(pt._id);
     setForm({
       typeKey,
       customName: typeKey === 'custom' ? pt.name : '',
       description: pt.description || '',
-      ...flags,
       monthlyPrice: pt.monthlyPrice ? String(pt.monthlyPrice) : '',
       yearlyPrice: pt.yearlyPrice ? String(pt.yearlyPrice) : '',
-      lifetimePrice: pt.lifetimePrice ? String(pt.lifetimePrice) : '',
-      maintenanceCharge: pt.maintenanceCharge ? String(pt.maintenanceCharge) : '',
       featureIds: pt.featureIds?.map((f) => (typeof f === 'string' ? f : f._id)) || [],
     });
     setShowForm(true);
@@ -152,43 +129,16 @@ export default function PlanTypesPage() {
       return;
     }
 
-    const pricingModel = pricingModelFromFlags(form.hasSubscription, form.hasLifetime);
-    if (!pricingModel) {
-      toast.error('Select at least one pricing model');
-      return;
-    }
-
     const body: Record<string, unknown> = {
       name,
       description: form.description,
-      pricingModel,
+      pricingModel: 'subscription',
       featureIds: form.featureIds,
+      monthlyPrice: Number(form.monthlyPrice),
+      yearlyPrice: Number(form.yearlyPrice),
     };
 
-    if (form.hasSubscription) {
-      body.monthlyPrice = Number(form.monthlyPrice);
-      body.yearlyPrice = Number(form.yearlyPrice);
-    }
-    if (form.hasLifetime) {
-      body.lifetimePrice = Number(form.lifetimePrice);
-      body.maintenanceCharge = form.maintenanceCharge ? Number(form.maintenanceCharge) : undefined;
-    }
-
     saveMutation.mutate(body);
-  };
-
-  const togglePricingModel = (key: 'hasSubscription' | 'hasLifetime') => {
-    setForm((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      if (!next.hasSubscription && !next.hasLifetime) return prev;
-      return next;
-    });
-  };
-
-  const pricingLabel = (model?: PricingModel) => {
-    if (model === 'both') return 'Subscription + Lifetime';
-    if (model === 'lifetime') return 'Lifetime';
-    return 'Subscription';
   };
 
   const toggleFeature = (id: string) => {
@@ -254,81 +204,27 @@ export default function PlanTypesPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Pricing Model</label>
-              <p className="text-xs text-gray-500 mb-2">Select one or both options</p>
-              <div className="flex flex-wrap gap-3">
-                {([
-                  { key: 'hasSubscription' as const, label: 'Subscription Model', desc: 'Monthly & Yearly' },
-                  { key: 'hasLifetime' as const, label: 'Lifetime Model', desc: 'One-time + Maintenance' },
-                ]).map((opt) => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => togglePricingModel(opt.key)}
-                    className={`flex-1 min-w-[200px] rounded-xl border-2 p-4 text-left transition-all ${
-                      form[opt.key]
-                        ? 'border-primary bg-primary-50 shadow-md'
-                        : 'border-gray-200 hover:border-primary-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-semibold text-gray-900">{opt.label}</p>
-                      <span className={`h-5 w-5 rounded border flex items-center justify-center text-xs ${
-                        form[opt.key] ? 'bg-primary border-primary text-white' : 'border-gray-300 bg-white'
-                      }`}>
-                        {form[opt.key] ? '✓' : ''}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
-                  </button>
-                ))}
-              </div>
+            <div className="grid md:grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4">
+              <p className="md:col-span-2 text-sm font-medium text-gray-700">
+                Subscription pricing
+              </p>
+              <Input
+                label="Monthly Price (INR)"
+                type="number"
+                min="0"
+                value={form.monthlyPrice}
+                onChange={(e) => setForm({ ...form, monthlyPrice: e.target.value })}
+                required
+              />
+              <Input
+                label="Yearly Price (INR)"
+                type="number"
+                min="0"
+                value={form.yearlyPrice}
+                onChange={(e) => setForm({ ...form, yearlyPrice: e.target.value })}
+                required
+              />
             </div>
-
-            {form.hasSubscription && (
-              <div className="grid md:grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4">
-                <p className="md:col-span-2 text-sm font-medium text-gray-700">Subscription pricing</p>
-                <Input
-                  label="Monthly Price (INR)"
-                  type="number"
-                  min="0"
-                  value={form.monthlyPrice}
-                  onChange={(e) => setForm({ ...form, monthlyPrice: e.target.value })}
-                  required
-                />
-                <Input
-                  label="Yearly Price (INR)"
-                  type="number"
-                  min="0"
-                  value={form.yearlyPrice}
-                  onChange={(e) => setForm({ ...form, yearlyPrice: e.target.value })}
-                  required
-                />
-              </div>
-            )}
-
-            {form.hasLifetime && (
-              <div className="grid md:grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4">
-                <p className="md:col-span-2 text-sm font-medium text-gray-700">Lifetime pricing</p>
-                <Input
-                  label="Lifetime Price (INR)"
-                  type="number"
-                  min="0"
-                  value={form.lifetimePrice}
-                  onChange={(e) => setForm({ ...form, lifetimePrice: e.target.value })}
-                  required
-                />
-                <Input
-                  label="Yearly Maintenance Price (INR)"
-                  type="number"
-                  min="0"
-                  value={form.maintenanceCharge}
-                  onChange={(e) => setForm({ ...form, maintenanceCharge: e.target.value })}
-                  required
-                />
-              </div>
-            )}
 
             {features && features.length > 0 && (
               <div>
@@ -370,35 +266,20 @@ export default function PlanTypesPage() {
               </div>
               <div className="flex flex-col gap-1 items-end">
                 <Badge variant={pt.isActive ? 'success' : 'warning'}>{pt.isActive ? 'Active' : 'Inactive'}</Badge>
-                <Badge>{pricingLabel(pt.pricingModel)}</Badge>
+                <Badge>Monthly + Yearly</Badge>
               </div>
             </div>
 
-            {flagsFromPricingModel(pt.pricingModel).hasSubscription && (
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-xl bg-primary-50 p-3">
-                  <p className="text-gray-500">Monthly</p>
-                  <p className="font-bold text-primary">{formatCurrency(pt.monthlyPrice)}</p>
-                </div>
-                <div className="rounded-xl bg-primary-50 p-3">
-                  <p className="text-gray-500">Yearly</p>
-                  <p className="font-bold text-primary">{formatCurrency(pt.yearlyPrice)}</p>
-                </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl bg-primary-50 p-3">
+                <p className="text-gray-500">Monthly</p>
+                <p className="font-bold text-primary">{formatCurrency(pt.monthlyPrice)}</p>
               </div>
-            )}
-
-            {flagsFromPricingModel(pt.pricingModel).hasLifetime && (
-              <div className={`grid grid-cols-2 gap-3 text-sm ${flagsFromPricingModel(pt.pricingModel).hasSubscription ? 'mt-3' : 'mt-4'}`}>
-                <div className="rounded-xl bg-primary-50 p-3">
-                  <p className="text-gray-500">Lifetime</p>
-                  <p className="font-bold text-primary">{formatCurrency(pt.lifetimePrice)}</p>
-                </div>
-                <div className="rounded-xl bg-primary-50 p-3">
-                  <p className="text-gray-500">Maintenance/yr</p>
-                  <p className="font-bold text-primary">{formatCurrency(pt.maintenanceCharge || 0)}</p>
-                </div>
+              <div className="rounded-xl bg-primary-50 p-3">
+                <p className="text-gray-500">Yearly</p>
+                <p className="font-bold text-primary">{formatCurrency(pt.yearlyPrice)}</p>
               </div>
-            )}
+            </div>
 
             {pt.featureIds?.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1">

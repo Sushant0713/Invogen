@@ -9,6 +9,12 @@ import {
   parseFontFamilyName,
   type GoogleFontEntry,
 } from './google-fonts';
+import {
+  beginBuilderTextFormatting,
+  endBuilderTextFormatting,
+  restoreBuilderTextSelection,
+  saveBuilderTextSelection,
+} from './rich-text-formatting';
 
 function useClickOutside(
   buttonRef: RefObject<HTMLElement | null>,
@@ -78,6 +84,7 @@ export function FontFamilyPicker({ value, onChange }: FontFamilyPickerProps) {
   useClickOutside(buttonRef, panelRef, open, () => {
     setOpen(false);
     setQuery('');
+    endBuilderTextFormatting();
   });
 
   const normalizedQuery = query.trim().toLowerCase();
@@ -89,9 +96,13 @@ export function FontFamilyPicker({ value, onChange }: FontFamilyPickerProps) {
 
   const handleSelect = (family: string) => {
     ensureGoogleFontLoaded(family);
+    // Restore the text selection captured before the dropdown stole focus so the
+    // change applies to the highlighted text (not the whole box).
+    restoreBuilderTextSelection();
     onChange(family);
     setOpen(false);
     setQuery('');
+    endBuilderTextFormatting();
   };
 
   return (
@@ -101,7 +112,12 @@ export function FontFamilyPicker({ value, onChange }: FontFamilyPickerProps) {
         type="button"
         aria-expanded={open}
         aria-controls={listId}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          beginBuilderTextFormatting();
+          saveBuilderTextSelection();
+        }}
         onClick={() => setOpen((v) => !v)}
         className={`flex h-8 min-w-[132px] max-w-[180px] items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium transition-colors ${
           open ? 'border-primary/40 bg-primary/5 text-primary' : 'text-gray-700 hover:bg-gray-50'
@@ -117,6 +133,7 @@ export function FontFamilyPicker({ value, onChange }: FontFamilyPickerProps) {
           ref={panelRef}
           id={listId}
           role="listbox"
+          data-builder-toolbar
           style={{
             position: 'fixed',
             top: position.top,

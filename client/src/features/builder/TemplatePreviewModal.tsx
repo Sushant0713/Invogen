@@ -38,6 +38,10 @@ interface TemplatePreviewModalProps {
   apiBase?: string;
 }
 
+function pagesExportKey(pages: TemplatePage[]): string {
+  return pages.map((page) => `${page.id}:${page.elements.length}`).join('|');
+}
+
 export function TemplatePreviewModal({
   open,
   onClose,
@@ -47,17 +51,24 @@ export function TemplatePreviewModal({
 }: TemplatePreviewModalProps) {
   const brandingScope = brandingScopeFromApiBase(apiBase);
   const exportPageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const pagesRef = useRef(pages);
+  const onCloseRef = useRef(onClose);
+  const wasOpenRef = useRef(false);
+  pagesRef.current = pages;
+  onCloseRef.current = onClose;
+
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [generating, setGenerating] = useState(false);
   const [sharing, setSharing] = useState(false);
   const pdfFilename = templatePdfFilename(templateName);
   const showNativeShare = canNativeShareFiles();
+  const exportKey = open ? pagesExportKey(pages) : '';
 
   const generatePdf = useCallback(async () => {
     setGenerating(true);
     setPdfBlob(null);
     try {
-      const nodes = await waitForExportNodes(exportPageRefs, pages.length);
+      const nodes = await waitForExportNodes(exportPageRefs, pagesRef.current.length);
       const blob = await exportTemplatePagesToPdf(buildExportPageInputs(nodes));
       setPdfBlob(blob);
     } catch {
@@ -65,27 +76,52 @@ export function TemplatePreviewModal({
     } finally {
       setGenerating(false);
     }
-  }, [pages]);
+  }, []);
 
   useEffect(() => {
     if (!open) {
-      setPdfBlob(null);
-      setGenerating(false);
-      setSharing(false);
-      exportPageRefs.current = [];
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        setPdfBlob(null);
+        setGenerating(false);
+        setSharing(false);
+        exportPageRefs.current = [];
+      }
       return;
     }
-    void generatePdf();
-  }, [open, generatePdf]);
+
+    wasOpenRef.current = true;
+    let cancelled = false;
+
+    void (async () => {
+      setGenerating(true);
+      setPdfBlob(null);
+      try {
+        const nodes = await waitForExportNodes(exportPageRefs, pagesRef.current.length);
+        if (cancelled) return;
+        const blob = await exportTemplatePagesToPdf(buildExportPageInputs(nodes));
+        if (cancelled) return;
+        setPdfBlob(blob);
+      } catch {
+        if (!cancelled) toast.error('Failed to generate PDF preview');
+      } finally {
+        if (!cancelled) setGenerating(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, exportKey]);
 
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   const handleDownload = () => {
     if (!pdfBlob) return;

@@ -1,5 +1,5 @@
 import { InvoiceStatus, InvoiceType } from '@invogen/shared';
-import { Company, Invoice, Payment, Plan, Setting, User } from '../models';
+import { Company, Invoice, Payment, Plan, Setting, User, InvoiceTemplate } from '../models';
 import { sendEmail } from '../config/mail';
 import { env } from '../config/env';
 import { mediaService } from './media.service';
@@ -61,8 +61,25 @@ const formatInvoiceNumber = (settings: PlatformInvoiceSettings, sequence: number
 async function loadPlatformInvoiceSettings(): Promise<PlatformInvoiceSettings> {
   const setting = await Setting.findOne({ key: 'invoice_settings', scope: 'system' });
   const value = (setting?.value || {}) as PlatformInvoiceSettings;
+  
+  let platformTemplateId = value.platformTemplateId;
+  if (!platformTemplateId) {
+    const defaultTemplate =
+      await InvoiceTemplate.findOne({ name: 'Super Admin Invoice', isSystem: true })
+        .select('_id')
+        .lean<{ _id: { toString(): string } }>()
+      || await InvoiceTemplate.findOne({ isSystem: true })
+        .sort({ createdAt: 1 })
+        .select('_id')
+        .lean<{ _id: { toString(): string } }>();
+    if (defaultTemplate) {
+      platformTemplateId = defaultTemplate._id.toString();
+    }
+  }
+
   return {
     ...value,
+    platformTemplateId,
     prefix: value.prefix || 'INV',
     numberFormat: value.numberFormat || '{PREFIX}-{YYYY}-{NNNNN}',
     nextNumber: value.nextNumber || 1,

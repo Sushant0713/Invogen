@@ -1,4 +1,4 @@
-import { BillingCycle, SubscriptionStatus } from '@invogen/shared';
+import { SubscriptionStatus } from '@invogen/shared';
 import { Notification, Subscription } from '../models';
 import { notificationService } from '../services/notification.service';
 import { notifySubscriptionExpiringSoon } from '../utils/notification-events';
@@ -62,7 +62,7 @@ export async function runSubscriptionExpiringSoonReminders(now = new Date()): Pr
       | { name?: string; billingCycle?: string }
       | null
       | undefined;
-    if (!plan || plan.billingCycle === BillingCycle.LIFETIME) continue;
+    if (!plan) continue;
 
     const company = subscription.companyId as { _id?: unknown; name?: string } | null | undefined;
     const companyId = company?._id != null ? String(company._id) : String(subscription.companyId);

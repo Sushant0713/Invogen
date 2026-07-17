@@ -13,6 +13,18 @@ export function tenantInvoiceFilter(companyId: string): FilterQuery<IInvoice> {
   return { companyId, ...EXCLUDE_PLATFORM_INVOICE_FILTER };
 }
 
+/** Sent + paid customer invoices that count toward plan maxInvoices (excludes platform bills). */
+export function planInvoiceUsageFilter(
+  companyId: string,
+  countFromDate?: Date | null
+): FilterQuery<IInvoice> {
+  return {
+    ...tenantInvoiceFilter(companyId),
+    status: { $in: [InvoiceStatus.SENT, InvoiceStatus.PAID] },
+    ...(countFromDate ? { createdAt: { $gte: countFromDate } } : {}),
+  };
+}
+
 export function toCompanyObjectId(companyId: string) {
   return new mongoose.Types.ObjectId(companyId);
 }

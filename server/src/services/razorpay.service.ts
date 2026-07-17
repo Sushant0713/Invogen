@@ -176,10 +176,17 @@ export const razorpayService = {
         ?.entity;
       const subscriptionId = subEntity?.id as string | undefined;
       if (subscriptionId) {
-        await Subscription.findOneAndUpdate(
+        const sub = await Subscription.findOneAndUpdate(
           { razorpaySubscriptionId: subscriptionId },
-          { status: SubscriptionStatus.ACTIVE }
-        );
+          { status: SubscriptionStatus.ACTIVE },
+          { new: true }
+        ).populate('planId');
+        
+        if (sub) {
+          const maxUsers = (sub.planId as any)?.maxUsers;
+          const { subscriptionService } = await import('./subscription.service');
+          await subscriptionService.syncEmployeeStatusesWithPlanLimit(sub.companyId.toString(), maxUsers);
+        }
       }
     }
   },

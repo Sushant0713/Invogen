@@ -126,6 +126,7 @@ export const discountService = {
   validateDiscountPayload(data: {
     name?: string;
     code?: string;
+    promoType?: string;
     discountType?: string;
     value?: number;
     startDate?: string | Date;
@@ -139,6 +140,14 @@ export const discountService = {
 
     if (data.value != null && data.value < 0) {
       throw new AppError('Discount value must be positive', 400);
+    }
+
+    if (
+      data.promoType &&
+      data.promoType !== 'simple' &&
+      data.promoType !== 'banner'
+    ) {
+      throw new AppError('Invalid discount type', 400);
     }
 
     if (data.startDate && data.endDate) {

@@ -38,7 +38,7 @@ export default function PublicPlansPage() {
       loading={isLoading}
       onChoosePlan={handleChoosePlan}
       topBar={
-        <div className="mx-auto mb-8 flex max-w-4xl items-center justify-between gap-4">
+        <div className="mx-auto mb-8 flex max-w-6xl items-center justify-between gap-4">
           <Link to="/" className="inline-flex items-center">
             <img
               src={invogenFullLogo}

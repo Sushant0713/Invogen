@@ -85,12 +85,17 @@ const loadedFonts = new Set<string>();
 
 export function ensureGoogleFontLoaded(family: string) {
   const name = parseFontFamilyName(family);
-  if (!name || name === 'Inter' || loadedFonts.has(name)) return;
+  if (!name || loadedFonts.has(name)) return;
   loadedFonts.add(name);
+
+  // Inter is bundled with the app; still allow other families via Google Fonts CSS API.
+  if (name === 'Inter') return;
 
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name)}:ital,wght@0,400;0,700;1,400;1,700&display=swap`;
+  // Google CSS2 expects + for spaces in the family query param.
+  const familyParam = name.replace(/ /g, '+');
+  link.href = `https://fonts.googleapis.com/css2?family=${familyParam}:ital,wght@0,400;0,700;1,400;1,700&display=swap`;
   document.head.appendChild(link);
 }
 

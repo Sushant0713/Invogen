@@ -18,7 +18,6 @@ export interface AdminSubscriptionRecord {
   status: string;
   currentPeriodStart?: string;
   currentPeriodEnd?: string;
-  maintenanceDueDate?: string;
   cancelledAt?: string;
   createdAt?: string;
   razorpayOrderId?: string;

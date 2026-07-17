@@ -1,22 +1,23 @@
 import mongoose from 'mongoose';
-import { SubscriptionStatus, BillingCycle } from '@invogen/shared';
-import { Subscription, Plan, Payment } from '../models';
+import { SubscriptionStatus, BillingCycle, UserStatus, PlanDiscountPromoType } from '@invogen/shared';
+import { Subscription, Plan, Payment, Employee, User, Product, PlanDiscount } from '../models';
 import { AppError } from '../utils/AppError';
 import { razorpayService } from './razorpay.service';
 import { notificationService } from './notification.service';
 import { notifySubscriptionExpired } from '../utils/notification-events';
+import { discountService } from './discount.service';
 
 function computePeriodEnd(billingCycle: BillingCycle): Date {
   const end = new Date();
   if (billingCycle === BillingCycle.MONTHLY) {
     end.setMonth(end.getMonth() + 1);
-  } else if (billingCycle === BillingCycle.YEARLY) {
-    end.setFullYear(end.getFullYear() + 1);
   } else {
-    end.setFullYear(end.getFullYear() + 100);
+    end.setFullYear(end.getFullYear() + 1);
   }
   return end;
 }
+
+const SELLABLE_BILLING_CYCLES = [BillingCycle.MONTHLY, BillingCycle.YEARLY];
 
 export const subscriptionService = {
   async syncExpiry(subscription: {
@@ -91,11 +92,34 @@ export const subscriptionService = {
       isActive: true,
       isPaused: false,
       visibleOnWebsite: true,
+      billingCycle: { $in: SELLABLE_BILLING_CYCLES },
     })
       .populate('planTypeId', 'name slug description')
       .populate('featureIds', 'name')
+      .select(
+        'name price mrp currency billingCycle tier description features featureIds planTypeId maxUsers maxInvoices maxProducts templateIds canAddTemplate templateAccessConfigured'
+      )
       .sort({ price: 1 })
       .lean();
+  },
+
+  async getPublicBannerDiscounts() {
+    const discounts = await PlanDiscount.find({
+      isActive: true,
+      promoType: PlanDiscountPromoType.BANNER,
+    })
+      .select(
+        'name code description discountType value planTypeId planId billingCycle startDate endDate maxUses usedCount isActive promoType'
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return discounts
+      .map((discount) => discountService.attachStatus(discount))
+      .filter((discount) => {
+        const lifecycle = discount.statusSnapshot?.lifecycle;
+        return lifecycle === 'active' || lifecycle === 'scheduled';
+      });
   },
 
   async getSubscriptionHistory(companyId: string) {
@@ -152,7 +176,12 @@ export const subscriptionService = {
     }
 
     const plan = await Plan.findById(planId);
-    if (!plan || !plan.isActive || plan.isPaused) {
+    if (
+      !plan ||
+      !plan.isActive ||
+      plan.isPaused ||
+      !SELLABLE_BILLING_CYCLES.includes(plan.billingCycle)
+    ) {
       throw new AppError('Plan not found', 404);
     }
     if (!plan.visibleOnWebsite) {
@@ -175,18 +204,26 @@ export const subscriptionService = {
       status: SubscriptionStatus.ACTIVE,
       currentPeriodStart: new Date(),
       currentPeriodEnd: computePeriodEnd(plan.billingCycle),
-      maintenanceDueDate:
-        plan.billingCycle === BillingCycle.LIFETIME
-          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-          : undefined,
     });
+    await subscription.populate('planId');
+    await subscription.populate('planId');
+    const maxUsers = (subscription.planId as any)?.maxUsers;
+    const maxProducts = (subscription.planId as any)?.maxProducts;
+    await Promise.all([
+      this.syncEmployeeStatusesWithPlanLimit(companyId, maxUsers),
+      this.syncProductStatusesWithPlanLimit(companyId, maxProducts),
+    ]);
 
-    return subscription.populate('planId');
+    return subscription;
   },
 
   async assignPlanByAdmin(companyId: string, planId: string) {
     const plan = await Plan.findById(planId);
-    if (!plan || !plan.isActive) {
+    if (
+      !plan ||
+      !plan.isActive ||
+      !SELLABLE_BILLING_CYCLES.includes(plan.billingCycle)
+    ) {
       throw new AppError('Plan not found', 404);
     }
 
@@ -206,13 +243,17 @@ export const subscriptionService = {
       status: SubscriptionStatus.ACTIVE,
       currentPeriodStart: new Date(),
       currentPeriodEnd: computePeriodEnd(plan.billingCycle),
-      maintenanceDueDate:
-        plan.billingCycle === BillingCycle.LIFETIME
-          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-          : undefined,
     });
 
-    return subscription.populate('planId');
+    await subscription.populate('planId');
+    const maxUsers = (subscription.planId as any)?.maxUsers;
+    const maxProducts = (subscription.planId as any)?.maxProducts;
+    await Promise.all([
+      this.syncEmployeeStatusesWithPlanLimit(companyId, maxUsers),
+      this.syncProductStatusesWithPlanLimit(companyId, maxProducts),
+    ]);
+
+    return subscription;
   },
 
   async updateSubscriptionStatus(companyId: string, status: SubscriptionStatus) {
@@ -225,4 +266,56 @@ export const subscriptionService = {
     await subscription.save();
     return subscription.populate('planId');
   },
+
+  async syncEmployeeStatusesWithPlanLimit(companyId: string, maxUsers?: number | null) {
+    const employees = await Employee.find({ companyId }).populate('userId').sort({ createdAt: 1 });
+    let totalActive = 1; // Count Admin as 1
+
+    for (const employee of employees) {
+      const user = employee.userId as any;
+      if (!user || user.status === UserStatus.PENDING) continue;
+
+      if (maxUsers !== undefined && maxUsers !== null && totalActive >= maxUsers) {
+        if (user.status === UserStatus.ACTIVE) {
+          user.status = UserStatus.SUSPENDED;
+          user.refreshTokenHash = undefined;
+          employee.suspendedBySystem = true;
+          await Promise.all([user.save(), employee.save()]);
+        }
+      } else {
+        if (employee.suspendedBySystem) {
+          user.status = UserStatus.ACTIVE;
+          employee.suspendedBySystem = false;
+          await Promise.all([user.save(), employee.save()]);
+          totalActive++;
+        } else if (user.status === UserStatus.ACTIVE) {
+          totalActive++;
+        }
+      }
+    }
+  },
+
+  async syncProductStatusesWithPlanLimit(companyId: string, maxProducts?: number | null) {
+    const products = await Product.find({ companyId }).sort({ createdAt: 1 });
+    let totalActive = 0;
+
+    for (const product of products) {
+      if (maxProducts !== undefined && maxProducts !== null && totalActive >= maxProducts) {
+        if (product.isActive) {
+          product.isActive = false;
+          product.suspendedBySystem = true;
+          await product.save();
+        }
+      } else {
+        if (product.suspendedBySystem) {
+          product.isActive = true;
+          product.suspendedBySystem = false;
+          await product.save();
+          totalActive++;
+        } else if (product.isActive) {
+          totalActive++;
+        }
+      }
+    }
+  }
 };

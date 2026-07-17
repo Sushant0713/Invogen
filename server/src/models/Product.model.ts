@@ -18,6 +18,7 @@ export interface IProduct extends Document {
   stock: number;
   images: string[];
   isActive: boolean;
+  suspendedBySystem?: boolean;
 }
 
 const productSchema = new Schema<IProduct>(
@@ -39,6 +40,7 @@ const productSchema = new Schema<IProduct>(
     stock: { type: Number, default: 0 },
     images: [String],
     isActive: { type: Boolean, default: true },
+    suspendedBySystem: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

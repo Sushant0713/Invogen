@@ -1,4 +1,11 @@
-import { UserRole, UserStatus, ADMIN_PERMISSIONS, SubscriptionStatus, InvoiceStatus } from '@invogen/shared';
+import {
+  UserRole,
+  UserStatus,
+  ADMIN_PERMISSIONS,
+  SubscriptionStatus,
+  InvoiceStatus,
+  BillingCycle,
+} from '@invogen/shared';
 import { notificationService } from './notification.service';
 import { notifySupportTicketUpdated } from '../utils/notification-events';
 import bcrypt from 'bcryptjs';
@@ -121,7 +128,10 @@ export const superAdminService = {
       User.countDocuments({ role: UserRole.ADMIN }),
       Subscription.countDocuments({ status: 'active' }),
       Invoice.countDocuments(PLATFORM_INVOICE_FILTER),
-      Plan.find({ isActive: true }).limit(5),
+      Plan.find({
+        isActive: true,
+        billingCycle: { $in: [BillingCycle.MONTHLY, BillingCycle.YEARLY] },
+      }).limit(5),
       Payment.aggregate([
         { $match: { status: 'captured' } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
@@ -590,7 +600,9 @@ export const superAdminService = {
   },
 
   async getPlans() {
-    return Plan.find().sort({ tier: 1, billingCycle: 1 });
+    return Plan.find({
+      billingCycle: { $in: [BillingCycle.MONTHLY, BillingCycle.YEARLY] },
+    }).sort({ tier: 1, billingCycle: 1 });
   },
 
   async createPlan(data: Record<string, unknown>) {

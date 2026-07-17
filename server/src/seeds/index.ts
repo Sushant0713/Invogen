@@ -104,11 +104,9 @@ const seedPlanTypes = async (featureIds: string[]) => {
     {
       name: 'Company Plan',
       description: 'For medium and large organizations',
-      pricingModel: 'both' as const,
+      pricingModel: 'subscription' as const,
       monthlyPrice: 2999,
       yearlyPrice: 29999,
-      lifetimePrice: 99999,
-      maintenanceCharge: 9999,
       featureIds: companyFeatures,
     },
   ];
@@ -134,6 +132,7 @@ const seedPlanDiscounts = async () => {
       name: 'Launch Offer',
       code: 'LAUNCH20',
       description: '20% off for new subscribers during launch period',
+      promoType: 'banner' as const,
       discountType: 'percentage' as const,
       value: 20,
       billingCycle: 'all' as const,
@@ -148,15 +147,6 @@ const seedPlanDiscounts = async () => {
       value: 500,
       billingCycle: 'yearly' as const,
       planTypeId: businessType?._id,
-      isActive: true,
-    },
-    {
-      name: 'Lifetime Deal',
-      code: 'LIFETIME10',
-      description: '10% off lifetime purchases',
-      discountType: 'percentage' as const,
-      value: 10,
-      billingCycle: 'lifetime' as const,
       isActive: true,
     },
     {

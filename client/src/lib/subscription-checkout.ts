@@ -89,7 +89,6 @@ export function resolvePendingPlanId(search?: string | URLSearchParams | null): 
 export function billingCycleLabel(cycle: string) {
   if (cycle === 'monthly') return 'Monthly';
   if (cycle === 'yearly') return 'Yearly';
-  if (cycle === 'lifetime') return 'Lifetime';
   return cycle;
 }
 

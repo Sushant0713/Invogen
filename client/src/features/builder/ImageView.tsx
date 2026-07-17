@@ -80,23 +80,35 @@ function ImageViewInner({
     h: image.imageNaturalH ?? 0,
   });
   const loadedSrcRef = useRef<string | undefined>(src);
+  const onUpdatePropsRef = useRef(onUpdateProps);
+  const onFrameResizeRef = useRef(onFrameResize);
+  const propsRef = useRef(props);
+  onUpdatePropsRef.current = onUpdateProps;
+  onFrameResizeRef.current = onFrameResize;
+  propsRef.current = props;
+
+  const setNaturalSizeIfChanged = (w: number, h: number) => {
+    setNaturalSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+  };
 
   useEffect(() => {
     if (!src) {
       loadedSrcRef.current = undefined;
-      setNaturalSize({ w: 0, h: 0 });
+      setNaturalSizeIfChanged(0, 0);
       return;
     }
 
     const srcChanged = loadedSrcRef.current !== src;
-    if (!srcChanged && image.imageNaturalW && image.imageNaturalH) {
-      setNaturalSize({ w: image.imageNaturalW, h: image.imageNaturalH });
+    const storedW = image.imageNaturalW ?? 0;
+    const storedH = image.imageNaturalH ?? 0;
+    if (!srcChanged && storedW > 0 && storedH > 0) {
+      setNaturalSizeIfChanged(storedW, storedH);
       return;
     }
 
     let cancelled = false;
     if (srcChanged) {
-      setNaturalSize({ w: 0, h: 0 });
+      setNaturalSizeIfChanged(0, 0);
     }
 
     const img = new Image();
@@ -104,16 +116,22 @@ function ImageViewInner({
       if (cancelled || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
 
       loadedSrcRef.current = src;
-      setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+      setNaturalSizeIfChanged(img.naturalWidth, img.naturalHeight);
 
-      const fit = effectiveFit;
-      const storedCrop = props.imageCrop
-        ? normalizeImageCropTransform(props.imageCrop)
+      const currentProps = propsRef.current;
+      const storedCrop = currentProps.imageCrop
+        ? normalizeImageCropTransform(currentProps.imageCrop)
         : null;
       const shouldResetCrop =
         srcChanged || !storedCrop || isDefaultImageCrop(storedCrop);
 
-      onUpdateProps?.(
+      const naturalChanged =
+        currentProps.imageNaturalW !== img.naturalWidth
+        || currentProps.imageNaturalH !== img.naturalHeight;
+
+      if (!naturalChanged && !(shouldResetCrop && !previewMode)) return;
+
+      onUpdatePropsRef.current?.(
         {
           imageNaturalW: img.naturalWidth,
           imageNaturalH: img.naturalHeight,
@@ -124,7 +142,7 @@ function ImageViewInner({
                   element.height,
                   img.naturalWidth,
                   img.naturalHeight,
-                  fit
+                  effectiveFit
                 )
               )
             : {}),
@@ -136,7 +154,16 @@ function ImageViewInner({
     return () => {
       cancelled = true;
     };
-  }, [src, image.imageNaturalW, image.imageNaturalH, image.objectFit, props.imageCrop, element.width, element.height, onUpdateProps, previewMode, effectiveFit]);
+    // Intentionally omit onUpdateProps / props.imageCrop — use refs to avoid update loops.
+  }, [
+    src,
+    image.imageNaturalW,
+    image.imageNaturalH,
+    element.width,
+    element.height,
+    previewMode,
+    effectiveFit,
+  ]);
 
   const base = useMemo(
     () =>
@@ -168,17 +195,18 @@ function ImageViewInner({
     return image.imageCrop ?? defaultCropForFrame(element.width, element.height, 1, 1);
   }, [props, element.width, element.height, naturalSize, image.imageCrop, effectiveFit]);
 
+  const imageCropKey = props.imageCrop ? JSON.stringify(props.imageCrop) : '';
+
   useLayoutEffect(() => {
     if (!isInteractive || naturalSize.w <= 0 || naturalSize.h <= 0) return;
-    const raw = getImageCropFromProps(props, element.width, element.height);
+    const raw = getImageCropFromProps(propsRef.current, element.width, element.height);
     if (!shouldAutoCenterImageCrop(raw)) return;
-    const fit = effectiveFit;
     const aligned = defaultCropForFrame(
       element.width,
       element.height,
       naturalSize.w,
       naturalSize.h,
-      fit
+      effectiveFit
     );
     if (
       Math.abs(aligned.offsetX - raw.offsetX) <= 1
@@ -186,7 +214,7 @@ function ImageViewInner({
     ) {
       return;
     }
-    onUpdateProps?.(cropTransformToProps(aligned), false);
+    onUpdatePropsRef.current?.(cropTransformToProps(aligned), false);
   }, [
     element.width,
     element.height,
@@ -194,13 +222,12 @@ function ImageViewInner({
     naturalSize.h,
     effectiveFit,
     isInteractive,
-    props,
-    onUpdateProps,
+    imageCropKey,
   ]);
 
   useEffect(() => {
     if (!isInteractive || naturalSize.w <= 0 || naturalSize.h <= 0 || props.imageCrop) return;
-    onUpdateProps?.(
+    onUpdatePropsRef.current?.(
       cropTransformToProps(
         defaultCropForFrame(
           element.width,
@@ -216,22 +243,22 @@ function ImageViewInner({
     isInteractive,
     naturalSize.w,
     naturalSize.h,
-    props.imageCrop,
+    imageCropKey,
     element.width,
     element.height,
     effectiveFit,
-    onUpdateProps,
   ]);
 
   // Auto-shrink the element box so it hugs the visible image (no dead space
   // around a letter-boxed logo). Top-left anchor — shrink trims bottom/right only.
   const autoFitSrcRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!onFrameResize || element.locked) return;
+    const resize = onFrameResizeRef.current;
+    if (!resize || element.locked) return;
     if (naturalSize.w <= 0 || naturalSize.h <= 0) return;
     if (effectiveFit !== 'contain') return;
 
-    const rawCrop = getImageCropFromProps(props, element.width, element.height);
+    const rawCrop = getImageCropFromProps(propsRef.current, element.width, element.height);
     if (!shouldAutoCenterImageCrop(rawCrop)) return;
 
     const fitKey = `${element.id}:${src ?? ''}`;
@@ -260,13 +287,12 @@ function ImageViewInner({
       naturalSize.h,
       'contain'
     );
-    onFrameResize(
+    resize(
       { x: element.x, y: element.y, width: nextW, height: nextH },
       cropTransformToProps(alignedCrop),
       false
     );
   }, [
-    onFrameResize,
     element.locked,
     element.id,
     element.x,
@@ -275,8 +301,8 @@ function ImageViewInner({
     element.height,
     naturalSize.w,
     naturalSize.h,
-    image.objectFit,
-    props,
+    effectiveFit,
+    imageCropKey,
     src,
   ]);
 

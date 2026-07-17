@@ -548,7 +548,10 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       }
       toast.success(invoice.isNew ? 'Invoice saved as draft' : 'Invoice updated');
     },
-    onError: () => toast.error('Failed to save invoice'),
+    onError: (err: any) => {
+      const msg = err.response?.data?.message || 'Failed to save invoice';
+      toast.error(msg);
+    },
   });
 
   const duplicateMutation = useMutation({
@@ -562,7 +565,10 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
       toast.success('Invoice duplicated — edit the copy');
       navigate(config.invoiceEditPath.replace(':invoiceId', invoice._id));
     },
-    onError: () => toast.error('Failed to duplicate invoice'),
+    onError: (err: any) => {
+      const msg = err.response?.data?.message || 'Failed to duplicate invoice';
+      toast.error(msg);
+    },
   });
 
   const deleteMutation = useMutation({

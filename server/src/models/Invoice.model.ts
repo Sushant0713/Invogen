@@ -48,6 +48,8 @@ export interface IInvoice extends Document {
   sentAt?: Date;
   paidAt?: Date;
   shares?: IInvoiceShare[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const lineItemSchema = new Schema(

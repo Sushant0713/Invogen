@@ -12,6 +12,7 @@ import { Loader } from '@/components/ui/Loader';
 import {
   resolveDiscountStatus,
   formatDiscountDate,
+  PlanDiscountPromoType,
   type DiscountLifecycleStatus,
   type DiscountStatusSnapshot,
 } from '@invogen/shared';
@@ -20,12 +21,11 @@ import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 
 type DiscountType = 'percentage' | 'fixed';
-type PricingModel = 'subscription' | 'lifetime' | 'both';
+type PromoType = (typeof PlanDiscountPromoType)[keyof typeof PlanDiscountPromoType];
 
 interface PlanTypeOption {
   _id: string;
   name: string;
-  pricingModel?: PricingModel;
 }
 
 interface PlanOption {
@@ -41,6 +41,7 @@ interface PlanDiscount {
   name: string;
   code: string;
   description?: string;
+  promoType?: PromoType;
   discountType: DiscountType;
   value: number;
   planTypeId?: PlanTypeOption | string;
@@ -62,6 +63,7 @@ const emptyForm = () => ({
   name: '',
   code: '',
   description: '',
+  promoType: PlanDiscountPromoType.SIMPLE as PromoType,
   discountType: 'percentage' as DiscountType,
   value: '',
   planTypeId: '',
@@ -101,6 +103,9 @@ const LifecycleStatusBadge = ({ discount }: { discount: PlanDiscount }) => {
     </div>
   );
 };
+
+const promoTypeLabel = (promoType?: PromoType) =>
+  promoType === PlanDiscountPromoType.BANNER ? 'Banner discount' : 'Simple discount';
 
 const formatValue = (discount: PlanDiscount) =>
   discount.discountType === 'percentage' ? `${discount.value}%` : formatCurrency(discount.value);
@@ -161,6 +166,7 @@ export default function PlanDiscountsPage() {
   const [form, setForm] = useState(emptyForm);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | PromoType>('all');
 
   const { data: discounts, isLoading } = useQuery({
     queryKey: ['plan-discounts'],
@@ -177,19 +183,13 @@ export default function PlanDiscountsPage() {
     queryFn: async () => (await api.get('/super-admin/plans')).data.data as PlanOption[],
   });
 
-  const selectedPlanType = planTypes?.find((pt) => pt._id === form.planTypeId);
-
   const billingCycleOptions = useMemo(() => {
-    const options = [{ value: 'all', label: 'All billing cycles' }];
-    const model = selectedPlanType?.pricingModel || 'both';
-    if (model === 'subscription' || model === 'both') {
-      options.push({ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly' });
-    }
-    if (model === 'lifetime' || model === 'both') {
-      options.push({ value: 'lifetime', label: 'Lifetime' });
-    }
-    return options;
-  }, [selectedPlanType]);
+    return [
+      { value: 'all', label: 'All billing cycles' },
+      { value: 'monthly', label: 'Monthly' },
+      { value: 'yearly', label: 'Yearly' },
+    ];
+  }, []);
 
   const filteredPlans = useMemo(() => {
     if (!plans) return [];
@@ -220,6 +220,10 @@ export default function PlanDiscountsPage() {
     return (discounts || []).filter((discount) => {
       const lifecycle = getStatusSnapshot(discount).lifecycle;
       if (statusFilter !== 'all' && lifecycle !== statusFilter) return false;
+
+      const promoType = discount.promoType || PlanDiscountPromoType.SIMPLE;
+      if (typeFilter !== 'all' && promoType !== typeFilter) return false;
+
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return (
@@ -228,7 +232,7 @@ export default function PlanDiscountsPage() {
         discount.description?.toLowerCase().includes(q)
       );
     });
-  }, [discounts, search, statusFilter]);
+  }, [discounts, search, statusFilter, typeFilter]);
 
   const resetForm = () => {
     setForm(emptyForm());
@@ -275,6 +279,7 @@ export default function PlanDiscountsPage() {
       name: discount.name,
       code: discount.code,
       description: discount.description || '',
+      promoType: discount.promoType || PlanDiscountPromoType.SIMPLE,
       discountType: discount.discountType,
       value: String(discount.value),
       planTypeId: typeof discount.planTypeId === 'string' ? discount.planTypeId : discount.planTypeId?._id || '',
@@ -295,6 +300,7 @@ export default function PlanDiscountsPage() {
       name: form.name.trim(),
       code: form.code.trim() || generateCode(),
       description: form.description.trim() || undefined,
+      promoType: form.promoType,
       discountType: form.discountType,
       value: Number(form.value),
       planTypeId: form.planTypeId || undefined,
@@ -335,6 +341,15 @@ export default function PlanDiscountsPage() {
             <option value="exhausted">Exhausted</option>
             <option value="inactive">Inactive</option>
           </select>
+          <select
+            className={selectClass + ' sm:max-w-[180px]'}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as 'all' | PromoType)}
+          >
+            <option value="all">All types</option>
+            <option value={PlanDiscountPromoType.SIMPLE}>Simple discount</option>
+            <option value={PlanDiscountPromoType.BANNER}>Banner discount</option>
+          </select>
         </div>
         <Button onClick={() => { resetForm(); setShowForm(true); }}>Add Discount</Button>
       </div>
@@ -365,7 +380,23 @@ export default function PlanDiscountsPage() {
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Discount Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Type</label>
+                <select
+                  className={selectClass}
+                  value={form.promoType}
+                  onChange={(e) => setForm({ ...form, promoType: e.target.value as PromoType })}
+                >
+                  <option value={PlanDiscountPromoType.SIMPLE}>Simple discount</option>
+                  <option value={PlanDiscountPromoType.BANNER}>Banner discount</option>
+                </select>
+                <p className="mt-1.5 text-xs text-gray-500">
+                  {form.promoType === PlanDiscountPromoType.BANNER
+                    ? 'Shown as a promo banner on the public plans page.'
+                    : 'Used as a checkout coupon — not shown as a plans-page banner.'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount type</label>
                 <select className={selectClass} value={form.discountType} onChange={(e) => setForm({ ...form, discountType: e.target.value as DiscountType })}>
                   <option value="percentage">Percentage (%)</option>
                   <option value="fixed">Fixed Amount (INR)</option>
@@ -508,6 +539,18 @@ export default function PlanDiscountsPage() {
             key: 'description',
             label: 'Description',
             render: (r) => <TruncateText text={(r as unknown as PlanDiscount).description} maxLength={30} />,
+          },
+          {
+            key: 'promoType',
+            label: 'Type',
+            render: (r) => {
+              const discount = r as unknown as PlanDiscount;
+              return (
+                <Badge variant={discount.promoType === PlanDiscountPromoType.BANNER ? 'info' : 'default'}>
+                  {promoTypeLabel(discount.promoType)}
+                </Badge>
+              );
+            },
           },
           {
             key: 'discountType',

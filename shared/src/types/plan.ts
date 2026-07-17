@@ -6,7 +6,6 @@ export enum PlanTier {
 export enum BillingCycle {
   MONTHLY = 'monthly',
   YEARLY = 'yearly',
-  LIFETIME = 'lifetime',
 }
 
 export enum SubscriptionStatus {
@@ -16,3 +15,12 @@ export enum SubscriptionStatus {
   PAUSED = 'paused',
   TRIAL = 'trial',
 }
+
+/** How a plan discount is used: checkout coupon vs plans-page banner. */
+export const PlanDiscountPromoType = {
+  SIMPLE: 'simple',
+  BANNER: 'banner',
+} as const;
+
+export type PlanDiscountPromoType =
+  (typeof PlanDiscountPromoType)[keyof typeof PlanDiscountPromoType];

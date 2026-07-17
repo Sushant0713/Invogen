@@ -26,18 +26,22 @@ type EmployeeUser = {
   lastLogin?: string;
 };
 
-function getEmployeeStatusLabel(user?: EmployeeUser) {
+function getEmployeeStatusLabel(row: EmployeeRow) {
+  const user = row.userId;
   if (!user) return { label: '—', tone: 'neutral' as const };
   if (user.status === 'pending') return { label: 'Pending approval', tone: 'warning' as const };
   if (user.status === 'suspended' || user.hasAccess === false) {
+    if (row.suspendedBySystem) {
+      return { label: 'Suspended (Plan Limit)', tone: 'danger' as const };
+    }
     return { label: 'No access', tone: 'danger' as const };
   }
   if (user.isLoggedIn) return { label: 'Online', tone: 'success' as const };
   return { label: 'Offline', tone: 'neutral' as const };
 }
 
-function EmployeeStatusBadge({ user }: { user?: EmployeeUser }) {
-  const { label, tone } = getEmployeeStatusLabel(user);
+function EmployeeStatusBadge({ row }: { row: EmployeeRow }) {
+  const { label, tone } = getEmployeeStatusLabel(row);
   return (
     <span
       className={cn(
@@ -59,6 +63,7 @@ type EmployeeRow = {
   designation?: string;
   permissions?: Permission[];
   userId?: EmployeeUser;
+  suspendedBySystem?: boolean;
 };
 
 type EmployeeForm = {
@@ -196,7 +201,10 @@ export default function AdminEmployeesPage() {
       setForm({ ...emptyForm(), permissions: [...defaultPermissions] });
       toast.success('Employee created');
     },
-    onError: () => toast.error('Failed to create employee'),
+    onError: (err: any) => {
+      const msg = err.response?.data?.message || 'Failed to create employee';
+      toast.error(msg);
+    },
   });
 
   const updateMutation = useMutation({
@@ -424,7 +432,7 @@ export default function AdminEmployeesPage() {
             {
               key: 'status',
               label: 'Status',
-              render: (row: EmployeeRow) => <EmployeeStatusBadge user={row.userId} />,
+              render: (row: EmployeeRow) => <EmployeeStatusBadge row={row} />,
             },
             {
               key: 'lastLogin',

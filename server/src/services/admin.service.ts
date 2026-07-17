@@ -41,7 +41,7 @@ import { assignNextCompanyInvoiceNumber } from '../utils/company-invoice-number'
 import { applyForwardInvoiceStatus } from '../utils/invoice-status';
 import type { IInvoiceShare } from '../models/Invoice.model';
 import { enrichInvoiceWithTotals, getInvoiceAmount, resolveInvoiceTotals, syncResolvedInvoiceTotals } from '../utils/invoice-gst';
-import { tenantInvoiceFilter } from '../utils/sales-report';
+import { planInvoiceUsageFilter, tenantInvoiceFilter } from '../utils/sales-report';
 import { notificationService } from './notification.service';
 import {
   notifyInvoiceCreated,
@@ -144,7 +144,7 @@ async function resolveJoinCode(
 export const adminService = {
   async getDashboard(companyId: string) {
     const filter = tenantInvoiceFilter(companyId);
-    const invoiceAmountFields = 'totals customerSnapshot status templateSnapshot';
+    const invoiceAmountFields = 'totals customerSnapshot status templateSnapshot createdAt createdBy';
 
     const [customers, products, invoices, paidInvoices, sentInvoices] = await Promise.all([
       Customer.countDocuments({ companyId }),
@@ -170,7 +170,11 @@ export const adminService = {
       .populate('planId')
       .sort({ createdAt: -1 });
 
-    const usedInvoices = [...paidInvoices, ...sentInvoices];
+    const countFromDate = subscription?.currentPeriodStart || (subscription as any)?.createdAt;
+    const usageFilter = planInvoiceUsageFilter(companyId, countFromDate);
+    const usedInvoices = await Invoice.find(usageFilter)
+      .select('createdBy')
+      .lean();
     const totalUsedInvoices = usedInvoices.length;
 
     // Group by createdBy
@@ -350,6 +354,16 @@ export const adminService = {
     const existing = await User.findOne({ email: data.email });
     if (existing) throw new AppError('Email already exists', 409);
 
+    const subscription = await subscriptionService.getLatestSubscription(companyId);
+    const maxUsers = (subscription?.planId as any)?.maxUsers;
+    if (maxUsers !== undefined && maxUsers !== null) {
+      const employeeCount = await Employee.countDocuments({ companyId });
+      const totalUsers = employeeCount + 1; // +1 for the Admin
+      if (totalUsers >= maxUsers) {
+        throw new AppError('You have reached the maximum number of users allowed by your plan', 403);
+      }
+    }
+
     const passwordHash = await bcrypt.hash(data.password, 12);
     const permissions = sanitizeEmployeePermissions(data.permissions);
     const user = await User.create({
@@ -389,10 +403,25 @@ export const adminService = {
       }
 
       if (accessEnabled) {
+        if (user.status !== UserStatus.ACTIVE) {
+          const subscription = await subscriptionService.getLatestSubscription(companyId);
+          const maxUsers = (subscription?.planId as any)?.maxUsers;
+          if (maxUsers !== undefined && maxUsers !== null) {
+            const activeUsers = await User.countDocuments({ companyId, status: UserStatus.ACTIVE });
+            if (activeUsers >= maxUsers) {
+              throw new AppError('You have reached the maximum number of active users allowed by your plan', 403);
+            }
+          }
+        }
         user.status = UserStatus.ACTIVE;
       } else {
         user.status = UserStatus.SUSPENDED;
         user.refreshTokenHash = undefined;
+      }
+      
+      if (employee.suspendedBySystem) {
+        employee.suspendedBySystem = false;
+        await employee.save();
       }
       await user.save();
     }
@@ -564,6 +593,15 @@ export const adminService = {
   },
 
   async createProduct(companyId: string, data: Record<string, unknown>) {
+    const subscription = await subscriptionService.getLatestSubscription(companyId);
+    const maxProducts = (subscription?.planId as any)?.maxProducts;
+    if (maxProducts !== undefined && maxProducts !== null) {
+      const activeProducts = await Product.countDocuments({ companyId, isActive: true });
+      if (activeProducts >= maxProducts) {
+        throw new AppError('You have reached the maximum number of active products allowed by your plan', 403);
+      }
+    }
+
     const payload = { ...data };
     if (typeof payload.gst === 'number' && Number.isFinite(payload.gst) && payload.tax == null) {
       payload.tax = payload.gst;
@@ -572,13 +610,31 @@ export const adminService = {
   },
 
   async updateProduct(companyId: string, id: string, data: Record<string, unknown>) {
+    const doc = await Product.findOne({ _id: id, companyId });
+    if (!doc) throw new AppError('Product not found', 404);
+
+    if (data.isActive === true && !doc.isActive) {
+      const subscription = await subscriptionService.getLatestSubscription(companyId);
+      const maxProducts = (subscription?.planId as any)?.maxProducts;
+      if (maxProducts !== undefined && maxProducts !== null) {
+        const activeProducts = await Product.countDocuments({ companyId, isActive: true });
+        if (activeProducts >= maxProducts) {
+          throw new AppError('You have reached the maximum number of active products allowed by your plan', 403);
+        }
+      }
+      if (doc.suspendedBySystem) {
+        doc.suspendedBySystem = false;
+      }
+    }
+
     const payload = { ...data };
     if (typeof payload.gst === 'number' && Number.isFinite(payload.gst) && payload.tax == null) {
       payload.tax = payload.gst;
     }
-    const product = await Product.findOneAndUpdate({ _id: id, companyId }, payload, { new: true });
-    if (!product) throw new AppError('Product not found', 404);
-    return product;
+
+    Object.assign(doc, payload);
+    await doc.save();
+    return doc;
   },
 
   async deleteProduct(companyId: string, id: string) {
@@ -816,6 +872,18 @@ export const adminService = {
   async createInvoice(companyId: string, userId: string, data: Record<string, unknown>) {
     const company = await Company.findById(companyId);
     if (!company) throw new AppError('Company not found', 404);
+
+    const subscription = await subscriptionService.getLatestSubscription(companyId);
+    const maxInvoices = (subscription?.planId as any)?.maxInvoices;
+    if (maxInvoices !== undefined && maxInvoices !== null) {
+      const countFromDate = subscription?.currentPeriodStart || subscription?.createdAt;
+      const usedInvoicesCount = await Invoice.countDocuments(
+        planInvoiceUsageFilter(companyId, countFromDate)
+      );
+      if (usedInvoicesCount >= maxInvoices) {
+        throw new AppError('You have reached the maximum number of invoices allowed by your plan', 403);
+      }
+    }
 
     const invoiceNumber = await assignNextCompanyInvoiceNumber(company);
 
@@ -1298,8 +1366,7 @@ export const adminService = {
 
     const periodEnd = new Date();
     if (plan.billingCycle === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
-    else if (plan.billingCycle === 'yearly') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
-    else periodEnd.setFullYear(periodEnd.getFullYear() + 100);
+    else periodEnd.setFullYear(periodEnd.getFullYear() + 1);
 
     const subscription = await Subscription.create({
       companyId,
@@ -1308,13 +1375,18 @@ export const adminService = {
       razorpayOrderId: data.orderId,
       currentPeriodStart: new Date(),
       currentPeriodEnd: periodEnd,
-      maintenanceDueDate: plan.billingCycle === 'lifetime'
-        ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-        : undefined,
     });
 
     payment.subscriptionId = subscription._id;
     await payment.save();
+
+    await subscription.populate('planId');
+    const maxUsers = (subscription.planId as any)?.maxUsers;
+    const maxProducts = (subscription.planId as any)?.maxProducts;
+    await Promise.all([
+      subscriptionService.syncEmployeeStatusesWithPlanLimit(companyId, maxUsers),
+      subscriptionService.syncProductStatusesWithPlanLimit(companyId, maxProducts)
+    ]);
 
     // PDF + email can take 1–3 min (Puppeteer); don't block payment confirmation.
     notificationService.fire(

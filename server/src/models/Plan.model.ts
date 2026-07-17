@@ -6,12 +6,13 @@ export interface IPlan extends Document {
   tier: PlanTier;
   billingCycle: BillingCycle;
   price: number;
+  /** Original / list price shown struck through next to selling price on plans page. */
+  mrp?: number;
   currency: string;
   features: string[];
   featureIds?: mongoose.Types.ObjectId[];
   planTypeId?: mongoose.Types.ObjectId;
   razorpayPlanId?: string;
-  maintenanceCharge?: number;
   isActive: boolean;
   isPaused: boolean;
   visibleOnWebsite: boolean;
@@ -24,6 +25,7 @@ export interface IPlan extends Document {
   templateAccessConfigured?: boolean;
   maxUsers?: number;
   maxInvoices?: number;
+  maxProducts?: number;
   /**
    * When true, invoices/templates for companies on this plan show a
    * "Made with Invogen" advertisement badge at the bottom-right.
@@ -38,12 +40,12 @@ const planSchema = new Schema<IPlan>(
     tier: { type: String, enum: Object.values(PlanTier), required: true },
     billingCycle: { type: String, enum: Object.values(BillingCycle), required: true },
     price: { type: Number, required: true },
+    mrp: { type: Number, min: 0 },
     currency: { type: String, default: 'INR' },
     features: [{ type: String }],
     featureIds: [{ type: Schema.Types.ObjectId, ref: 'PlanFeature' }],
     planTypeId: { type: Schema.Types.ObjectId, ref: 'PlanType' },
     razorpayPlanId: String,
-    maintenanceCharge: Number,
     isActive: { type: Boolean, default: true },
     isPaused: { type: Boolean, default: false },
     visibleOnWebsite: { type: Boolean, default: true },
@@ -53,6 +55,7 @@ const planSchema = new Schema<IPlan>(
     templateAccessConfigured: { type: Boolean },
     maxUsers: { type: Number },
     maxInvoices: { type: Number },
+    maxProducts: { type: Number },
     showMadeWithInvogen: { type: Boolean, default: false },
     description: String,
   },

@@ -9,8 +9,9 @@ export interface ISubscription extends Document {
   razorpayOrderId?: string;
   currentPeriodStart?: Date;
   currentPeriodEnd?: Date;
-  maintenanceDueDate?: Date;
   cancelledAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const subscriptionSchema = new Schema<ISubscription>(
@@ -26,7 +27,6 @@ const subscriptionSchema = new Schema<ISubscription>(
     razorpayOrderId: String,
     currentPeriodStart: Date,
     currentPeriodEnd: Date,
-    maintenanceDueDate: Date,
     cancelledAt: Date,
   },
   { timestamps: true }

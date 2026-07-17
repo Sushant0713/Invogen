@@ -38,6 +38,5 @@ export function formatStatusLabel(status?: string) {
 export function billingCycleLabel(cycle?: string) {
   if (cycle === 'monthly') return 'Monthly';
   if (cycle === 'yearly') return 'Yearly';
-  if (cycle === 'lifetime') return 'Lifetime';
   return cycle || '—';
 }

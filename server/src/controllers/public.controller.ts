@@ -23,3 +23,6 @@ export const getPlatformInvoiceRender = wrap(async (req) => {
 
 /** Public marketing / pricing catalog (plans marked visibleOnWebsite). */
 export const getPublicPlans = wrap(() => subscriptionService.getAvailablePlans());
+
+/** Banner discounts shown on the public plans page. */
+export const getPublicPlanBanners = wrap(() => subscriptionService.getPublicBannerDiscounts());

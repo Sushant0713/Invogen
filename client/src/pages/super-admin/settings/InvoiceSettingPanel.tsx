@@ -77,7 +77,15 @@ export function InvoiceSettingPanel({
 
   useEffect(() => {
     if (form.platformTemplateId || superAdminTemplates.length === 0) return;
-    onChange({ ...form, platformTemplateId: superAdminTemplates[0]._id });
+    
+    // Prefer Super Admin Invoice, otherwise fallback to the oldest template (usually a seed template, not a newly created blank one)
+    const superAdminTemplate = superAdminTemplates.find(t => t.name === 'Super Admin Invoice');
+    if (superAdminTemplate) {
+      onChange({ ...form, platformTemplateId: superAdminTemplate._id });
+    } else {
+      const oldestTemplate = [...superAdminTemplates].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
+      onChange({ ...form, platformTemplateId: oldestTemplate._id });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.platformTemplateId, superAdminTemplates]);
 

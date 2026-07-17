@@ -100,7 +100,7 @@ export default function SubscriptionMyPlan() {
   }
 
   const daysUntilRenewal =
-    subscription.currentPeriodEnd && plan.billingCycle !== 'lifetime'
+    subscription.currentPeriodEnd
       ? Math.max(
           0,
           Math.ceil(
@@ -167,7 +167,7 @@ export default function SubscriptionMyPlan() {
               </div>
             )}
 
-            {subscription.currentPeriodEnd && plan.billingCycle !== 'lifetime' && (
+            {subscription.currentPeriodEnd && (
               <div className="rounded-xl bg-gray-50 p-4">
                 <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">
                   <RefreshCw className="h-3.5 w-3.5" />
@@ -184,13 +184,6 @@ export default function SubscriptionMyPlan() {
               </div>
             )}
 
-            {plan.billingCycle === 'lifetime' && (
-              <div className="rounded-xl bg-emerald-50 p-4">
-                <p className="text-xs font-medium uppercase tracking-wider text-emerald-600">Access</p>
-                <p className="mt-1 text-lg font-semibold text-emerald-900">Lifetime</p>
-                <p className="mt-0.5 text-xs text-emerald-700">No recurring renewal</p>
-              </div>
-            )}
           </div>
 
           <div className="mt-8">
@@ -214,7 +207,7 @@ export default function SubscriptionMyPlan() {
 
         <div className="space-y-4">
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Lifetime spend</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Total spent</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">
               {formatCurrency(billing?.totalSpent || 0)}
             </p>

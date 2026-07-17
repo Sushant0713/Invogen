@@ -386,13 +386,15 @@ export function ProductCellSelect({
                   const display = formatProductCellValue(product, showSku);
                   const selected = product.name === value || display === value;
                   return (
-                    <li key={product._id}>
+                    <li key={product._id} className={product.suspendedBySystem ? 'opacity-60' : ''}>
                       <button
                         type="button"
-                        className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-orange-50 ${
-                          selected ? 'bg-orange-50' : ''
-                        }`}
+                        disabled={product.suspendedBySystem}
+                        className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors ${
+                          product.suspendedBySystem ? 'cursor-not-allowed' : 'hover:bg-orange-50'
+                        } ${selected ? 'bg-orange-50' : ''}`}
                         onMouseDown={(e) => {
+                          if (product.suspendedBySystem) return;
                           e.preventDefault();
                           pickProduct(product);
                         }}
@@ -412,6 +414,11 @@ export function ProductCellSelect({
                               .filter(Boolean)
                               .join(' · ') || 'Product'}
                           </span>
+                          {product.suspendedBySystem && (
+                            <span className="mt-1 block text-[11px] font-semibold text-red-600">
+                              Suspended due to plan limit
+                            </span>
+                          )}
                         </span>
                         {selected ? (
                           <Check className="mt-1 h-4 w-4 shrink-0 text-primary" />

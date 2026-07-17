@@ -76,7 +76,7 @@ Registered address: 123 Business Park, Bengaluru, Karnataka, India, 560001
 
 5. PLANS, FEES, TAXES, AND PAYMENTS
 
-5.1 Access to paid features requires an active subscription or lifetime plan as offered on our pricing pages or assigned by Invogen. Plan names, prices, billing cycles (monthly, yearly, lifetime), features, seats, and limits are as displayed at checkout or in your account at the time of purchase, and may change for future renewals with notice where required.
+5.1 Access to paid features requires an active subscription as offered on our pricing pages or assigned by Invogen. Plan names, prices, billing cycles (monthly or yearly), features, seats, and limits are as displayed at checkout or in your account at the time of purchase, and may change for future renewals with notice where required.
 
 5.2 Fees are generally quoted and charged in Indian Rupees (INR) unless we state otherwise. Applicable taxes (including GST on Invogen’s subscription fees) may be charged as configured on the platform and shown at checkout or on platform invoices.
 
@@ -93,7 +93,7 @@ Registered address: 123 Business Park, Bengaluru, Karnataka, India, 560001
 
 6.1 You may request cancellation or plan changes through your account tools where available, or by contacting us at hello@invogen.app. Invogen may also cancel or change a subscription when you upgrade/switch plans, when payment fails, or for breach of these Terms.
 
-6.2 Upon cancellation, access generally continues until the end of the then-current paid period already paid for, unless we state otherwise or terminate earlier for misuse. Lifetime plans, if purchased, are licences to use the Service subject to these Terms, not a sale of the software, and remain subject to suspension for breach or non-payment of any applicable maintenance or platform charges stated at purchase.
+6.2 Upon cancellation, access generally continues until the end of the then-current paid period already paid for, unless we state otherwise or terminate earlier for misuse.
 
 6.3 Fees are non-refundable except where:
 (a) Indian law requires a refund; or
@@ -161,7 +161,7 @@ You are the controller of personal data you store about your customers and emplo
 
 12.1 To the maximum extent permitted by applicable law, Invogen shall not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages; loss of profits, revenue, goodwill, data, or business opportunities; or cost of substitute services — whether arising in contract, tort, or otherwise.
 
-12.2 To the maximum extent permitted by law, Invogen’s total aggregate liability arising out of or relating to the Service or these Terms shall not exceed the fees you paid to Invogen for the Service in the three (3) months immediately before the event giving rise to the claim (or, if you paid only a lifetime fee, one-twelfth of that lifetime fee).
+12.2 To the maximum extent permitted by law, Invogen’s total aggregate liability arising out of or relating to the Service or these Terms shall not exceed the fees you paid to Invogen for the Service in the three (3) months immediately before the event giving rise to the claim.
 
 12.3 Nothing in these Terms excludes liability that cannot be excluded under Indian law (including for fraud or wilful misconduct where non-waivable).
 

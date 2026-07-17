@@ -24,7 +24,7 @@ export function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
-  const { data: maintenance, isLoading } = useMaintenanceStatus();
+  const { data: maintenance, isPending, isPlaceholderData, isError } = useMaintenanceStatus();
   const enforcePath = shouldEnforceMaintenance(location.pathname);
 
   useEffect(() => {
@@ -35,7 +35,8 @@ export function MaintenanceGate({ children }: { children: React.ReactNode }) {
     dispatch(logoutAction());
   }, [dispatch, enforcePath, location.pathname, maintenance?.enabled, user?.role]);
 
-  if (isLoading && enforcePath) {
+  // Only block with a loader while waiting for a real response — never when the API is down.
+  if (isPending && !isPlaceholderData && !isError && enforcePath) {
     return <Loader fullScreen />;
   }
 

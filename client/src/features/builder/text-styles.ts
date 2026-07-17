@@ -353,15 +353,20 @@ export function getTextRuns(props: Record<string, unknown>): TextRunProps[] | nu
 }
 
 export function getRunStyle(run: TextRunProps, fallback: CSSProperties): CSSProperties {
-  const familyName = parseFontFamilyName(run.fontFamily);
+  const hasFamily = typeof run.fontFamily === 'string' && run.fontFamily.trim().length > 0;
+  const familyName = hasFamily ? parseFontFamilyName(run.fontFamily) : '';
   if (familyName) ensureGoogleFontLoaded(familyName);
-  const category = getFontCategory(familyName, getGoogleFontsSync());
+  const category = familyName
+    ? getFontCategory(familyName, getGoogleFontsSync())
+    : 'sans-serif';
   const decorations: string[] = [];
   if (run.underline) decorations.push('underline');
   if (run.strikethrough) decorations.push('line-through');
 
   return {
-    fontFamily: familyName ? formatFontFamilyCss(familyName, category) : fallback.fontFamily,
+    fontFamily: familyName
+      ? formatFontFamilyCss(familyName, category)
+      : fallback.fontFamily,
     fontSize: run.fontSize ?? fallback.fontSize,
     fontWeight: run.fontWeight ?? fallback.fontWeight,
     fontStyle: run.italic ? 'italic' : 'normal',

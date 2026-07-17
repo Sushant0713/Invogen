@@ -19,6 +19,7 @@ export type CompanyProductOption = {
   /** Legacy alias for gst % on some product records. */
   tax?: number;
   category?: string;
+  suspendedBySystem?: boolean;
 };
 
 function toOptionalNumber(value: unknown): number | undefined {
@@ -70,6 +71,7 @@ function extractProducts(payload: unknown): CompanyProductOption[] {
           gst: toOptionalNumber(row.gst),
           tax: toOptionalNumber(row.tax),
           category: typeof row.category === 'string' ? row.category : undefined,
+          suspendedBySystem: typeof row.suspendedBySystem === 'boolean' ? row.suspendedBySystem : false,
         } satisfies CompanyProductOption;
       })
       .filter((item): item is CompanyProductOption => item != null);

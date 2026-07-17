@@ -1,4 +1,5 @@
 import { Plan } from '../models';
+import { BillingCycle } from '@invogen/shared';
 import { Setting } from '../models';
 import { discountService, type AppliedDiscount } from './discount.service';
 import { AppError } from '../utils/AppError';
@@ -133,7 +134,12 @@ function buildPricing(
 export const checkoutPricingService = {
   async buildQuote(planId: string, discountCode?: string): Promise<CheckoutQuote> {
     const plan = await Plan.findById(planId).populate('planTypeId').populate('featureIds');
-    if (!plan || !plan.isActive || plan.isPaused) {
+    if (
+      !plan ||
+      !plan.isActive ||
+      plan.isPaused ||
+      ![BillingCycle.MONTHLY, BillingCycle.YEARLY].includes(plan.billingCycle)
+    ) {
       throw new AppError('Plan not found', 404);
     }
     if (!plan.visibleOnWebsite) {

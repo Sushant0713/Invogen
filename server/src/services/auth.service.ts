@@ -318,6 +318,16 @@ export const authService = {
     const existing = await User.findOne({ email: data.email });
     if (existing) throw new AppError('Email already registered', 409);
 
+    const subscription = await subscriptionService.getLatestSubscription(company._id.toString());
+    const maxUsers = (subscription?.planId as any)?.maxUsers;
+    if (maxUsers !== undefined && maxUsers !== null) {
+      const employeeCount = await Employee.countDocuments({ companyId: company._id });
+      const totalUsers = employeeCount + 1; // +1 for the Admin
+      if (totalUsers >= maxUsers) {
+        throw new AppError('You have reached the maximum number of users allowed by your plan', 403);
+      }
+    }
+
     const passwordHash = await bcrypt.hash(data.password, 12);
     const requiresApproval = settings.requireApproval;
     const status = requiresApproval ? UserStatus.PENDING : UserStatus.ACTIVE;

@@ -108,7 +108,10 @@ function CrudPage({
       closeForm();
       toast.success(`${title} created`);
     },
-    onError: () => toast.error(`Failed to create ${title.toLowerCase()}`),
+    onError: (error: any) => {
+      const msg = error.response?.data?.message || `Failed to create ${title.toLowerCase()}`;
+      toast.error(msg);
+    },
   });
 
   const updateMutation = useMutation({
@@ -122,7 +125,10 @@ function CrudPage({
       closeForm();
       toast.success(`${title} updated`);
     },
-    onError: () => toast.error(`Failed to update ${title.toLowerCase()}`),
+    onError: (error: any) => {
+      const msg = error.response?.data?.message || `Failed to update ${title.toLowerCase()}`;
+      toast.error(msg);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -330,7 +336,20 @@ export function ProductsCrud({
         { name: 'category', label: 'Category', suggest: true },
       ]}
       columns={[
-        { key: 'name', label: 'Name' },
+        {
+          key: 'name',
+          label: 'Name',
+          render: (r: Record<string, any>) => (
+            <div className="flex flex-col">
+              <span>{r.name}</span>
+              {r.suspendedBySystem && (
+                <span className="mt-1 inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 w-max">
+                  Suspended (Plan Limit)
+                </span>
+              )}
+            </div>
+          ),
+        },
         { key: 'sku', label: 'SKU' },
         { key: 'price', label: 'Price' },
         { key: 'gst', label: 'GST %' },

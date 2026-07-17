@@ -46,7 +46,7 @@ type LedgerRow = {
   revenueCollected: number;
   outstanding: number;
   lastInvoiceDate: Date | null;
-  lifetimeCollected: number;
+  allTimeCollected: number;
 };
 
 function periodKey(date: Date, format: string): string {
@@ -105,7 +105,7 @@ function buildRevenueTrend(invoices: InvoiceDoc[], groupFormat: string) {
 function buildLedger(
   customers: Array<{ _id: { toString(): string }; name: string; email?: string }>,
   periodInvoices: InvoiceDoc[],
-  lifetimePaidByCustomer: Map<string, number>
+  allTimePaidByCustomer: Map<string, number>
 ) {
   const ledger = new Map<string, LedgerRow>();
 
@@ -121,7 +121,7 @@ function buildLedger(
       revenueCollected: 0,
       outstanding: 0,
       lastInvoiceDate: null,
-      lifetimeCollected: lifetimePaidByCustomer.get(key) ?? 0,
+      allTimeCollected: allTimePaidByCustomer.get(key) ?? 0,
     });
   }
 
@@ -140,7 +140,7 @@ function buildLedger(
         revenueCollected: 0,
         outstanding: 0,
         lastInvoiceDate: null,
-        lifetimeCollected: lifetimePaidByCustomer.get(key) ?? 0,
+        allTimeCollected: allTimePaidByCustomer.get(key) ?? 0,
       };
 
     existing.totalInvoices += 1;
@@ -238,7 +238,7 @@ export const adminCustomersReportService = {
       customers,
       periodInvoices,
       previousInvoices,
-      lifetimePaid,
+      allTimePaid,
       currentOutstandingInvoices,
       previousOutstandingInvoices,
     ] = await Promise.all([
@@ -269,17 +269,17 @@ export const adminCustomersReportService = {
         .lean<InvoiceDoc[]>(),
     ]);
 
-    const lifetimePaidByCustomer = new Map<string, number>();
-    for (const invoice of lifetimePaid) {
+    const allTimePaidByCustomer = new Map<string, number>();
+    for (const invoice of allTimePaid) {
       const key = resolveCustomerKey(invoice);
-      lifetimePaidByCustomer.set(
+      allTimePaidByCustomer.set(
         key,
-        (lifetimePaidByCustomer.get(key) ?? 0) + getInvoiceAmount(invoice)
+        (allTimePaidByCustomer.get(key) ?? 0) + getInvoiceAmount(invoice)
       );
     }
 
-    const lifetimeRevenue = [...lifetimePaidByCustomer.values()].reduce((sum, value) => sum + value, 0);
-    const avgRevenuePerCustomer = totalCustomers > 0 ? lifetimeRevenue / totalCustomers : 0;
+    const allTimeRevenue = [...allTimePaidByCustomer.values()].reduce((sum, value) => sum + value, 0);
+    const avgRevenuePerCustomer = totalCustomers > 0 ? allTimeRevenue / totalCustomers : 0;
 
     const currentPeriod = summarizeInvoices(periodInvoices);
     const previousPeriod = summarizeInvoices(previousInvoices);
@@ -293,7 +293,7 @@ export const adminCustomersReportService = {
       0
     );
 
-    let ledger = buildLedger(customers, periodInvoices, lifetimePaidByCustomer);
+    let ledger = buildLedger(customers, periodInvoices, allTimePaidByCustomer);
 
     const search = String(query.search || '').trim().toLowerCase();
     if (search) {

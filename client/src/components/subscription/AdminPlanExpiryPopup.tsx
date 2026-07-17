@@ -44,9 +44,8 @@ export function AdminPlanExpiryPopup({ subscription, active }: AdminPlanExpiryPo
   const plan = subscription?.planId;
   const daysRemaining = useMemo(() => {
     if (!active || !subscription?.currentPeriodEnd) return null;
-    if (plan?.billingCycle === 'lifetime') return null;
     return daysUntilDate(subscription.currentPeriodEnd);
-  }, [active, subscription?.currentPeriodEnd, plan?.billingCycle]);
+  }, [active, subscription?.currentPeriodEnd]);
 
   const shouldWarn =
     daysRemaining != null && daysRemaining <= DUE_SOON_WITHIN_DAYS && daysRemaining >= 0;

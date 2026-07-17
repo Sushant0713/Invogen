@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { Plan, PlanType, PlanFeature, PlanDiscount, User } from '../models';
 import type { PricingModel } from '../models/PlanType.model';
 import { AppError } from '../utils/AppError';
-import { BillingCycle, PlanTier, SubscriptionStatus, UserStatus } from '@invogen/shared';
+import { BillingCycle, PlanTier, SubscriptionStatus, UserStatus, PlanDiscountPromoType } from '@invogen/shared';
 import { discountService, generatePromoCode } from './discount.service';
 import {
   resolvePlanTemplateIds,
@@ -41,8 +41,6 @@ export const syncPlansFromType = async (planType: {
   pricingModel?: PricingModel;
   monthlyPrice: number;
   yearlyPrice: number;
-  lifetimePrice: number;
-  maintenanceCharge?: number;
   currency: string;
   featureIds: { toString(): string }[];
   isActive: boolean;
@@ -50,22 +48,10 @@ export const syncPlansFromType = async (planType: {
   const features = await PlanFeature.find({ _id: { $in: planType.featureIds } });
   const featureNames = features.map((f) => f.name);
   const tier = tierFromSlug(planType.slug);
-  const model = planType.pricingModel || 'subscription';
-
-  const cycles: { cycle: BillingCycle; price: number; maintenance?: number }[] = [];
-  if (model === 'subscription' || model === 'both') {
-    cycles.push(
-      { cycle: BillingCycle.MONTHLY, price: planType.monthlyPrice },
-      { cycle: BillingCycle.YEARLY, price: planType.yearlyPrice }
-    );
-  }
-  if (model === 'lifetime' || model === 'both') {
-    cycles.push({
-      cycle: BillingCycle.LIFETIME,
-      price: planType.lifetimePrice,
-      maintenance: planType.maintenanceCharge,
-    });
-  }
+  const cycles = [
+    { cycle: BillingCycle.MONTHLY, price: planType.monthlyPrice },
+    { cycle: BillingCycle.YEARLY, price: planType.yearlyPrice },
+  ];
 
   const activeCycles = cycles.map((c) => c.cycle);
   await Plan.deleteMany({
@@ -73,7 +59,7 @@ export const syncPlansFromType = async (planType: {
     billingCycle: { $nin: activeCycles },
   });
 
-  for (const { cycle, price, maintenance } of cycles) {
+  for (const { cycle, price } of cycles) {
     const label = cycle.charAt(0).toUpperCase() + cycle.slice(1);
     const name = `${planType.name} ${label}`;
     const plan = await Plan.findOneAndUpdate(
@@ -87,7 +73,6 @@ export const syncPlansFromType = async (planType: {
         features: featureNames,
         featureIds: planType.featureIds,
         planTypeId: planType._id,
-        maintenanceCharge: maintenance,
         description: planType.description,
         isActive: planType.isActive,
         visibleOnWebsite: true,
@@ -98,31 +83,20 @@ export const syncPlansFromType = async (planType: {
   }
 };
 
-const hasSubscription = (model: PricingModel) => model === 'subscription' || model === 'both';
-const hasLifetime = (model: PricingModel) => model === 'lifetime' || model === 'both';
-
-const allowedCyclesForModel = (model?: PricingModel): BillingCycle[] => {
-  const cycles: BillingCycle[] = [];
-  if (hasSubscription(model || 'subscription')) {
-    cycles.push(BillingCycle.MONTHLY, BillingCycle.YEARLY);
-  }
-  if (hasLifetime(model || 'subscription')) {
-    cycles.push(BillingCycle.LIFETIME);
-  }
-  return cycles;
-};
+const allowedCyclesForModel = (): BillingCycle[] => [
+  BillingCycle.MONTHLY,
+  BillingCycle.YEARLY,
+];
 
 const defaultPriceForCycle = (
   planType: {
     monthlyPrice: number;
     yearlyPrice: number;
-    lifetimePrice: number;
   },
   cycle: BillingCycle
 ) => {
   if (cycle === BillingCycle.MONTHLY) return planType.monthlyPrice;
-  if (cycle === BillingCycle.YEARLY) return planType.yearlyPrice;
-  return planType.lifetimePrice;
+  return planType.yearlyPrice;
 };
 
 const resolveFeaturePayload = async (featureIds: string[]) => {
@@ -136,23 +110,19 @@ const resolveFeaturePayload = async (featureIds: string[]) => {
 };
 
 const validatePricing = (data: {
-  pricingModel: PricingModel;
   monthlyPrice?: number;
   yearlyPrice?: number;
-  lifetimePrice?: number;
 }) => {
-  if (hasSubscription(data.pricingModel)) {
-    if (!data.monthlyPrice && data.monthlyPrice !== 0) throw new AppError('Monthly price is required', 400);
-    if (!data.yearlyPrice && data.yearlyPrice !== 0) throw new AppError('Yearly price is required', 400);
-  }
-  if (hasLifetime(data.pricingModel)) {
-    if (!data.lifetimePrice && data.lifetimePrice !== 0) throw new AppError('Lifetime price is required', 400);
-  }
+  if (!data.monthlyPrice && data.monthlyPrice !== 0) throw new AppError('Monthly price is required', 400);
+  if (!data.yearlyPrice && data.yearlyPrice !== 0) throw new AppError('Yearly price is required', 400);
 };
 
 export const planManagementService = {
   async getPlanTypes() {
-    return PlanType.find().populate('featureIds', 'name key').sort({ createdAt: -1 });
+    return PlanType.find()
+      .select('name slug description pricingModel monthlyPrice yearlyPrice currency featureIds isActive')
+      .populate('featureIds', 'name key')
+      .sort({ createdAt: -1 });
   },
 
   async createPlanType(data: {
@@ -161,8 +131,6 @@ export const planManagementService = {
     pricingModel: PricingModel;
     monthlyPrice?: number;
     yearlyPrice?: number;
-    lifetimePrice?: number;
-    maintenanceCharge?: number;
     currency?: string;
     featureIds?: string[];
   }) {
@@ -175,11 +143,9 @@ export const planManagementService = {
       name: data.name,
       slug,
       description: data.description,
-      pricingModel: data.pricingModel,
-      monthlyPrice: hasSubscription(data.pricingModel) ? data.monthlyPrice ?? 0 : 0,
-      yearlyPrice: hasSubscription(data.pricingModel) ? data.yearlyPrice ?? 0 : 0,
-      lifetimePrice: hasLifetime(data.pricingModel) ? data.lifetimePrice ?? 0 : 0,
-      maintenanceCharge: hasLifetime(data.pricingModel) ? data.maintenanceCharge : undefined,
+      pricingModel: 'subscription',
+      monthlyPrice: data.monthlyPrice ?? 0,
+      yearlyPrice: data.yearlyPrice ?? 0,
       currency: data.currency || 'INR',
       featureIds: data.featureIds || [],
     });
@@ -195,24 +161,12 @@ export const planManagementService = {
       planType.slug = slugify(data.name as string);
     }
 
-    const pricingModel = (data.pricingModel as PricingModel) || planType.pricingModel;
     validatePricing({
-      pricingModel,
       monthlyPrice: (data.monthlyPrice as number) ?? planType.monthlyPrice,
       yearlyPrice: (data.yearlyPrice as number) ?? planType.yearlyPrice,
-      lifetimePrice: (data.lifetimePrice as number) ?? planType.lifetimePrice,
     });
 
-    Object.assign(planType, data);
-
-    if (!hasSubscription(pricingModel)) {
-      planType.monthlyPrice = 0;
-      planType.yearlyPrice = 0;
-    }
-    if (!hasLifetime(pricingModel)) {
-      planType.lifetimePrice = 0;
-      planType.maintenanceCharge = undefined;
-    }
+    Object.assign(planType, data, { pricingModel: 'subscription' });
 
     await planType.save();
     return planType.populate('featureIds', 'name key');
@@ -257,7 +211,9 @@ export const planManagementService = {
   },
 
   async getDiscounts() {
-    const discounts = await PlanDiscount.find()
+    const discounts = await PlanDiscount.find({
+      billingCycle: { $in: ['all', BillingCycle.MONTHLY, BillingCycle.YEARLY] },
+    })
       .populate('planTypeId', 'name slug pricingModel')
       .populate('planId', 'name billingCycle price')
       .sort({ createdAt: -1 })
@@ -337,14 +293,22 @@ export const planManagementService = {
   },
 
   async getPlanList(): Promise<Array<Record<string, unknown>>> {
-    const plans = await Plan.find()
-      .populate('planTypeId', 'name slug pricingModel monthlyPrice yearlyPrice lifetimePrice maintenanceCharge currency')
+    const plans = await Plan.find({
+      billingCycle: { $in: [BillingCycle.MONTHLY, BillingCycle.YEARLY] },
+    })
+      .populate('planTypeId', 'name slug pricingModel monthlyPrice yearlyPrice currency')
       .populate('featureIds', 'name')
       .sort({ planTypeId: 1, billingCycle: 1 })
       .lean();
 
-    const discounts = await PlanDiscount.find({ isActive: true })
-      .select('planTypeId planId billingCycle code name')
+    const discounts = await PlanDiscount.find({
+      isActive: true,
+      $or: [
+        { promoType: { $exists: false } },
+        { promoType: PlanDiscountPromoType.SIMPLE },
+      ],
+    })
+      .select('planTypeId planId billingCycle code name promoType')
       .lean();
 
     const userCounts = await User.aggregate<{ _id: mongoose.Types.ObjectId; userCount: number }>([
@@ -401,15 +365,18 @@ export const planManagementService = {
     templateAccessConfigured?: boolean;
     showMadeWithInvogen?: boolean;
     price: number;
-    maintenanceCharge?: number;
+    mrp?: number;
     isActive?: boolean;
     visibleOnWebsite?: boolean;
     visibleOnSuperAdmin?: boolean;
+    maxUsers?: number;
+    maxInvoices?: number;
+    maxProducts?: number;
   }) {
     const planType = await PlanType.findById(data.planTypeId);
     if (!planType) throw new AppError('Plan type not found', 404);
 
-    const allowed = allowedCyclesForModel(planType.pricingModel);
+    const allowed = allowedCyclesForModel();
     if (!allowed.includes(data.billingCycle)) {
       throw new AppError('Billing cycle is not available for the selected plan type', 400);
     }
@@ -422,12 +389,13 @@ export const planManagementService = {
     const label = data.billingCycle.charAt(0).toUpperCase() + data.billingCycle.slice(1);
     const name = (data.name || `${planType.name} ${label}`).trim();
 
-    const plan = await Plan.create({
+    const planData: any = {
       name,
       description: data.description || planType.description,
       tier,
       billingCycle: data.billingCycle,
       price: data.price,
+      mrp: data.mrp != null && data.mrp > 0 ? data.mrp : undefined,
       currency: planType.currency,
       features: featureNames,
       featureIds,
@@ -436,14 +404,14 @@ export const planManagementService = {
       templateAccessConfigured: data.templateAccessConfigured ?? true,
       showMadeWithInvogen: data.showMadeWithInvogen === true,
       planTypeId: planType._id,
-      maintenanceCharge:
-        data.billingCycle === BillingCycle.LIFETIME
-          ? data.maintenanceCharge ?? planType.maintenanceCharge
-          : undefined,
       isActive: data.isActive ?? true,
       visibleOnWebsite: data.visibleOnWebsite ?? true,
       visibleOnSuperAdmin: data.visibleOnSuperAdmin ?? true,
-    });
+      maxUsers: data.maxUsers as number | undefined,
+      maxInvoices: data.maxInvoices as number | undefined,
+      maxProducts: data.maxProducts as number | undefined,
+    };
+    const plan = await Plan.create(planData);
 
     await plan.populate([
       { path: 'planTypeId', select: 'name slug pricingModel' },
@@ -460,7 +428,7 @@ export const planManagementService = {
     if (!planType) throw new AppError('Plan type not found', 404);
 
     const billingCycle = (data.billingCycle as BillingCycle) || plan.billingCycle;
-    const allowed = allowedCyclesForModel(planType.pricingModel);
+    const allowed = allowedCyclesForModel();
     if (!allowed.includes(billingCycle)) {
       throw new AppError('Billing cycle is not available for the selected plan type', 400);
     }
@@ -492,18 +460,32 @@ export const planManagementService = {
     if (data.showMadeWithInvogen !== undefined) {
       $set.showMadeWithInvogen = Boolean(data.showMadeWithInvogen);
     }
+    
+    if (data.maxUsers !== undefined) $set.maxUsers = data.maxUsers as number;
+    if (data.maxInvoices !== undefined) $set.maxInvoices = data.maxInvoices as number;
+    if (data.maxProducts !== undefined) $set.maxProducts = data.maxProducts as number;
 
     if (data.name) $set.name = data.name as string;
     if (data.description !== undefined) $set.description = data.description as string;
     if (data.price != null) $set.price = data.price as number;
+
+    const $unset: Record<string, 1> = {};
+    if (data.mrp !== undefined) {
+      const mrp = data.mrp as number | null;
+      if (mrp != null && Number(mrp) > 0) {
+        $set.mrp = Number(mrp);
+      } else {
+        $unset.mrp = 1;
+      }
+    }
+
     if (data.isActive != null) $set.isActive = data.isActive as boolean;
     if (data.visibleOnWebsite != null) $set.visibleOnWebsite = data.visibleOnWebsite as boolean;
     if (data.visibleOnSuperAdmin != null) $set.visibleOnSuperAdmin = data.visibleOnSuperAdmin as boolean;
-    if (billingCycle === BillingCycle.LIFETIME && data.maintenanceCharge !== undefined) {
-      $set.maintenanceCharge = data.maintenanceCharge as number;
-    }
+    const update: Record<string, unknown> = { $set };
+    if (Object.keys($unset).length) update.$unset = $unset;
 
-    const updated = await Plan.findByIdAndUpdate(id, { $set }, { new: true, runValidators: true });
+    const updated = await Plan.findByIdAndUpdate(id, update, { new: true, runValidators: true });
     if (!updated) throw new AppError('Plan not found', 404);
 
     await updated.populate([

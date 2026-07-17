@@ -1,10 +1,11 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import { BillingCycle } from '@invogen/shared';
+import { BillingCycle, PlanDiscountPromoType } from '@invogen/shared';
 
 export interface IPlanDiscount extends Document {
   name: string;
   code: string;
   description?: string;
+  promoType: PlanDiscountPromoType;
   discountType: 'percentage' | 'fixed';
   value: number;
   planTypeId?: mongoose.Types.ObjectId;
@@ -23,6 +24,11 @@ const planDiscountSchema = new Schema<IPlanDiscount>(
     name: { type: String, required: true, trim: true },
     code: { type: String, required: true, unique: true, uppercase: true, trim: true },
     description: { type: String, trim: true },
+    promoType: {
+      type: String,
+      enum: Object.values(PlanDiscountPromoType),
+      default: PlanDiscountPromoType.SIMPLE,
+    },
     discountType: { type: String, enum: ['percentage', 'fixed'], required: true },
     value: { type: Number, required: true, min: 0 },
     planTypeId: { type: Schema.Types.ObjectId, ref: 'PlanType' },
@@ -42,4 +48,6 @@ const planDiscountSchema = new Schema<IPlanDiscount>(
   { timestamps: true }
 );
 
-export const PlanDiscount = mongoose.model<IPlanDiscount>('PlanDiscount', planDiscountSchema);
+export const PlanDiscount =
+  (mongoose.models.PlanDiscount as mongoose.Model<IPlanDiscount> | undefined) ||
+  mongoose.model<IPlanDiscount>('PlanDiscount', planDiscountSchema);

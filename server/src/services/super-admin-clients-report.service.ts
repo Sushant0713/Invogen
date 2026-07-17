@@ -45,7 +45,7 @@ type LedgerRow = {
   revenueCollected: number;
   outstanding: number;
   lastInvoiceDate: Date | null;
-  lifetimeCollected: number;
+  allTimeCollected: number;
 };
 
 function periodKey(date: Date, format: string): string {
@@ -106,7 +106,7 @@ function buildLedger(
     companyId?: { _id?: { toString(): string }; name?: string; email?: string } | null;
   }>,
   periodInvoices: InvoiceDoc[],
-  lifetimePaidByClient: Map<string, number>
+  allTimePaidByClient: Map<string, number>
 ) {
   const ledger = new Map<string, LedgerRow>();
 
@@ -124,7 +124,7 @@ function buildLedger(
       revenueCollected: 0,
       outstanding: 0,
       lastInvoiceDate: null,
-      lifetimeCollected: lifetimePaidByClient.get(key) ?? 0,
+      allTimeCollected: allTimePaidByClient.get(key) ?? 0,
     });
   }
 
@@ -143,7 +143,7 @@ function buildLedger(
         revenueCollected: 0,
         outstanding: 0,
         lastInvoiceDate: null,
-        lifetimeCollected: lifetimePaidByClient.get(key) ?? 0,
+        allTimeCollected: allTimePaidByClient.get(key) ?? 0,
       };
 
     existing.totalInvoices += 1;
@@ -240,7 +240,7 @@ export const superAdminClientsReportService = {
       clients,
       periodInvoices,
       previousInvoices,
-      lifetimePaid,
+      allTimePaid,
       currentOutstandingInvoices,
       previousOutstandingInvoices,
       pendingPayments,
@@ -275,12 +275,12 @@ export const superAdminClientsReportService = {
       Payment.find({ status: 'pending', createdAt: { $lte: prevTo } }).select('amount companyId').lean(),
     ]);
 
-    const lifetimePaidByClient = new Map<string, number>();
-    for (const invoice of lifetimePaid) {
+    const allTimePaidByClient = new Map<string, number>();
+    for (const invoice of allTimePaid) {
       const key = resolveClientKey(invoice);
-      lifetimePaidByClient.set(
+      allTimePaidByClient.set(
         key,
-        (lifetimePaidByClient.get(key) ?? 0) + getInvoiceAmount(invoice)
+        (allTimePaidByClient.get(key) ?? 0) + getInvoiceAmount(invoice)
       );
     }
 
@@ -301,7 +301,7 @@ export const superAdminClientsReportService = {
     const previousPendingOutstanding = previousPendingPayments.reduce((sum, p) => sum + p.amount, 0);
     const previousOutstandingTotal = previousOutstandingFromInvoices + previousPendingOutstanding;
 
-    let ledger = buildLedger(clients, periodInvoices, lifetimePaidByClient);
+    let ledger = buildLedger(clients, periodInvoices, allTimePaidByClient);
 
     const search = String(query.search || '').trim().toLowerCase();
     if (search) {

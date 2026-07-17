@@ -32,6 +32,7 @@ import {
   clearCopiedTextStyle,
   normalizeListStyle,
   LIST_STYLE_OPTIONS,
+  getTextRuns,
   type ListStyleType,
 } from './text-styles';
 import { outlineEditorSetLevel, outlineEditorAddMainLine, subscribeOutlineEditor, getOutlineCurrentLevel, isOutlineEditorActive } from './outline-editor-api';
@@ -51,8 +52,13 @@ import {
 import { normalizeTablePropsForType } from './table-props-normalize';
 import { resolveSelectedElementLocation } from './builder-selection';
 import {
+  applyCaseCycleToActiveSelection,
   applyStylePatchToActiveSelection,
+  beginBuilderTextFormatting,
+  endBuilderTextFormatting,
   getActiveSelectionStylePreview,
+  nextTextCaseMode,
+  saveBuilderTextSelection,
   selectionHasActiveBuilderEditor,
   type TextStylePatch,
 } from './rich-text-formatting';
@@ -174,6 +180,7 @@ export function ElementToolbar() {
       <div className={TOOLBAR_SLOT_CLASS}>
         <div className="builder-context-toolbar-scroll flex min-h-[52px] items-center overflow-x-auto py-2.5 px-2">
           <div
+            data-builder-toolbar
             className="pointer-events-auto mx-auto flex w-max max-w-full items-center gap-0.5 rounded-full border border-gray-200/80 bg-white px-2 py-1 shadow-md"
             onMouseDown={stopToolbarPointer}
             onClick={stopBubble}
@@ -295,16 +302,37 @@ export function ElementToolbar() {
   const listStyle = normalizeListStyle(props.listStyle);
 
   const applyTextFormat = (patch: TextStylePatch, wholeElement: Record<string, unknown>) => {
-    if (applyStylePatchToActiveSelection(patch)) return;
+    saveBuilderTextSelection();
+    if (applyStylePatchToActiveSelection(patch)) {
+      endBuilderTextFormatting();
+      return;
+    }
+    // Whole-box styles must also update rich-text runs — run styles override the parent.
+    const runs = getTextRuns(props);
+    if (runs?.length) {
+      updateProps(
+        {
+          ...wholeElement,
+          textRuns: runs.map((run) => ({ ...run, ...patch })),
+        },
+        true
+      );
+      endBuilderTextFormatting();
+      return;
+    }
     updateProps(wholeElement, true);
+    endBuilderTextFormatting();
   };
 
   const cycleCase = () => {
-    const order = ['none', 'uppercase', 'lowercase', 'capitalize'] as const;
-    const current = (props.textTransform as string) || 'none';
-    const idx = order.indexOf(current as typeof order[number]);
-    const next = order[(idx + 1) % order.length];
+    saveBuilderTextSelection();
+    if (applyCaseCycleToActiveSelection()) {
+      endBuilderTextFormatting();
+      return;
+    }
+    const next = nextTextCaseMode(props.textTransform as string | undefined);
     updateProp('textTransform', next);
+    endBuilderTextFormatting();
   };
 
   const handleCopyStyle = () => {
@@ -323,6 +351,7 @@ export function ElementToolbar() {
     <div className={TOOLBAR_SLOT_CLASS}>
       <div className="builder-context-toolbar-scroll flex min-h-[52px] items-center overflow-x-auto py-2.5 px-2">
         <div
+          data-builder-toolbar
           className="pointer-events-auto mx-auto flex w-max max-w-full items-center gap-0.5 rounded-full border border-gray-200/80 bg-white px-2 py-1 shadow-md"
           onMouseDown={stopToolbarPointer}
           onClick={stopBubble}
@@ -336,11 +365,9 @@ export function ElementToolbar() {
 
         <FontSizeStepper
           value={activeFontSize}
-          onChange={(size) => {
-            if (!applyStylePatchToActiveSelection({ fontSize: size })) {
-              updateProp('fontSize', size, false);
-            }
-          }}
+          onChange={(size) =>
+            applyTextFormat({ fontSize: size }, { fontSize: size })
+          }
           onCommit={(size) =>
             applyTextFormat({ fontSize: size }, { fontSize: size })
           }
@@ -458,6 +485,8 @@ export function ElementToolbar() {
 function stopToolbarPointer(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
+  // Keep the contenteditable selection alive while clicking toolbar controls.
+  saveBuilderTextSelection();
 }
 
 function stopBubble(event: MouseEvent) {
@@ -482,7 +511,6 @@ function FontSizeStepper({
         compact
         onClick={() => {
           const next = clamp(value - 1);
-          onChange(next);
           onCommit(next);
         }}
       >
@@ -496,7 +524,6 @@ function FontSizeStepper({
         compact
         onClick={() => {
           const next = clamp(value + 1);
-          onChange(next);
           onCommit(next);
         }}
       >
@@ -511,6 +538,10 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
     <label
       title="Text color"
       className="relative inline-flex h-8 w-8 cursor-pointer flex-col items-center justify-center rounded-lg text-gray-700 transition-colors hover:bg-gray-100"
+      onMouseDown={() => {
+        beginBuilderTextFormatting();
+        saveBuilderTextSelection();
+      }}
     >
       <span className="text-sm font-bold leading-none" style={{ color: value }}>A</span>
       <span
@@ -522,7 +553,16 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
       <input
         type="color"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        // The native color popup steals the editor's text selection — snapshot it first.
+        onMouseDown={() => {
+          beginBuilderTextFormatting();
+          saveBuilderTextSelection();
+        }}
+        onChange={(e) => {
+          onChange(e.target.value);
+          endBuilderTextFormatting();
+        }}
+        onBlur={() => endBuilderTextFormatting()}
         className="absolute inset-0 cursor-pointer opacity-0"
         aria-label="Text color"
       />

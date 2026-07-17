@@ -84,7 +84,7 @@ export default function SubscriptionBillingPage() {
                 {plan.billingCycle === 'yearly' && ' /yr'}
               </span>
             </div>
-            {data.subscription.currentPeriodEnd && plan.billingCycle !== 'lifetime' && (
+            {data.subscription.currentPeriodEnd && (
               <p className="mt-2 text-sm text-gray-500">
                 Next renewal on {formatDate(data.subscription.currentPeriodEnd)}
               </p>

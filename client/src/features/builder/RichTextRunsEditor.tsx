@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import type { TextRunProps } from '@/features/builder/text-styles';
 import { getRunStyle } from '@/features/builder/text-styles';
 import { parseRunsFromEditor, runMetaJson, runsToPlainContent } from '@/features/builder/rich-text-utils';
-import { applyStylePatchToActiveSelection, getActiveSelectionStylePreview } from '@/features/builder/rich-text-formatting';
+import { applyStylePatchToActiveSelection, clearSavedBuilderTextSelection, getActiveSelectionStylePreview, isBuilderTextFormattingLocked, isBuilderToolbarTarget } from '@/features/builder/rich-text-formatting';
 
 interface RichTextRunsEditorProps {
   runs: TextRunProps[];
@@ -86,11 +86,24 @@ export function RichTextRunsEditor({
     onChange?.(content, textRuns);
   };
 
-  const handleBlur = () => {
-    if (!editorRef.current) return;
-    const textRuns = parseRunsFromEditor(editorRef.current, runs);
-    const content = runsToPlainContent(textRuns);
-    onCommit?.({ content, text: content, textRuns });
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    // Keep editing when focus moves to a formatting control (font dropdown, color
+    // picker, toolbar button) so the change applies to the current text selection.
+    if (isBuilderToolbarTarget(e.relatedTarget)) return;
+    if (isBuilderTextFormattingLocked()) return;
+
+    // Native color/file pickers often report relatedTarget=null — defer and re-check.
+    const editor = editorRef.current;
+    window.setTimeout(() => {
+      if (!editor || !editor.isConnected) return;
+      if (document.activeElement === editor) return;
+      if (isBuilderToolbarTarget(document.activeElement)) return;
+      if (isBuilderTextFormattingLocked()) return;
+      const textRuns = parseRunsFromEditor(editor, runs);
+      const content = runsToPlainContent(textRuns);
+      clearSavedBuilderTextSelection();
+      onCommit?.({ content, text: content, textRuns });
+    }, 0);
   };
 
   return (

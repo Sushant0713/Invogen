@@ -15,24 +15,19 @@ import {
   Ban,
   Calendar,
   Clock,
-  Infinity,
   LayoutTemplate,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-type BillingCycle = 'monthly' | 'yearly' | 'lifetime';
-type PricingModel = 'subscription' | 'lifetime' | 'both';
+type BillingCycle = 'monthly' | 'yearly';
 
 interface PlanTypeOption {
   _id: string;
   name: string;
   description?: string;
-  pricingModel?: PricingModel;
   monthlyPrice: number;
   yearlyPrice: number;
-  lifetimePrice: number;
-  maintenanceCharge?: number;
   currency: string;
   featureIds: { _id: string; name: string }[];
 }
@@ -68,8 +63,8 @@ interface PlanRow {
   tier: string;
   billingCycle: BillingCycle;
   price: number;
+  mrp?: number;
   currency: string;
-  maintenanceCharge?: number;
   features: string[];
   featureIds?: { _id: string; name: string }[];
   templateIds?: PlanTemplateRef[] | string[];
@@ -81,6 +76,9 @@ interface PlanRow {
   isActive: boolean;
   visibleOnWebsite: boolean;
   visibleOnSuperAdmin: boolean;
+  maxUsers?: number;
+  maxInvoices?: number;
+  maxProducts?: number;
   description?: string;
   razorpayPlanId?: string;
   discountCount?: number;
@@ -103,9 +101,10 @@ const emptyForm = () => ({
   canAddTemplate: false,
   maxUsers: '',
   maxInvoices: '',
+  maxProducts: '',
   showMadeWithInvogen: false,
   price: '',
-  maintenanceCharge: '',
+  mrp: '',
   isActive: true,
   visibleOnWebsite: true,
   visibleOnSuperAdmin: true,
@@ -123,18 +122,12 @@ const planTemplateIds = (plan: PlanRow): string[] => {
     .filter(Boolean);
 };
 
-const flagsFromPricingModel = (model?: PricingModel) => ({
-  hasSubscription: model === 'subscription' || model === 'both',
-  hasLifetime: model === 'lifetime' || model === 'both',
-});
-
 const priceForCycle = (planType: PlanTypeOption, cycle: BillingCycle) => {
   if (cycle === 'monthly') return planType.monthlyPrice;
-  if (cycle === 'yearly') return planType.yearlyPrice;
-  return planType.lifetimePrice;
+  return planType.yearlyPrice;
 };
 
-type PlanStatKey = 'total' | 'active' | 'inactive' | 'monthly' | 'yearly' | 'lifetime';
+type PlanStatKey = 'total' | 'active' | 'inactive' | 'monthly' | 'yearly';
 type PlanStats = Record<PlanStatKey, number>;
 
 const PLAN_STAT_ITEMS: { key: PlanStatKey; label: string; icon: LucideIcon }[] = [
@@ -143,7 +136,6 @@ const PLAN_STAT_ITEMS: { key: PlanStatKey; label: string; icon: LucideIcon }[] =
   { key: 'inactive', label: 'Inactive', icon: Ban },
   { key: 'monthly', label: 'Monthly', icon: Clock },
   { key: 'yearly', label: 'Yearly', icon: Calendar },
-  { key: 'lifetime', label: 'Lifetime', icon: Infinity },
 ];
 
 function PlanStatsBar({ stats }: { stats: PlanStats }) {
@@ -231,27 +223,16 @@ export default function PlanListPage() {
 
   const selectedPlanType = planTypes?.find((pt) => pt._id === form.planTypeId);
 
-  const billingOptions = useMemo(() => {
-    const flags = flagsFromPricingModel(selectedPlanType?.pricingModel);
-    const options: { value: BillingCycle; label: string }[] = [];
-    if (flags.hasSubscription) {
-      options.push({ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly' });
-    }
-    if (flags.hasLifetime) {
-      options.push({ value: 'lifetime', label: 'Lifetime' });
-    }
-    return options;
-  }, [selectedPlanType]);
+  const billingOptions: { value: BillingCycle; label: string }[] = [
+    { value: 'monthly', label: 'Monthly' },
+    { value: 'yearly', label: 'Yearly' },
+  ];
 
   const applyPlanTypeDefaults = (planTypeId: string, billingCycle?: BillingCycle) => {
     const planType = planTypes?.find((pt) => pt._id === planTypeId);
     if (!planType) return;
 
-    const flags = flagsFromPricingModel(planType.pricingModel);
-    let cycle = billingCycle || form.billingCycle;
-    if (cycle === 'monthly' && !flags.hasSubscription) cycle = flags.hasLifetime ? 'lifetime' : 'yearly';
-    if (cycle === 'yearly' && !flags.hasSubscription) cycle = 'lifetime';
-    if (cycle === 'lifetime' && !flags.hasLifetime) cycle = 'monthly';
+    const cycle = billingCycle || form.billingCycle;
 
     const defaultFeatures = planType.featureIds?.map((f) => f._id) || [];
     const label = cycle.charAt(0).toUpperCase() + cycle.slice(1);
@@ -264,9 +245,6 @@ export default function PlanListPage() {
       description: planType.description || '',
       featureIds: defaultFeatures,
       price: String(priceForCycle(planType, cycle)),
-      maintenanceCharge: cycle === 'lifetime' && planType.maintenanceCharge
-        ? String(planType.maintenanceCharge)
-        : '',
     }));
   };
 
@@ -441,9 +419,10 @@ export default function PlanListPage() {
         : true,
       maxUsers: plan.maxUsers !== undefined ? String(plan.maxUsers) : '',
       maxInvoices: plan.maxInvoices !== undefined ? String(plan.maxInvoices) : '',
+      maxProducts: plan.maxProducts !== undefined ? String(plan.maxProducts) : '',
       showMadeWithInvogen: plan.showMadeWithInvogen === true,
       price: String(plan.price),
-      maintenanceCharge: plan.maintenanceCharge ? String(plan.maintenanceCharge) : '',
+      mrp: plan.mrp != null && plan.mrp > 0 ? String(plan.mrp) : '',
       isActive: plan.isActive,
       visibleOnWebsite: plan.visibleOnWebsite ?? true,
       visibleOnSuperAdmin: plan.visibleOnSuperAdmin ?? true,
@@ -469,12 +448,10 @@ export default function PlanListPage() {
       description: form.description.trim() || undefined,
       featureIds: form.featureIds,
       price: Number(form.price),
-      maintenanceCharge:
-        form.billingCycle === 'lifetime' && form.maintenanceCharge
-          ? Number(form.maintenanceCharge)
-          : undefined,
+      mrp: form.mrp ? Number(form.mrp) : null,
       maxUsers: form.maxUsers ? Number(form.maxUsers) : undefined,
       maxInvoices: form.maxInvoices ? Number(form.maxInvoices) : undefined,
+      maxProducts: form.maxProducts ? Number(form.maxProducts) : undefined,
       isActive: form.isActive,
       visibleOnWebsite: form.visibleOnWebsite,
       visibleOnSuperAdmin: form.visibleOnSuperAdmin,
@@ -509,7 +486,6 @@ export default function PlanListPage() {
       inactive: rows.filter((p) => !p.isActive).length,
       monthly: rows.filter((p) => p.billingCycle === 'monthly').length,
       yearly: rows.filter((p) => p.billingCycle === 'yearly').length,
-      lifetime: rows.filter((p) => p.billingCycle === 'lifetime').length,
     };
   }, [data]);
 
@@ -578,7 +554,6 @@ export default function PlanListPage() {
             <option value="all">All billing</option>
             <option value="monthly">Monthly</option>
             <option value="yearly">Yearly</option>
-            <option value="lifetime">Lifetime</option>
           </select>
           <select className={selectClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All status</option>
@@ -645,15 +620,14 @@ export default function PlanListPage() {
                 onChange={(e) => setForm({ ...form, price: e.target.value })}
                 required
               />
-              {form.billingCycle === 'lifetime' && (
-                <Input
-                  label="Yearly Maintenance (INR)"
-                  type="number"
-                  min="0"
-                  value={form.maintenanceCharge}
-                  onChange={(e) => setForm({ ...form, maintenanceCharge: e.target.value })}
-                />
-              )}
+              <Input
+                label="MRP (INR)"
+                type="number"
+                min="0"
+                placeholder="Optional list price"
+                value={form.mrp}
+                onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+              />
               <Input
                 label="Description"
                 className="md:col-span-2"
@@ -675,6 +649,14 @@ export default function PlanListPage() {
                 placeholder="Unlimited"
                 value={form.maxInvoices}
                 onChange={(e) => setForm({ ...form, maxInvoices: e.target.value })}
+              />
+              <Input
+                label="Max Products"
+                type="number"
+                min="0"
+                placeholder="Unlimited"
+                value={form.maxProducts}
+                onChange={(e) => setForm({ ...form, maxProducts: e.target.value })}
               />
             </div>
 
@@ -986,8 +968,10 @@ export default function PlanListPage() {
               return (
                 <div className="text-sm">
                   <p className="font-semibold text-primary">{formatCurrency(plan.price, plan.currency)}</p>
-                  {plan.billingCycle === 'lifetime' && plan.maintenanceCharge ? (
-                    <p className="text-xs text-gray-500">+ {formatCurrency(plan.maintenanceCharge)}/yr</p>
+                  {plan.mrp != null && plan.mrp > plan.price ? (
+                    <p className="text-xs text-gray-400 line-through">
+                      MRP {formatCurrency(plan.mrp, plan.currency)}
+                    </p>
                   ) : null}
                 </div>
               );
