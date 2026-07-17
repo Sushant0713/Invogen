@@ -1,5 +1,9 @@
 import { ComponentType } from '@invogen/shared';
 import { getCardDefaultProps } from './card-components';
+import {
+  CARD_FIELD_PALETTE_DEFS,
+  getCardFieldDefaultProps,
+} from './card-field-components';
 import { getImageDefaultProps } from './image-components';
 import { getShapeDefaultProps } from './shape-components';
 import { getDefaultTermsProps } from './terms-content';
@@ -33,6 +37,8 @@ export type PaletteItem = {
   category: string;
   /** Optional icon override key — see asset-icons.ts */
   iconKey?: string;
+  /** Optional dual-tone glyph for LibraryIconTile (company/customer/payment fields). */
+  glyphKey?: string;
   defaultProps?: Record<string, unknown>;
 };
 
@@ -203,7 +209,7 @@ export const BUILDER_PALETTE: PaletteItem[] = [
     defaultProps: getCardDefaultProps(ComponentType.PAYMENT_DETAILS),
   },
 
-  // Field
+  // Field (existing invoice meta + standalone company/customer/payment lines)
   {
     id: 'field_gst',
     type: ComponentType.GST_NUMBER,
@@ -252,9 +258,19 @@ export const BUILDER_PALETTE: PaletteItem[] = [
       useLiveDate: false,
     },
   },
+  // Same lines as Company / Customer / Payment cards — as separate fields (cards stay).
+  ...CARD_FIELD_PALETTE_DEFS.map((def) => ({
+    id: def.id,
+    type: ComponentType.FIELD,
+    label: def.label,
+    category: def.category,
+    iconKey: def.iconKey,
+    glyphKey: def.glyphKey,
+    defaultProps: getCardFieldDefaultProps(def),
+  })),
 
   // Context
-  { id: 'context_page_no', type: ComponentType.PAGE_NUMBER, label: 'Page no', category: 'context', defaultProps: { label: 'Page', value: '1' } },
+  { id: 'context_page_no', type: ComponentType.PAGE_NUMBER, label: 'Page no', category: 'context', defaultProps: { label: '', value: 'Page 1 of 1', pageNumberFormat: 'page_of', fontSize: 11, color: '#6b7280', textAlign: 'center' } },
   { id: 'context_note', type: ComponentType.NOTES, label: 'Note', category: 'context', defaultProps: { content: 'Notes...' } },
   { id: 'context_footer', type: ComponentType.FOOTER, label: 'Footer text', category: 'context', defaultProps: { content: 'Thank you' } },
   { id: 'context_term', type: ComponentType.TERMS, label: 'Terms & Conditions', category: 'context', defaultProps: getDefaultTermsProps() },
@@ -285,6 +301,11 @@ export function mergePaletteWithApi(
   }
 
   return BUILDER_PALETTE.map((item) => {
+  // ICON is shared by many palette tiles with distinct iconKeys / accents.
+    if (item.type === ComponentType.ICON) return item;
+    // FIELD is shared by many card-derived palette items with distinct dataKeys;
+    // a single API FIELD component must not overwrite each item's binding.
+    if (item.type === ComponentType.FIELD) return item;
     const api = apiByType.get(item.type);
     if (!api) return item;
     const apiProps = (api.defaultProps ?? {}) as Record<string, unknown>;

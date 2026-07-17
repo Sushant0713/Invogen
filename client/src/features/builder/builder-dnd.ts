@@ -87,6 +87,8 @@ export function getDefaultElementSize(type: string) {
   if (type.includes('table')) return { width: 500, height: 150 };
   if (type === ComponentType.ADDRESS) return { width: 280, height: 120 };
   if (type === ComponentType.TERMS) return { width: 320, height: 120 };
+  if (type === ComponentType.FIELD) return { width: 220, height: 36 };
+  if (type === ComponentType.ICON) return { width: 36, height: 36 };
   if (type === 'watermark') return { width: 360, height: 100 };
   if (type === 'image' || type.includes('image')) return { width: 200, height: 150 };
   if (type === 'barcode') return { width: 200, height: 80 };
@@ -121,6 +123,13 @@ export function createCanvasElement(
   const props = normalizedProps
     ? productTablePropsToRecord(normalizedProps)
     : defaultProps;
+  // Multiline address-style fields need a taller default frame.
+  if (
+    type === ComponentType.FIELD
+    && defaultProps.multiline === true
+  ) {
+    height = 72;
+  }
   if (!normalizedProps && isStructuredContentType(type) && Object.keys(defaultProps).length > 0) {
     height = estimateStructuredBlockHeight(type, defaultProps, width);
   }

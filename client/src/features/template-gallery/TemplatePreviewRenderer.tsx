@@ -8,7 +8,7 @@ import {
   SAMPLE_PREVIEW_CONTEXT,
 } from './placeholder-utils';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
-import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview, collectIntentionalOverlapElementIds } from '@/features/builder/preview-page-reflow';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
@@ -71,6 +71,7 @@ export function TemplatePreviewRenderer({
   const effectiveScale = maxWidth ? maxWidth / width : scale;
   const scaledW = Math.round(width * effectiveScale);
   const scaledH = Math.round(height * effectiveScale);
+  const overlapIds = collectIntentionalOverlapElementIds(renderPage.elements);
 
   return (
     <CompanyBrandingProvider scope={brandingScope}>
@@ -90,7 +91,9 @@ export function TemplatePreviewRenderer({
       >
         {sortByLayer(renderPage.elements)
           .filter((el) => el.visible !== false)
-          .map((element) => (
+          .map((element) => {
+            const allowOverlapOverflow = overlapIds.has(element.id);
+            return (
             <div
               key={element.id}
               style={{
@@ -101,7 +104,7 @@ export function TemplatePreviewRenderer({
                 height: element.height,
                 zIndex: element.zIndex,
                 opacity: getBaseOpacity(element),
-                overflow: getElementSlotOverflow(element),
+                overflow: getElementSlotOverflow(element, { allowOverlapOverflow }),
               }}
             >
               <div
@@ -115,11 +118,13 @@ export function TemplatePreviewRenderer({
                 element={element}
                 isSelected={false}
                 previewMode
+                allowOverlapOverflow={allowOverlapOverflow}
                 onSelect={() => {}}
               />
               </div>
             </div>
-          ))}
+            );
+          })}
       </div>
       {/* Outside the CSS scale so the badge stays readable on gallery thumbnails. */}
       <MadeWithInvogenBadge compact />

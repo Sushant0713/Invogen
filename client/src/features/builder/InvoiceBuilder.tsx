@@ -354,19 +354,36 @@ export function InvoiceBuilder({
           <Layers className="h-4 w-4" />
         </Button>
         <div className="h-5 w-px bg-gray-200" />
-        {pages.map((p, i) => (
+        <div className="flex items-center gap-1 rounded-full bg-gray-100/90 p-0.5 ring-1 ring-gray-200/80">
+          {pages.map((p, i) => (
+            <Button
+              key={p.id}
+              variant={i === activePageIndex ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => dispatch(setActivePage(i))}
+              className={`min-w-[2rem] rounded-full px-2.5 ${
+                i === activePageIndex ? '' : 'text-gray-600'
+              }`}
+              title={p.name || `Page ${i + 1}`}
+            >
+              <span className="tabular-nums">{i + 1}</span>
+            </Button>
+          ))}
           <Button
-            key={p.id}
-            variant={i === activePageIndex ? 'primary' : 'ghost'}
+            variant="ghost"
             size="sm"
-            onClick={() => dispatch(setActivePage(i))}
+            onClick={() => dispatch(addPage())}
+            title="Add page"
+            className="rounded-full px-2 text-gray-600"
           >
-            {p.name}
+            <Plus className="h-4 w-4" />
           </Button>
-        ))}
-        <Button variant="ghost" size="sm" onClick={() => dispatch(addPage())} title="Add page">
-          <Plus className="h-4 w-4" />
-        </Button>
+        </div>
+        {pages.length > 1 ? (
+          <span className="hidden text-[11px] font-medium tabular-nums text-gray-400 sm:inline">
+            {activePageIndex + 1} / {pages.length}
+          </span>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"

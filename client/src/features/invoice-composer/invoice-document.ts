@@ -1180,6 +1180,18 @@ export function scanComposerDataFields(pages: TemplatePage[]): ScannedDataField[
   for (const page of pages) {
     for (const element of page.elements) {
       if (element.visible === false) continue;
+      if (element.type === ComponentType.FIELD) {
+        const props = (element.props ?? {}) as Record<string, unknown>;
+        const key = typeof props.dataKey === 'string' ? props.dataKey.trim() : '';
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        const label =
+          typeof props.label === 'string' && props.label.trim()
+            ? props.label.trim()
+            : key;
+        fields.push({ key, label, elementType: element.type });
+        continue;
+      }
       const mapped = DATA_FIELD_COMPONENTS[element.type];
       if (!mapped || seen.has(mapped.key)) continue;
       seen.add(mapped.key);
@@ -1202,17 +1214,31 @@ export function buildComposerFormModel(pages: TemplatePage[]): ComposerFormModel
   const hasCompanyCard = pageHasElementType(pages, ComponentType.COMPANY_CARD);
 
   const customerFields = COMPOSER_CUSTOMER_KEYS.filter((key) => {
-    if (keysInTemplate.has(key)) return true;
+    if (keysInTemplate.has(key) || dataFieldKeys.has(key)) return true;
     return hasCustomerCard && CUSTOMER_CARD_FORM_KEYS.has(key);
   });
 
   const companyFields = COMPOSER_COMPANY_KEYS.filter((key) => {
-    if (keysInTemplate.has(key)) return true;
+    if (keysInTemplate.has(key) || dataFieldKeys.has(key)) return true;
+    // Standalone "Company PAN" field uses CompanyPAN; company form still uses PAN.
+    if (key === 'PAN' && dataFieldKeys.has('CompanyPAN')) return true;
     return hasCompanyCard && COMPANY_CARD_FORM_KEYS.has(key);
   });
 
+  const isCompanyOrCustomerKey = (key: string) =>
+    (COMPOSER_CUSTOMER_KEYS as readonly string[]).includes(key)
+    || (COMPOSER_COMPANY_KEYS as readonly string[]).includes(key)
+    || key === 'CompanyPAN'
+    || key === 'CompanyTitle'
+    || key === 'CustomerTitle';
+
+  const isPaymentFieldKey = (key: string) =>
+    key.startsWith('Bank') || key === 'PaymentTitle';
+
   const invoiceFields = [
-    ...dataFields.map((field) => field.key),
+    ...dataFields
+      .map((field) => field.key)
+      .filter((key) => !isCompanyOrCustomerKey(key) && !isPaymentFieldKey(key)),
     ...COMPOSER_INVOICE_KEYS.filter(
       (key) => keysInTemplate.has(key) && !dataFieldKeys.has(key)
     ),
@@ -1223,9 +1249,16 @@ export function buildComposerFormModel(pages: TemplatePage[]): ComposerFormModel
     ...COMPOSER_COMPANY_KEYS,
     ...COMPOSER_INVOICE_KEYS,
     ...COMPOSER_TOTAL_KEYS,
+    ...invoiceFields,
+    ...customerFields,
+    ...companyFields,
   ]);
-  const otherPlaceholders = [...keysInTemplate]
+  const otherPlaceholders = [
+    ...keysInTemplate,
+    ...[...dataFieldKeys].filter((key) => isPaymentFieldKey(key) || key.endsWith('Title')),
+  ]
     .filter((key) => !covered.has(key))
+    .filter((key, index, list) => list.indexOf(key) === index)
     .sort((a, b) => a.localeCompare(b));
 
   const cards = scanComposerCards(pages, {

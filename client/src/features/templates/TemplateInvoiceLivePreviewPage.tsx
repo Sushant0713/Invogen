@@ -10,12 +10,14 @@ import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { ProductSettingsProvider } from '@/features/builder/ProductSettingsProvider';
 import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
 import { brandingScopeFromApiBase } from '@/features/builder/company-branding';
-import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 import {
   applyInvoiceFormToPages,
   buildInitialFormContext,
 } from '@/features/invoice-composer/apply-invoice-form';
-import { normalizeComposerPages } from '@/features/invoice-composer/invoice-document';
+import {
+  normalizeComposerPages,
+  prepareInvoiceLivePreviewPages,
+} from '@/features/invoice-composer/invoice-document';
 import { extractPlaceholderKeys } from '@/features/template-gallery/placeholder-utils';
 import { fetchTemplateDocument } from '@/features/template-gallery/template-loader';
 import { recordTemplateUse } from '@/features/template-gallery/template-manager';
@@ -53,7 +55,7 @@ export function TemplateInvoiceLivePreviewPage({
     const keys = extractPlaceholderKeys(normalized);
     const context = buildInitialFormContext(keys, undefined, normalized);
     const filled = applyInvoiceFormToPages(normalized, context);
-    return reflowPagesForPreview(filled, { trustTableProps: true });
+    return prepareInvoiceLivePreviewPages(filled);
   }, [template]);
 
   const previewMaxWidth = useMemo(

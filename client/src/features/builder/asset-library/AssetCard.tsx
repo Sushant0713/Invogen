@@ -1,8 +1,11 @@
 import { memo, useRef, type DragEvent } from 'react';
+import { ComponentType } from '@invogen/shared';
 import type { AssetItem } from './asset-catalog';
 import { getAssetIcon } from './asset-icons';
 import { FavoriteButton } from './FavoriteButton';
 import { PALETTE_DRAG_MIME, setActivePaletteDrag } from '../builder-dnd';
+import { LibraryIconTile } from '../LibraryIconTile';
+import { getIconCatalogEntry } from '../icon-components';
 import { normalizePaletteDragProps } from '../palette-catalog';
 
 interface AssetCardProps {
@@ -26,6 +29,15 @@ function createDragGhost(label: string): HTMLElement {
   return ghost;
 }
 
+function resolveAssetGlyphKey(item: AssetItem): string | null {
+  if (typeof item.glyphKey === 'string' && item.glyphKey) return item.glyphKey;
+  const fromProps = item.defaultProps?.iconKey;
+  if (typeof fromProps === 'string' && fromProps && getIconCatalogEntry(fromProps)) {
+    return fromProps;
+  }
+  return null;
+}
+
 export const AssetCard = memo(function AssetCard({
   item,
   selected,
@@ -36,6 +48,11 @@ export const AssetCard = memo(function AssetCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const label = item.label ?? item.name ?? item.type;
   const Icon = getAssetIcon(item.type, item.iconKey ?? item.id);
+  const glyphKey =
+    item.type === ComponentType.FIELD || item.category?.startsWith('fields_')
+      ? resolveAssetGlyphKey(item)
+      : null;
+  const glyphEntry = glyphKey ? getIconCatalogEntry(glyphKey) : null;
 
   const startDrag = (event: DragEvent<HTMLDivElement>) => {
     const defaultProps = normalizePaletteDragProps(item.type, item.defaultProps || {});
@@ -77,15 +94,25 @@ export const AssetCard = memo(function AssetCard({
     >
       <FavoriteButton assetId={item.id} isFavorite={isFavorite} className="absolute right-1 top-1" />
 
-      <div
-        className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-200 ${
-          selected
-            ? 'bg-primary/15 text-primary'
-            : 'bg-gray-100 text-gray-600 group-hover/asset:bg-primary/10 group-hover/asset:text-primary'
-        }`}
-      >
-        <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
-      </div>
+      {glyphKey ? (
+        <LibraryIconTile
+          iconKey={glyphKey}
+          accent={glyphEntry?.accent}
+          accentSoft={glyphEntry?.accentSoft}
+          size={40}
+          className="shrink-0 transition-transform duration-200 group-hover/asset:scale-105"
+        />
+      ) : (
+        <div
+          className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-200 ${
+            selected
+              ? 'bg-primary/15 text-primary'
+              : 'bg-gray-100 text-gray-600 group-hover/asset:bg-primary/10 group-hover/asset:text-primary'
+          }`}
+        >
+          <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
+        </div>
+      )}
 
       <span className="line-clamp-2 w-full px-0.5 text-center text-[10px] font-medium leading-tight text-gray-700">
         {label}

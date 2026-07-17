@@ -1,5 +1,11 @@
 export const DEFAULT_ADDRESS_TITLE = 'Address';
 
+export type AddressHeaderMode = 'label' | 'logo';
+
+export function parseAddressHeaderMode(raw: unknown): AddressHeaderMode {
+  return raw === 'logo' ? 'logo' : 'label';
+}
+
 export type AddressFieldKey = 'city' | 'state' | 'postalCode' | 'country';
 
 export type AddressFieldDef = {
@@ -191,6 +197,7 @@ export function buildAddressProps(
 export function getDefaultAddressProps(): Record<string, unknown> {
   return {
     ...buildAddressProps(DEFAULT_ADDRESS),
+    addressHeaderMode: 'label' as AddressHeaderMode,
     fontSize: 12,
     color: '#000000',
   };

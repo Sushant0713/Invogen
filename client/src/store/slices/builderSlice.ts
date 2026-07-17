@@ -28,6 +28,14 @@ import { getNextZIndex, normalizeElementLayers, reorderElementLayer, reorderPage
 import { applyClipToElementBounds, shouldBakeShapeClipOnApply } from '@/features/builder/shape-clip';
 import { layoutBuilderPages, touchLogicalFlowY, normalizeBuilderPagesForEditor, applyContinuationTableStructuralEdit, absorbPaginationAfterPageDelete } from '@/features/builder/document-layout';
 import {
+  captureIconAttachment,
+  collectAttachedIconIds,
+  findAttachHostAtPoint,
+  getAttachedToId,
+  isIconComponentType,
+  syncIconsAttachedToHost,
+} from '@/features/builder/icon-components';
+import {
   appendFootersFromMasterPage,
   collectLinkedFooterElementIds,
   isDocumentFooterElement,
@@ -324,6 +332,11 @@ function resolveDeletableElementIds(state: BuilderState, seedIds: string[]): str
       if (element && !element.locked) removeIds.add(connectedId);
     }
   }
+  // Deleting a host also removes icons attached to it.
+  for (const iconId of collectAttachedIconIds(state.pages, removeIds)) {
+    const icon = findElementAcrossPages(state.pages, iconId);
+    if (icon && !icon.locked) removeIds.add(iconId);
+  }
   return [...removeIds];
 }
 
@@ -368,6 +381,53 @@ function applyManualElementUpdate(elements: CanvasElement[], idx: number, merged
   elements[idx] = touchLogicalFlowY(merged);
 }
 
+/** Keep attached icons locked to a host's box (move + resize). */
+function applyHostOrIconGeometry(
+  elements: CanvasElement[],
+  idx: number,
+  merged: CanvasElement,
+  geometryChanged: boolean
+) {
+  if (!geometryChanged) {
+    applyManualElementUpdate(elements, idx, merged);
+    return;
+  }
+
+  if (isIconComponentType(merged.type)) {
+    const props = { ...(merged.props ?? {}) } as Record<string, unknown>;
+    const cx = merged.x + merged.width / 2;
+    const cy = merged.y + merged.height / 2;
+    const host = findAttachHostAtPoint(elements, cx, cy, merged.id);
+    if (host) {
+      const next = touchLogicalFlowY({
+        ...merged,
+        pinned: true,
+        props: { ...props, ...captureIconAttachment(host, merged) },
+      });
+      elements[idx] = next;
+      return;
+    }
+    // Dragged off every host — detach but keep the icon.
+    if (getAttachedToId(props)) {
+      elements[idx] = touchLogicalFlowY({
+        ...merged,
+        pinned: true,
+        props: { ...props, attachedToId: null },
+      });
+      return;
+    }
+    applyManualElementUpdate(elements, idx, { ...merged, pinned: true });
+    return;
+  }
+
+  applyManualElementUpdate(elements, idx, merged);
+  const host = elements[idx];
+  const synced = syncIconsAttachedToHost(elements, host);
+  for (let i = 0; i < elements.length; i += 1) {
+    elements[i] = synced[i];
+  }
+}
+
 function applyDocumentLayout(pages: TemplatePage[]): TemplatePage[] {
   return layoutBuilderPages(pages);
 }
@@ -400,16 +460,25 @@ const builderSlice = createSlice({
           );
         return {
           ...page,
-          // Keep authored multi-page templates; clear the flag only on pure spill tabs.
-          userAuthored: looksLikeAutoContinuation ? false : page.userAuthored === true || pageIndex > 0,
+        // Keep authored multi-page templates; preserve explicit auto-overflow flags
+        // so spilled text/images can pull back onto page 1 after the table shrinks.
+        userAuthored: looksLikeAutoContinuation
+          ? false
+          : page.userAuthored === true
+            ? true
+            : page.userAuthored === false
+              ? false
+              : pageIndex > 0,
           elements: normalizeElementLayers(normalized),
         };
       });
-      // Keep authored positions on open — preview/composer reflow, not the canvas editor.
-      // Also fix sample due dates that are earlier than the invoice date.
-      state.pages = normalizeBuilderPagesForEditor(
-        enforceInvoiceDueDateOrderOnPages(normalizeDocumentFooters(normalizedPages)).pages
-      );
+      // Trust saved page membership and positions. Full Word-style reflow on load
+      // would push manually moved page-1 content back onto page 2. Reflow still
+      // runs on table/content edits via commitDocumentLayout.
+      const orderedPages = enforceInvoiceDueDateOrderOnPages(
+        normalizeDocumentFooters(normalizedPages)
+      ).pages;
+      state.pages = normalizeBuilderPagesForEditor(orderedPages);
       state.activePageIndex = 0;
       state.selectedElementIds = [];
       state.imageCropElementId = null;
@@ -555,12 +624,20 @@ const builderSlice = createSlice({
                 merged.type,
                 resolveBuilderTablePropsForEdit(mergedProps)
               );
-              applyManualElementUpdate(elements, idx, {
-                ...merged,
-                width: merged.width > 0 ? merged.width : current.width,
-                height: merged.height > 0 ? merged.height : fitted.height,
-                props: mergeTablePaginationProps(currentProps, fitted.tableProps),
-              });
+              applyHostOrIconGeometry(
+                elements,
+                idx,
+                {
+                  ...merged,
+                  width: merged.width > 0 ? merged.width : current.width,
+                  height: merged.height > 0 ? merged.height : fitted.height,
+                  props: mergeTablePaginationProps(currentProps, fitted.tableProps),
+                },
+                restChanges.x !== undefined
+                  || restChanges.y !== undefined
+                  || restChanges.width !== undefined
+                  || restChanges.height !== undefined
+              );
             } else {
               const tableId = resolvePaginationTableId(currentProps, action.payload.id);
               const isContinuationEdit =
@@ -588,13 +665,6 @@ const builderSlice = createSlice({
                   tableId,
                   editedTable.rows
                 ) as TemplatePage[];
-                const prevAllRows = currentProps[PREVIEW_PAGINATION_ROWS_KEY];
-                const prevRowCount = Array.isArray(prevAllRows)
-                  ? prevAllRows.length
-                  : Array.isArray(currentProps.rows)
-                    ? (currentProps.rows as unknown[]).length
-                    : 0;
-                const isRowShrink = editedTable.rows.length < prevRowCount;
                 const hasAnchorOnPage1 = (plain[0]?.elements ?? []).some(
                   (el) =>
                     isTableElementType(el.type)
@@ -604,10 +674,9 @@ const builderSlice = createSlice({
                       el.id
                     ) === tableId
                 );
-                // On row delete for a split table: use the same Word-style
-                // consolidate → restack → paginate path as page-1 edits.
-                // (Frozen page-1 ranges must not block pull-back after shrink.)
-                if (isRowShrink && hasAnchorOnPage1) {
+                // Split-table edits: always use full Word-style consolidate → restack
+                // → paginate (same as page-1) so overlap units pull back / spill correctly.
+                if (hasAnchorOnPage1) {
                   commitDocumentLayout(state, plain);
                 } else {
                   state.pages = applyContinuationTableStructuralEdit(
@@ -655,15 +724,20 @@ const builderSlice = createSlice({
             }
           } else {
             // Position/size-only update — keep manual placement.
-            applyManualElementUpdate(elements, idx, {
-              ...merged,
-              width: merged.width > 0 ? merged.width : current.width,
-              height: merged.height > 0 ? merged.height : current.height,
-              props: mergeTablePaginationProps(
-                currentProps,
-                productTablePropsToRecord(table)
-              ),
-            });
+            applyHostOrIconGeometry(
+              elements,
+              idx,
+              {
+                ...merged,
+                width: merged.width > 0 ? merged.width : current.width,
+                height: merged.height > 0 ? merged.height : current.height,
+                props: mergeTablePaginationProps(
+                  currentProps,
+                  productTablePropsToRecord(table)
+                ),
+              },
+              true
+            );
           }
         } else {
           let next = merged;
@@ -688,6 +762,11 @@ const builderSlice = createSlice({
               ? { ...restChanges, props: propsPatch }
               : restChanges;
           const shouldLayout = shouldTriggerDocumentLayout(layoutChanges, skipLayout);
+          const geometryChanged =
+            restChanges.x !== undefined
+            || restChanges.y !== undefined
+            || restChanges.width !== undefined
+            || restChanges.height !== undefined;
           if (shouldLayout) {
             let plain = clonePages(state.pages);
             const pageIdx = targetPageIndex;
@@ -724,7 +803,7 @@ const builderSlice = createSlice({
 
             commitDocumentLayout(state, plain);
           } else {
-            applyManualElementUpdate(elements, idx, next);
+            applyHostOrIconGeometry(elements, idx, next, geometryChanged);
           }
         }
 

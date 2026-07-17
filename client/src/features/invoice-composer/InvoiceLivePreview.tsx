@@ -107,7 +107,10 @@ export function InvoiceLivePreview({
           <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Live Preview</p>
-              <p className="text-xs text-gray-500">Updates as you type</p>
+              <p className="text-xs text-gray-500">
+                Updates as you type
+                {pages.length > 1 ? ` · ${pages.length} pages` : ''}
+              </p>
             </div>
             <div className="flex items-center gap-1">
               <Button

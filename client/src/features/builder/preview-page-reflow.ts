@@ -35,6 +35,7 @@ import {
   sliceTextRuns,
 } from './text-box-pagination';
 import { isTextStylable } from './text-styles';
+import { formatPageNumberLabel, readPageNumberFormat } from './page-number';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import {
   appendFootersFromMasterPage,
@@ -74,6 +75,22 @@ function withLogicalFlowY(element: CanvasElement, logicalY: number): CanvasEleme
   return { ...element, props, y: logicalY };
 }
 
+/** Drop stale stamps so reflow rebuilds order from visual Y (preserves overlap ratios). */
+function clearLogicalFlowStamp(element: CanvasElement): CanvasElement {
+  const props = (element.props ?? {}) as Record<string, unknown>;
+  if (!(LOGICAL_FLOW_Y_KEY in props)) return element;
+  const next = { ...props };
+  delete next[LOGICAL_FLOW_Y_KEY];
+  return { ...element, props: next };
+}
+
+function clearLogicalFlowStampsInPages(pages: TemplatePage[]): TemplatePage[] {
+  return pages.map((page) => ({
+    ...page,
+    elements: page.elements.map(clearLogicalFlowStamp),
+  }));
+}
+
 /** Record manual canvas position as document-flow order (after drag / resize). */
 export function touchLogicalFlowY(element: CanvasElement): CanvasElement {
   return withLogicalFlowY(element, element.y);
@@ -94,6 +111,7 @@ export function isPinnedPreviewElement(element: CanvasElement): boolean {
   if (element.type === ComponentType.WATERMARK) return true;
   if (isDocumentFooterElement(element)) return true;
   if (element.type === ComponentType.PAGE_NUMBER) return true;
+  if (element.type === ComponentType.ICON) return true;
   if (
     element.type === ComponentType.IMAGE
     || element.type === ComponentType.LOGO
@@ -267,6 +285,7 @@ export function previewPagesNeedReflow(
 
 /** Set page tab labels and page-number fields to the rendered page index (1-based). */
 export function applyPreviewPageNumbers(pages: TemplatePage[]): TemplatePage[] {
+  const pageCount = pages.length;
   return pages.map((page, index) => ({
     ...page,
     name: `Page ${index + 1}`,
@@ -274,7 +293,15 @@ export function applyPreviewPageNumbers(pages: TemplatePage[]): TemplatePage[] {
       if (element.type !== ComponentType.PAGE_NUMBER) return element;
       return {
         ...element,
-        props: { ...(element.props ?? {}), value: String(index + 1) },
+        props: {
+          ...(element.props ?? {}),
+          label: '',
+          value: formatPageNumberLabel(
+            index,
+            pageCount,
+            readPageNumberFormat((element.props ?? {}) as Record<string, unknown>)
+          ),
+        },
       };
     }),
   }));
@@ -295,21 +322,33 @@ function shouldKeepTrailingPage(page: TemplatePage): boolean {
 }
 
 function pageHasOverlappingFlowElements(page: TemplatePage): boolean {
-  const flow = page.elements.filter(
+  return collectIntentionalOverlapElementIds(page.elements).size > 0;
+}
+
+/**
+ * Element ids that intentionally overlap another flow element (same-column
+ * vertical intersection). Builder canvas must not clip these — overflow:hidden
+ * / margin clipPath cuts the designed overlap (e.g. large styled text).
+ */
+export function collectIntentionalOverlapElementIds(
+  elements: CanvasElement[]
+): Set<string> {
+  const flow = elements.filter(
     (element) => element.visible !== false && !isPinnedPreviewElement(element)
   );
+  const ids = new Set<string>();
   for (let i = 0; i < flow.length; i += 1) {
     for (let j = i + 1; j < flow.length; j += 1) {
       const a = flow[i];
       const b = flow[j];
-      const aBottom = a.y + a.height;
-      const bBottom = b.y + b.height;
-      if (a.y < bBottom - PUSH_TOLERANCE_PX && b.y < aBottom - PUSH_TOLERANCE_PX) {
-        return true;
-      }
+      if (isTableElementType(a.type) || isTableElementType(b.type)) continue;
+      if (!elementsShareColumn(a, b)) continue;
+      if (!elementsVerticallyOverlap(a, b)) continue;
+      ids.add(a.id);
+      ids.add(b.id);
     }
   }
-  return false;
+  return ids;
 }
 
 export function builderPagesNeedLayout(pages: TemplatePage[]): boolean {
@@ -393,23 +432,33 @@ function stackOverflowElementsAtPageTop(
  * Group flow items that must stay on the same page together:
  * - tables alone
  * - side-by-side row siblings
+ * - intentional design overlaps (keep relative X/Y ratio inside the unit)
  * - invoice date + due date (even if slightly staggered)
  */
 function shouldJoinToFlowUnit(unit: CanvasElement[], candidate: CanvasElement): boolean {
   if (isTableElementType(candidate.type)) return false;
   if (unit.some((el) => isTableElementType(el.type))) return false;
 
-  const candidateY = getLogicalFlowY(candidate);
+  const candidateY = candidate.y;
   // Same visual row as any unit member (side-by-side logo / dates / etc.).
-  if (unit.some((el) => Math.abs(getLogicalFlowY(el) - candidateY) <= ROW_Y_TOLERANCE_PX)) {
+  if (unit.some((el) => Math.abs(el.y - candidateY) <= ROW_Y_TOLERANCE_PX)) {
+    return true;
+  }
+
+  // Intentional overlap in the same column — move as one unit and preserve offsets.
+  if (
+    unit.some(
+      (el) => elementsVerticallyOverlap(el, candidate) && elementsShareColumn(el, candidate)
+    )
+  ) {
     return true;
   }
 
   // Invoice date + due date stay together when authored one below/beside the other.
   const unitHasDate = unit.some((el) => isInvoiceDateFieldType(el.type));
   if (unitHasDate && isInvoiceDateFieldType(candidate.type)) {
-    const unitMinY = Math.min(...unit.map(getLogicalFlowY));
-    const unitMaxY = Math.max(...unit.map(getLogicalFlowY));
+    const unitMinY = Math.min(...unit.map((el) => el.y));
+    const unitMaxY = Math.max(...unit.map((el) => el.y));
     if (
       candidateY >= unitMinY - ROW_Y_TOLERANCE_PX
       && candidateY <= unitMaxY + DATE_CLUSTER_Y_PX
@@ -451,8 +500,8 @@ function groupFlowIntoUnits(flow: CanvasElement[]): CanvasElement[][] {
 function measureFlowUnitHeight(unit: CanvasElement[]): number {
   if (unit.length === 0) return 0;
   if (unit.length === 1) return unit[0].height;
-  const minY = Math.min(...unit.map(getLogicalFlowY));
-  const maxBottom = Math.max(...unit.map((el) => getLogicalFlowY(el) + el.height));
+  const minY = Math.min(...unit.map((el) => el.y));
+  const maxBottom = Math.max(...unit.map((el) => el.y + el.height));
   return Math.max(maxBottom - minY, ...unit.map((el) => el.height));
 }
 
@@ -470,10 +519,13 @@ function placeFlowUnitAt(
     };
   }
 
-  const minY = Math.min(...unit.map(getLogicalFlowY));
+  // Use visual Y for intra-unit offsets so a stale __logicalFlowY stamp cannot
+  // flatten intentional overlap ratios (pink/green text, stacked logos, etc.).
+  const minY = Math.min(...unit.map((el) => el.y));
   const placed = unit.map((el) => {
-    const y = cursorY + (getLogicalFlowY(el) - minY);
-    return withLogicalFlowY({ ...el, y }, y);
+    const y = cursorY + (el.y - minY);
+    // Keep authored X — only the flow cursor moves the unit vertically.
+    return withLogicalFlowY({ ...el, x: el.x, y }, y);
   });
   const top = Math.min(...placed.map((el) => el.y));
   const bottom = Math.max(...placed.map((el) => el.y + el.height));
@@ -559,6 +611,19 @@ function elementsShareColumn(a: CanvasElement, b: CanvasElement): boolean {
   const overlap =
     Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   return overlap > Math.min(a.width, b.width) * 0.15;
+}
+
+/** True when two elements' vertical spans intersect (intentional design overlap). */
+function elementsVerticallyOverlap(a: CanvasElement, b: CanvasElement): boolean {
+  // Prefer visual bounds — logical stamps can be flattened after a bad spill.
+  const aY = a.y;
+  const bY = b.y;
+  const aBottom = aY + a.height;
+  const bBottom = bY + b.height;
+  return (
+    aY < bBottom - PUSH_TOLERANCE_PX
+    && bY < aBottom - PUSH_TOLERANCE_PX
+  );
 }
 
 function didOverlapOriginally(
@@ -1704,13 +1769,14 @@ function layoutPageDocumentFlow(
     let overlapFound = true;
     while (overlapFound) {
       overlapFound = false;
+      const unitHeight = measureFlowUnitHeight(unit);
       for (const p of blockingElements) {
         for (const el of unit) {
           if (!elementsShareColumn(p, el)) continue;
           if (originalElements && didOverlapOriginally(p.id, el.id, originalElements)) continue;
           if (
             cursorY < p.y + p.height + FLOW_GAP_PX &&
-            cursorY + el.height > p.y - PUSH_TOLERANCE_PX
+            cursorY + unitHeight > p.y - PUSH_TOLERANCE_PX
           ) {
             cursorY = p.y + p.height + FLOW_GAP_PX;
             overlapFound = true;
@@ -2883,6 +2949,18 @@ function pageIsPureAutoContinuation(page: TemplatePage): boolean {
 }
 
 /**
+ * Pages that join Word-style gather → restack → paginate (and pull back when the table shrinks).
+ * - Explicit `userAuthored: true` tabs (Add page) stay separate.
+ * - Explicit `userAuthored: false` auto-overflow tabs join even if they hold spilled text/images.
+ * - Legacy unmarked later pages keep the old pure-continuation heuristic.
+ */
+function pageParticipatesInDocumentFlow(page: TemplatePage): boolean {
+  if (page.userAuthored === true) return false;
+  if (page.userAuthored === false) return true;
+  return pageIsPureAutoContinuation(page);
+}
+
+/**
  * Prepare pages for builder reflow without destroying multi-page layouts.
  * - Keep every page that has real content (letter text, images, independent tables).
  * - Drop only pure auto table-continuation tabs (rows already merged onto page 1).
@@ -2891,7 +2969,7 @@ function pageIsPureAutoContinuation(page: TemplatePage): boolean {
 function builderRepaginationSource(pages: TemplatePage[]): TemplatePage[] {
   if (pages.length <= 1) return pages;
   const head = pages[0];
-  const keptTail = pages.slice(1).filter((page) => !pageIsPureAutoContinuation(page));
+  const keptTail = pages.slice(1).filter((page) => !pageParticipatesInDocumentFlow(page));
   return [head, ...keptTail];
 }
 
@@ -3296,14 +3374,14 @@ function reflowPagesWordStyle(
   const master = source[0];
   if (!master) return pages;
 
-  // Page 1 + pure auto table-continuation pages participate in one flow.
-  // Keep every authored later page (letter/content/independent tables) intact
-  // so Live Preview page count matches the template builder — do not require
-  // `userAuthored` (older templates and no-table pages often lack the flag).
+  // Page 1 + auto-overflow / pure continuation pages participate in one flow.
+  // User-authored later pages (Add page / intentional multi-page) stay intact.
+  // Explicit `userAuthored: false` pages join even when they hold spilled text/images
+  // so shrinking the table can pull those components back onto page 1.
   const flowSourcePages: TemplatePage[] = [master];
   const preservedTail: TemplatePage[] = [];
   for (const page of source.slice(1)) {
-    if (!pageIsPureAutoContinuation(page)) {
+    if (!pageParticipatesInDocumentFlow(page)) {
       preservedTail.push(page);
     } else {
       flowSourcePages.push(page);
@@ -3424,6 +3502,7 @@ function reflowPagesWordStyle(
   }
 
   // Never drop overflow (images/dates) if the pagination loop hit its guard.
+  // Always restack with placeFlowUnitAt so intentional overlap units keep relative Y.
   if (remaining.length > 0) {
     const salvageShell: TemplatePage = {
       id: uuidv4(),
@@ -3438,9 +3517,7 @@ function reflowPagesWordStyle(
           margins: master.margins,
           elements: [],
         }),
-        ...remaining.map((el) =>
-          withLogicalFlowY({ ...el, y: master.margins.top }, master.margins.top)
-        ),
+        ...stackOverflowElementsAtPageTop(remaining, master.margins),
       ],
     };
     let salvageRemaining = remaining;
@@ -3453,30 +3530,27 @@ function reflowPagesWordStyle(
         name: `Page ${pageNumber}`,
         elements: [
           ...appendFootersFromMasterPage(master, salvageShell),
-          ...salvageRemaining.map((el) =>
-            withLogicalFlowY({ ...el, y: master.margins.top }, master.margins.top)
-          ),
+          ...stackOverflowElementsAtPageTop(salvageRemaining, master.margins),
         ],
       };
       const laidOut = layoutPageDocumentFlow(
         shell,
         shell.elements,
         master.margins.top,
-        []
+        [],
+        allOriginalElements
       );
       result.push(laidOut.page);
       pageNumber += 1;
       if (laidOut.overflow.length >= salvageRemaining.length) {
-        // No progress — append remaining as-is so components stay visible.
+        // No progress — keep unit-relative positions so components stay visible.
         result.push({
           ...shell,
           id: uuidv4(),
           name: `Page ${pageNumber}`,
           elements: [
             ...appendFootersFromMasterPage(master, shell),
-            ...laidOut.overflow.map((el) =>
-              withLogicalFlowY({ ...el, y: master.margins.top }, master.margins.top)
-            ),
+            ...stackOverflowElementsAtPageTop(laidOut.overflow, master.margins),
           ],
         });
         break;
@@ -3503,8 +3577,58 @@ function reflowPagesWordStyle(
 }
 
 /**
- * Live preview + builder: always run full Word-style gather → restack → paginate
- * (same pipeline) so add/delete rows, page-2 spill, and pull-back match the canvas.
+ * Grow tables/cards/structured blocks on each page and push content below, without
+ * gather → restack across pages. Preserves authored X/Y (including intentional overlaps).
+ */
+function expandPagesInPlace(pages: TemplatePage[]): TemplatePage[] {
+  const originals = pages.flatMap((page) => page.elements);
+  return pages.map((page) => {
+    let elements = cloneElements(page.elements);
+    elements = expandTablesAndPushBelow(elements, {}, originals);
+    elements = expandCardsAndPushBelow(elements, originals);
+    elements = expandStructuredBlocksAndPushBelow(elements, originals);
+    return { ...page, elements };
+  });
+}
+
+function pagesHaveContinuationSegments(pages: TemplatePage[]): boolean {
+  return pages.some((page) =>
+    page.elements.some((element) => {
+      if (element.visible === false) return false;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (isTableElementType(element.type) && isTableContinuationSegment(props)) return true;
+      if (isPaginatedTextBoxType(element.type) && isTextContinuationSegment(props)) return true;
+      return false;
+    })
+  );
+}
+
+/**
+ * True when we must run full Word-style gather/restack (spill, pull-back, table splits).
+ * False for a single authored page (or user-authored later tabs) that can stay in place.
+ */
+function documentRequiresCrossPageReflow(pages: TemplatePage[]): boolean {
+  if (pagesHaveContinuationSegments(pages)) return true;
+  // Auto-overflow page 2+ must join gather so content can pull back / re-spill.
+  return pages.slice(1).some((page) => pageParticipatesInDocumentFlow(page));
+}
+
+/** Past page margin (not footer band) — used to decide if authored 1-page layout still fits. */
+function pageOverflowsPastMargins(page: TemplatePage): boolean {
+  const { height: pageHeight } = getPageDimensions(page);
+  const contentBottom = pageHeight - page.margins.bottom;
+  return page.elements.some((element) => {
+    if (element.visible === false || isPinnedPreviewElement(element)) return false;
+    return element.y + element.height > contentBottom + PUSH_TOLERANCE_PX;
+  });
+}
+
+/**
+ * Live preview + builder layout:
+ * - Prefer authored page membership when growing tables/cards still fits (keeps
+ *   designed 1-page templates on 1 page in invoices / preview).
+ * - Fall back to full Word-style gather → restack → paginate when content overflows
+ *   or auto-continuation pages need pull-back / row splits.
  */
 export function reflowPagesForPreview(
   pages: TemplatePage[],
@@ -3512,7 +3636,24 @@ export function reflowPagesForPreview(
 ): TemplatePage[] {
   if (pages.length === 0) return pages;
 
-  const consolidatedTables = consolidatePaginatedTablesForReflow(cloneTemplatePages(pages));
+  // Stale __logicalFlowY can flatten intentional overlap ratios; rebuild from visual Y.
+  const cleaned = clearLogicalFlowStampsInPages(cloneTemplatePages(pages));
+  // Drop empty auto page-2 tabs so a designed 1-page template is not forced through
+  // full cross-page reflow just because a blank continuation tab was left behind.
+  const pruned = dropEmptyTrailingPages(cleaned);
+
+  if (!documentRequiresCrossPageReflow(pruned)) {
+    const inPlace = expandPagesInPlace(pruned);
+    // Keep designed page membership when content still fits within page margins
+    // (footer-band placement from the builder is allowed).
+    if (!inPlace.some((page) => pageOverflowsPastMargins(page))) {
+      return applyPreviewPageNumbers(
+        dropEmptyTrailingPages(normalizeDocumentFooters(inPlace))
+      );
+    }
+  }
+
+  const consolidatedTables = consolidatePaginatedTablesForReflow(pruned);
   const consolidated = consolidatePaginatedTextBoxesForReflow(consolidatedTables);
   const tableOptions: PreviewReflowOptions = { trustTableProps: true, ...options };
   const withCardHeights = expandPreviewCardHeights(consolidated);

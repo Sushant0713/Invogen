@@ -5,6 +5,9 @@ export const PALETTE_CATEGORY_ORDER = [
   'shapes',
   'cards',
   'fields',
+  'fields_company',
+  'fields_customer',
+  'fields_payment',
   'context',
 ] as const;
 
@@ -14,6 +17,9 @@ export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   shapes: 'Shapes',
   cards: 'Card',
   fields: 'Field',
+  fields_company: 'Company fields',
+  fields_customer: 'Customer fields',
+  fields_payment: 'Payment fields',
   context: 'Context',
 };
 

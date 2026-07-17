@@ -1,4 +1,5 @@
 import { ComponentType } from '@invogen/shared';
+import { resolveCardLineGlyphKey } from './icon-components';
 
 export type CardFieldDef = {
   key: string;
@@ -41,6 +42,19 @@ export function parseCardCustomFields(raw: unknown): CardCustomField[] {
 export function parseHiddenCardFields(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+/** Field keys whose card line should render a leading icon. */
+export function parseCardFieldIcons(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+export function setCardFieldIcon(list: unknown, key: string, enabled: boolean): string[] {
+  const set = new Set(parseCardFieldIcons(list));
+  if (enabled) set.add(key);
+  else set.delete(key);
+  return [...set];
 }
 
 export function isCustomCardFieldHidden(hidden: Set<string>, id: string): boolean {
@@ -148,7 +162,14 @@ export function getCardDefaultProps(type: string): Record<string, unknown> {
   return out;
 }
 
-export type CardDisplayLine = { text: string; bold?: boolean; isPlaceholder?: boolean };
+export type CardDisplayLine = {
+  text: string;
+  bold?: boolean;
+  isPlaceholder?: boolean;
+  iconKey?: string;
+  /** When set, icon sits beside the whole block (Address-style), not centered on one line. */
+  iconBesideBlock?: boolean;
+};
 
 export function getCardDisplayLines(
   type: string,
@@ -157,6 +178,7 @@ export function getCardDisplayLines(
 ): CardDisplayLine[] {
   const defs = getCardVisibleFieldDefs(type, props);
   const hidden = new Set(parseHiddenCardFields(props.hiddenFields));
+  const iconFields = new Set(parseCardFieldIcons(props.fieldIcons));
   if (!defs.length && !parseCardCustomFields(props.customFields).length) return [];
 
   const lines: CardDisplayLine[] = [];
@@ -180,16 +202,39 @@ export function getCardDisplayLines(
     if (!value.trim()) continue;
 
     const isPlaceholder = typeof raw === 'string' && isUnresolvedCardPlaceholder(raw);
+    const lineIcon = iconFields.has(field.key)
+      ? resolveCardLineGlyphKey(type, field.key)
+      : undefined;
 
     if (field.multiline) {
-      for (const line of value.split('\n')) {
-        if (line.trim()) lines.push({ text: line, isPlaceholder });
+      const bodyLines = value
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .filter((line) => line.trim());
+      if (!bodyLines.length) continue;
+
+      // Address (and other multiline) with logo: one block + icon in front of the text
+      // — same behaviour as the Address component.
+      if (lineIcon && field.key === 'address') {
+        lines.push({
+          text: bodyLines.join('\n'),
+          isPlaceholder,
+          iconKey: lineIcon,
+          iconBesideBlock: true,
+        });
+        continue;
+      }
+
+      let first = true;
+      for (const line of bodyLines) {
+        lines.push({ text: line, isPlaceholder, iconKey: first ? lineIcon : undefined });
+        first = false;
       }
       continue;
     }
 
     const text = field.prefix ? `${field.prefix}${value}` : value;
-    lines.push({ text, isPlaceholder });
+    lines.push({ text, isPlaceholder, iconKey: lineIcon });
   }
 
   const customFields = parseCardCustomFields(props.customFields);
@@ -199,9 +244,11 @@ export function getCardDisplayLines(
     const value = field.value.trim();
     const sample = options?.customValuePlaceholder?.(label) ?? 'Enter value';
     const displayValue = value || sample;
+    const lineIcon = iconFields.has(`custom:${field.id}`) ? 'verified' : undefined;
     lines.push({
       text: `${label}: ${displayValue}`,
       isPlaceholder: !value,
+      iconKey: lineIcon,
     });
   }
 

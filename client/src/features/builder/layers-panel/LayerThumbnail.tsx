@@ -8,6 +8,7 @@ import { ShapeView } from '@/features/document-editor/object-renderer/ShapeView'
 import { resolveBrandingImageSrc } from '../company-branding';
 import { useCompanyBranding } from '../CompanyBrandingProvider';
 import { isTextStylable } from '../text-styles';
+import { LibraryIconTile } from '../LibraryIconTile';
 
 interface Props {
   element: CanvasElement;
@@ -20,7 +21,10 @@ function LayerThumbnailInner({ element, className = '' }: Props) {
   const shapeProps = isShapeComponentType(element.type)
     ? { ...getShapeDefaultProps(element.type), ...props }
     : props;
-  const Icon = getAssetIcon(element.type);
+  const Icon = getAssetIcon(
+    element.type,
+    typeof props.iconKey === 'string' ? `library_${props.iconKey}` : undefined
+  );
 
   const imageSrc = isImageComponentType(element.type)
     ? resolveBrandingImageSrc(element.type, typeof props.src === 'string' ? props.src : '', branding)
@@ -37,7 +41,15 @@ function LayerThumbnailInner({ element, className = '' }: Props) {
     <div
       className={`flex h-9 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-gray-200/50 bg-white ${className}`}
     >
-      {isShapeComponentType(element.type) ? (
+      {element.type === ComponentType.ICON ? (
+        <LibraryIconTile
+          iconKey={typeof props.iconKey === 'string' ? props.iconKey : 'phone'}
+          accent={typeof props.accent === 'string' ? props.accent : undefined}
+          accentSoft={typeof props.accentSoft === 'string' ? props.accentSoft : undefined}
+          variant={props.variant === 'solid' ? 'solid' : 'soft'}
+          size={28}
+        />
+      ) : isShapeComponentType(element.type) ? (
         <div className="h-full w-full p-0.5">
           <ShapeView type={element.type} props={shapeProps} />
         </div>

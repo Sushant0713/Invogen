@@ -8,8 +8,8 @@ import type { CompanyBrandingScope } from '@/features/builder/company-branding';
 import {
   cloneTemplatePages,
   normalizeComposerPages,
+  prepareInvoiceLivePreviewPages,
 } from '@/features/invoice-composer/invoice-document';
-import { reflowPagesForPreview } from '@/features/builder/preview-page-reflow';
 
 interface InvoiceViewerProps {
   pages: TemplatePage[];
@@ -34,10 +34,7 @@ export function InvoiceViewer({
   madeWithImage,
 }: InvoiceViewerProps) {
   const renderPages = useMemo(
-    () =>
-      reflowPagesForPreview(normalizeComposerPages(cloneTemplatePages(pages)), {
-        trustTableProps: true,
-      }),
+    () => prepareInvoiceLivePreviewPages(normalizeComposerPages(cloneTemplatePages(pages))),
     [pages]
   );
 

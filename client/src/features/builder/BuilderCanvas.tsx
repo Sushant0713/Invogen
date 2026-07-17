@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Rnd } from 'react-rnd';
 import { useAppDispatch, useAppSelector } from '@/hooks/useAppDispatch';
 import { addElement, updateElement, selectElement, toggleElementInSelection, setElementSelection, setImageCropMode, setShapeCropMode, clearTableCellSelection } from '@/store/slices/builderSlice';
@@ -11,6 +11,8 @@ import { snapElementBounds } from './image-editor/snappingUtils';
 import { constrainAspectResize } from './image-editor/transformUtils';
 import { ComponentType } from '@invogen/shared';
 import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
+import { AutoPageNumber } from '@/features/builder/AutoPageNumber';
+import { PageIndicator } from '@/features/builder/PageIndicator';
 import {
   getPageDimensions,
   createCanvasElement,
@@ -85,6 +87,13 @@ import {
   isAutoHeightTextType,
   isStructuredContentType,
 } from './structured-content-layout';
+import { collectIntentionalOverlapElementIds } from './document-layout';
+import {
+  captureIconAttachment,
+  findAttachHostAtPoint,
+  isIconComponentType,
+  nestIconInsideHost,
+} from './icon-components';
 
 const GRID_SIZE = 4;
 const MIN_ELEMENT_SIZE = 24;
@@ -207,6 +216,10 @@ export function BuilderCanvas() {
   const margins = page?.margins ?? { top: 0, right: 0, bottom: 0, left: 0 };
   const pageSize = page ? getPageDimensions(page) : { width: 0, height: 0 };
   const grid = snapToGrid ? [GRID_SIZE, GRID_SIZE] as [number, number] : undefined;
+  const intentionalOverlapIds = useMemo(
+    () => collectIntentionalOverlapElementIds(page?.elements ?? []),
+    [page?.elements]
+  );
 
   useBuilderKeyboard();
 
@@ -555,18 +568,28 @@ export function BuilderCanvas() {
         MIN_ELEMENT_SIZE
       );
 
-      const aspectLocked = isImageComponentType(element.type)
-        ? (element.type === ComponentType.SIGNATURE
-            ? snapped
-            : constrainAspectResize(
+      const aspectLocked =
+        isImageComponentType(element.type)
+          ? (element.type === ComponentType.SIGNATURE
+              ? snapped
+              : constrainAspectResize(
+                snapped,
+                session,
+                direction,
+                margins,
+                MIN_ELEMENT_SIZE,
+                shiftKeyRef.current
+              ))
+          : isIconComponentType(element.type)
+            ? constrainAspectResize(
               snapped,
               session,
               direction,
               margins,
               MIN_ELEMENT_SIZE,
-              shiftKeyRef.current
-            ))
-        : snapped;
+              true
+            )
+            : snapped;
 
       if (isTableElementType(element.type)) {
         const table = normalizeTablePropsForType(element.type, (element.props ?? {}) as Record<string, unknown>);
@@ -727,9 +750,9 @@ export function BuilderCanvas() {
       const canvas = canvasRef.current;
       if (!payload || !canvas) return;
 
-      const { width, height } = getDefaultElementSize(payload.type);
+      let { width, height } = getDefaultElementSize(payload.type);
       const rect = canvas.getBoundingClientRect();
-      const { x, y } = canvasPointFromDrop(
+      let { x, y } = canvasPointFromDrop(
         event.clientX,
         event.clientY,
         rect,
@@ -737,7 +760,7 @@ export function BuilderCanvas() {
         width,
         height
       );
-      const position = clampElementPosition(
+      let position = clampElementPosition(
         snap(x, snapToGrid),
         snap(y, snapToGrid),
         width,
@@ -745,17 +768,50 @@ export function BuilderCanvas() {
         margins
       );
 
+      let defaultProps = { ...(payload.defaultProps || {}) };
+      let pinned: boolean | undefined;
+
+      // Dropping an icon onto text / card / field attaches it so resize scales together.
+      if (isIconComponentType(payload.type)) {
+        const dropX = position.x + width / 2;
+        const dropY = position.y + height / 2;
+        const host = findAttachHostAtPoint(page.elements, dropX, dropY);
+        if (host) {
+          const nested = nestIconInsideHost(host);
+          position = { x: nested.x, y: nested.y };
+          width = nested.width;
+          height = nested.height;
+          defaultProps = {
+            ...defaultProps,
+            ...captureIconAttachment(host, {
+              x: nested.x,
+              y: nested.y,
+              width: nested.width,
+              height: nested.height,
+            }),
+          };
+          pinned = true;
+        } else {
+          pinned = true;
+        }
+      }
+
       const element = createCanvasElement(
         payload.type,
         position.x,
         position.y,
-        payload.defaultProps || {},
+        defaultProps,
         margins
       );
+      if (isIconComponentType(payload.type)) {
+        element.width = width;
+        element.height = height;
+        element.pinned = pinned ?? true;
+      }
       dispatch(addElement(element));
       recordAssetUse(payload.paletteId ?? payload.type);
     },
-    [dispatch, snapToGrid, zoom, margins]
+    [dispatch, snapToGrid, zoom, margins, page.elements]
   );
 
   const selectedElement = primarySelectedId
@@ -787,7 +843,7 @@ export function BuilderCanvas() {
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#e8e8ed] [overflow-anchor:none]">
-      <div className="flex min-h-full justify-center p-10">
+      <div className="flex min-h-full flex-col items-center gap-4 p-10">
         <div
           className="relative shrink-0"
           style={{
@@ -892,17 +948,20 @@ export function BuilderCanvas() {
                 : getElementRotationTransformStyle(element.type, elementProps);
               const isRotatable = supportsElementRotation(element.type);
               // Canva-style: elements may extend outside margins while editing,
-              // but anything outside the content area is visually clipped.
+              // but anything outside the content area is visually clipped —
+              // except intentional overlap designs (keep relative ratio visible).
               const contentLeft = margins.left;
               const contentTop = margins.top;
               const contentRight = pageSize.width - margins.right;
               const contentBottom = pageSize.height - margins.bottom;
+              const allowOverlapOverflow = intentionalOverlapIds.has(element.id);
               const clipLeft = Math.max(0, contentLeft - element.x);
               const clipTop = Math.max(0, contentTop - element.y);
               const clipRight = Math.max(0, element.x + element.width - contentRight);
               const clipBottom = Math.max(0, element.y + element.height - contentBottom);
               const clipStyle =
                 !isDivider
+                && !allowOverlapOverflow
                 && (clipLeft > 0 || clipTop > 0 || clipRight > 0 || clipBottom > 0)
                   ? ({
                       clipPath: `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px)`,
@@ -1049,6 +1108,17 @@ export function BuilderCanvas() {
                       );
                     }
 
+                    if (isIconComponentType(element.type)) {
+                      bounds = constrainAspectResize(
+                        bounds,
+                        session,
+                        dir as string,
+                        margins,
+                        MIN_ELEMENT_SIZE,
+                        true
+                      );
+                    }
+
                     if (isTableElementType(element.type)) {
                       const table = normalizeTablePropsForType(
                         element.type,
@@ -1179,6 +1249,7 @@ export function BuilderCanvas() {
                         isSelected,
                         isEditing,
                         isShapeCropMode,
+                        allowOverlapOverflow,
                       }),
                   pointerEvents: getElementPointerEvents(element, {
                     isSelected,
@@ -1193,8 +1264,9 @@ export function BuilderCanvas() {
           >
             <ElementRenderer
               element={element}
-                  isSelected={isSelected}
-                  isEditing={isEditing}
+              isSelected={isSelected}
+              isEditing={isEditing}
+              allowOverlapOverflow={allowOverlapOverflow}
                   interactionMode={elementInteractionMode}
                   isCanvasDragging={isDragging}
                   isShapeCropMode={shapeCropElementId === element.id}
@@ -1320,6 +1392,8 @@ export function BuilderCanvas() {
                     }));
                   }}
                   zoom={zoom}
+                  pageIndex={safePageIndex}
+                  pageCount={pages.length}
                   onStructuredContentHeight={
                     isStructuredContentType(element.type) || isAutoHeightTextType(element.type)
                       ? (height) => {
@@ -1341,6 +1415,11 @@ export function BuilderCanvas() {
             );
             })}
 
+          <AutoPageNumber
+            pageIndex={safePageIndex}
+            pageCount={pages.length}
+            elements={page.elements}
+          />
           <MadeWithInvogenBadge />
           </div>
 
@@ -1450,6 +1529,13 @@ export function BuilderCanvas() {
             ))}
           </div>
         </div>
+        {pages.length > 0 ? (
+          <PageIndicator
+            pageIndex={safePageIndex}
+            pageCount={pages.length}
+            variant="chip"
+          />
+        ) : null}
       </div>
     </div>
   );

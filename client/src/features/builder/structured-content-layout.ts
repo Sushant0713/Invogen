@@ -7,7 +7,16 @@ const PADDING = 16;
 const MIN_HEIGHT = 40;
 
 function fontSizeFromProps(props: Record<string, unknown>, type: string): number {
-  if (typeof props.fontSize === 'number' && props.fontSize > 0) return props.fontSize;
+  let max = typeof props.fontSize === 'number' && props.fontSize > 0 ? props.fontSize : 0;
+  const runs = props.textRuns;
+  if (Array.isArray(runs)) {
+    for (const run of runs) {
+      if (!run || typeof run !== 'object') continue;
+      const size = (run as { fontSize?: unknown }).fontSize;
+      if (typeof size === 'number' && size > max) max = size;
+    }
+  }
+  if (max > 0) return max;
   return type === ComponentType.HEADING ? 24 : 14;
 }
 
@@ -130,6 +139,8 @@ export function structuredMeasureKey(type: string, props: Record<string, unknown
       data.state,
       data.postalCode,
       data.country,
+      props.addressHeaderMode,
+      Array.isArray(props.hiddenFields) ? props.hiddenFields.join(',') : '',
       props.fontSize,
       props.fontFamily,
     ].join('\0');

@@ -7,10 +7,14 @@ import {
   getCardFieldValue,
   isCustomCardFieldHidden,
   parseCardCustomFields,
+  parseCardFieldIcons,
   parseHiddenCardFields,
+  setCardFieldIcon,
   setCustomCardFieldHidden,
   type CardCustomField,
 } from './card-components';
+import { cardFieldSupportsIcon, resolveCardLineGlyphKey } from './icon-components';
+import { LibraryIconTile } from './LibraryIconTile';
 
 interface Props {
   type: string;
@@ -30,8 +34,16 @@ export function CardProperties({
   const fields = getCardFieldDefs(type);
   const customFields = parseCardCustomFields(props.customFields);
   const hidden = new Set(parseHiddenCardFields(props.hiddenFields));
+  const iconFields = new Set(parseCardFieldIcons(props.fieldIcons));
 
   if (!fields.length) return null;
+
+  const toggleFieldIcon = (key: string) => {
+    onChangeMany(
+      { fieldIcons: setCardFieldIcon(props.fieldIcons, key, !iconFields.has(key)) },
+      true
+    );
+  };
 
   const selectAllIfPlaceholder = (
     el: HTMLInputElement | HTMLTextAreaElement,
@@ -66,17 +78,82 @@ export function CardProperties({
         <div key={field.key}>
           <div className="flex items-center justify-between gap-2">
             <label className="text-xs text-gray-500">{field.label}</label>
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-              title={hidden.has(field.key) ? 'Show field' : 'Hide field'}
-              onClick={() => setFieldHidden(field.key, !hidden.has(field.key))}
-            >
-              {hidden.has(field.key)
-                ? <EyeOff className="h-3.5 w-3.5" />
-                : <Eye className="h-3.5 w-3.5" />}
-            </button>
+            <div className="flex items-center gap-1">
+              {cardFieldSupportsIcon(field.key) && field.key !== 'address' && (
+                <button
+                  type="button"
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
+                    iconFields.has(field.key)
+                      ? 'ring-2 ring-primary/40'
+                      : 'opacity-60 hover:opacity-100'
+                  } ${hidden.has(field.key) ? 'pointer-events-none opacity-30' : ''}`}
+                  title={iconFields.has(field.key) ? 'Remove icon from line' : 'Show icon before this line'}
+                  onClick={() => toggleFieldIcon(field.key)}
+                >
+                  <LibraryIconTile
+                    iconKey={resolveCardLineGlyphKey(type, field.key)}
+                    variant={iconFields.has(field.key) ? 'solid' : 'soft'}
+                    size={20}
+                  />
+                </button>
+              )}
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                title={hidden.has(field.key) ? 'Show field' : 'Hide field'}
+                onClick={() => setFieldHidden(field.key, !hidden.has(field.key))}
+              >
+                {hidden.has(field.key)
+                  ? <EyeOff className="h-3.5 w-3.5" />
+                  : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
+          {field.key === 'address' && (
+            <div
+              className={`mt-1 grid grid-cols-2 gap-1 rounded-lg bg-gray-200/70 p-1 ${
+                hidden.has(field.key) ? 'pointer-events-none opacity-40' : ''
+              }`}
+            >
+              <button
+                type="button"
+                className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                  !iconFields.has(field.key)
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+                onClick={() => {
+                  if (iconFields.has(field.key)) toggleFieldIcon(field.key);
+                }}
+              >
+                Label
+              </button>
+              <button
+                type="button"
+                className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                  iconFields.has(field.key)
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+                onClick={() => {
+                  if (!iconFields.has(field.key)) toggleFieldIcon(field.key);
+                }}
+              >
+                <LibraryIconTile
+                  iconKey={resolveCardLineGlyphKey(type, field.key)}
+                  size={16}
+                />
+                Logo
+              </button>
+            </div>
+          )}
+          {field.key === 'address' && (
+            <p className="mt-1 text-[11px] text-gray-400">
+              {iconFields.has(field.key)
+                ? 'Logo only — no Address text label.'
+                : 'Address text only — no logo.'}
+            </p>
+          )}
           {field.multiline ? (
             <textarea
               className="mt-1 w-full rounded-lg border p-2 text-sm"
@@ -122,6 +199,26 @@ export function CardProperties({
               Custom field
             </span>
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className={`inline-flex h-6 w-6 items-center justify-center rounded transition-all ${
+                  iconFields.has(`custom:${field.id}`)
+                    ? 'ring-2 ring-primary/40'
+                    : 'opacity-60 hover:opacity-100'
+                }`}
+                title={
+                  iconFields.has(`custom:${field.id}`)
+                    ? 'Remove icon from line'
+                    : 'Show icon before this line'
+                }
+                onClick={() => toggleFieldIcon(`custom:${field.id}`)}
+              >
+                <LibraryIconTile
+                  iconKey="verified"
+                  variant={iconFields.has(`custom:${field.id}`) ? 'solid' : 'soft'}
+                  size={18}
+                />
+              </button>
               <button
                 type="button"
                 className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"

@@ -114,6 +114,8 @@ export const componentCatalog = [
   { name: 'Address', type: ComponentType.ADDRESS, category: 'cards', defaultProps: { label: 'Address', value: '123 Business Street\nCity, State 400001' }, schema: {} },
   { name: 'GST Number', type: ComponentType.GST_NUMBER, category: 'fields', defaultProps: { label: 'GSTIN', value: '27XXXXXXXXXX1Z1' }, schema: {} },
   { name: 'PAN Number', type: ComponentType.PAN_NUMBER, category: 'fields', defaultProps: { label: 'PAN', value: 'XXXXX9999X' }, schema: {} },
+  { name: 'Field', type: ComponentType.FIELD, category: 'fields', defaultProps: { label: 'Label', value: 'Value', dataKey: 'CompanyName' }, schema: {} },
+  { name: 'Icon', type: ComponentType.ICON, category: 'icons', defaultProps: { iconKey: 'phone', variant: 'soft' }, schema: {} },
   { name: 'Invoice Number', type: ComponentType.INVOICE_NUMBER, category: 'fields', defaultProps: { label: 'Invoice', value: 'INV-001' }, schema: {} },
   { name: 'Date', type: ComponentType.DATE, category: 'fields', defaultProps: { label: 'Date', value: new Date().toLocaleDateString() }, schema: {} },
   { name: 'Due Date', type: ComponentType.DUE_DATE, category: 'fields', defaultProps: { label: 'Due Date', value: '-' }, schema: {} },

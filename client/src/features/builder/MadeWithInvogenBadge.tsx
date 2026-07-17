@@ -1,7 +1,8 @@
 import { useMadeWithInvogen } from './MadeWithInvogenProvider';
 
 /**
- * Bottom-right "Made with" advertisement badge (super-admin image replaces brand name).
+ * "Made with" advertisement badge (super-admin image replaces brand name).
+ * Bottom-left so it never collides with the auto page number (bottom-right).
  */
 export function MadeWithInvogenBadge({
   compact = false,
@@ -15,7 +16,7 @@ export function MadeWithInvogenBadge({
   if (compact) {
     return (
       <div
-        className="pointer-events-none absolute bottom-1.5 right-1.5 z-[9999] flex max-w-[92%] items-center gap-1 rounded bg-white/95 px-1.5 py-0.5 shadow-sm ring-1 ring-black/10"
+        className="pointer-events-none absolute bottom-1.5 left-1.5 z-[9999] flex max-w-[92%] items-center gap-1 rounded bg-white/95 px-1.5 py-0.5 shadow-sm ring-1 ring-black/10"
         data-made-with-invogen="true"
         aria-hidden
       >
@@ -34,7 +35,7 @@ export function MadeWithInvogenBadge({
 
   return (
     <div
-      className="pointer-events-none absolute bottom-4 right-4 z-[9999] flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md ring-1 ring-black/10"
+      className="pointer-events-none absolute bottom-5 left-6 z-[9999] flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md ring-1 ring-black/10"
       data-made-with-invogen="true"
       aria-hidden
     >

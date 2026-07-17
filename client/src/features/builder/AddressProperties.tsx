@@ -5,9 +5,11 @@ import {
   DEFAULT_ADDRESS_TITLE,
   type AddressData,
   buildAddressProps,
+  parseAddressHeaderMode,
   parseHiddenAddressFields,
   parseAddressFromProps,
 } from './address-content';
+import { LibraryIconTile } from './LibraryIconTile';
 
 interface Props {
   props: Record<string, unknown>;
@@ -17,6 +19,7 @@ interface Props {
 export function AddressProperties({ props, onChange }: Props) {
   const data = parseAddressFromProps(props);
   const hidden = new Set(parseHiddenAddressFields(props.hiddenFields));
+  const headerMode = parseAddressHeaderMode(props.addressHeaderMode);
 
   const commit = (next: AddressData, recordHistory = false) => {
     onChange(buildAddressProps(next, props), recordHistory);
@@ -24,6 +27,10 @@ export function AddressProperties({ props, onChange }: Props) {
 
   const commitHidden = (nextHidden: Set<string>, recordHistory = true) => {
     onChange({ ...props, hiddenFields: [...nextHidden] }, recordHistory);
+  };
+
+  const setHeaderMode = (mode: 'label' | 'logo') => {
+    onChange({ ...props, addressHeaderMode: mode }, true);
   };
 
   const updateTitle = (title: string) => {
@@ -56,13 +63,13 @@ export function AddressProperties({ props, onChange }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-gray-200 bg-gray-50/90 p-3 space-y-2">
+      <div className="rounded-xl border border-gray-200 bg-gray-50/90 p-3 space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <label className="text-xs font-semibold text-gray-700">Address</label>
+          <label className="text-xs font-semibold text-gray-700">Header</label>
           <button
             type="button"
             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            title={hidden.has('title') ? 'Show title' : 'Hide title'}
+            title={hidden.has('title') ? 'Show header' : 'Hide header'}
             onClick={() => {
               const next = new Set(hidden);
               if (next.has('title')) next.delete('title');
@@ -75,18 +82,55 @@ export function AddressProperties({ props, onChange }: Props) {
               : <Eye className="h-3.5 w-3.5" />}
           </button>
         </div>
-        <input
-          type="text"
-          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
-          value={data.title}
-          placeholder={DEFAULT_ADDRESS_TITLE}
-          disabled={hidden.has('title')}
-          onChange={(e) => updateTitle(e.target.value)}
-          onBlur={(e) => commit({ ...data, title: e.target.value }, true)}
-        />
-        <p className="text-[11px] text-gray-400">
-          Section heading shown above the address on the invoice.
-        </p>
+
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-200/70 p-1">
+          <button
+            type="button"
+            disabled={hidden.has('title')}
+            className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+              headerMode === 'label'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-800'
+            } disabled:opacity-40`}
+            onClick={() => setHeaderMode('label')}
+          >
+            Label
+          </button>
+          <button
+            type="button"
+            disabled={hidden.has('title')}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+              headerMode === 'logo'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-800'
+            } disabled:opacity-40`}
+            onClick={() => setHeaderMode('logo')}
+          >
+            <LibraryIconTile iconKey="address" size={16} />
+            Logo
+          </button>
+        </div>
+
+        {headerMode === 'label' ? (
+          <>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
+              value={data.title}
+              placeholder={DEFAULT_ADDRESS_TITLE}
+              disabled={hidden.has('title')}
+              onChange={(e) => updateTitle(e.target.value)}
+              onBlur={(e) => commit({ ...data, title: e.target.value }, true)}
+            />
+            <p className="text-[11px] text-gray-400">
+              Text heading shown above the address on the invoice.
+            </p>
+          </>
+        ) : (
+            <p className="text-[11px] text-gray-400">
+              Address logo in front of the lines — no “Address” text label.
+            </p>
+        )}
       </div>
 
       <div className="space-y-2">

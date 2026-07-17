@@ -12,14 +12,16 @@ import {
 import { applyInvoiceFormToPages } from '@/features/invoice-composer/apply-invoice-form';
 import { formatDisplayDate } from '@/lib/date-format';
 import { getElementRotationTransformStyle } from '@/features/builder/element-rotation';
-import { reflowPagesForPreview, applyPreviewPageNumbers } from '@/features/builder/preview-page-reflow';
+import { reflowPagesForPreview, applyPreviewPageNumbers, collectIntentionalOverlapElementIds } from '@/features/builder/preview-page-reflow';
 import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import {
   type CompanyBrandingScope,
 } from '@/features/builder/company-branding';
 import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
+import { AutoPageNumber } from '@/features/builder/AutoPageNumber';
 import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
+import { PageIndicator } from '@/features/builder/PageIndicator';
 
 export const TEMPLATE_PREVIEW_PAGE_ATTR = 'data-template-preview-page';
 
@@ -60,14 +62,19 @@ interface TemplatePreviewPagesProps {
 
 function renderPageElements(
   page: TemplatePage,
+  pageIndex: number,
+  pageCount: number,
   trustTableProps = false,
   editableTables = false,
   onTableCellChange?: TemplatePreviewPagesProps['onTableCellChange'],
   onTableProductPick?: TemplatePreviewPagesProps['onTableProductPick']
 ) {
+  const overlapIds = collectIntentionalOverlapElementIds(page.elements);
   return sortByLayer(page.elements)
     .filter((element) => element.visible !== false)
-    .map((element) => (
+    .map((element) => {
+      const allowOverlapOverflow = overlapIds.has(element.id);
+      return (
       <div
         key={element.id}
         style={{
@@ -78,7 +85,7 @@ function renderPageElements(
           height: element.height,
           zIndex: element.zIndex,
           opacity: getBaseOpacity(element),
-          overflow: getElementSlotOverflow(element),
+          overflow: getElementSlotOverflow(element, { allowOverlapOverflow }),
         }}
       >
         <div
@@ -96,7 +103,10 @@ function renderPageElements(
             element={element}
             isSelected={false}
             previewMode
+            allowOverlapOverflow={allowOverlapOverflow}
             trustTableProps={trustTableProps}
+            pageIndex={pageIndex}
+            pageCount={pageCount}
             onTableCellChange={
               editableTables && onTableCellChange
                 ? (rowId, columnId, value) =>
@@ -113,7 +123,8 @@ function renderPageElements(
           />
         </div>
       </div>
-    ));
+      );
+    });
 }
 
 export function TemplatePreviewPages({
@@ -161,11 +172,12 @@ export function TemplatePreviewPages({
         const scale = previewMaxWidth ? previewMaxWidth / width : 1;
         const scaledW = Math.round(width * scale);
         const scaledH = Math.round(height * scale);
+        const pageCount = renderPages.length;
 
         if (previewMaxWidth) {
           return (
-            <div key={page.id} className="flex flex-col items-center gap-2">
-              <span className="text-xs font-medium text-gray-500">{page.name}</span>
+            <div key={page.id} className="flex flex-col items-center gap-3">
+              <PageIndicator pageIndex={index} pageCount={pageCount} variant="bar" />
               <div
                 className="relative overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-black/5"
                 style={{ width: scaledW, height: scaledH }}
@@ -182,11 +194,18 @@ export function TemplatePreviewPages({
                 >
                   {renderPageElements(
                     page,
+                    index,
+                    pageCount,
                     trustTableProps,
                     editableTables,
                     onTableCellChange,
                     onTableProductPick
                   )}
+                  <AutoPageNumber
+                    pageIndex={index}
+                    pageCount={pageCount}
+                    elements={page.elements}
+                  />
                   <MadeWithInvogenBadge />
                 </div>
               </div>
@@ -206,11 +225,18 @@ export function TemplatePreviewPages({
           >
             {renderPageElements(
               page,
+              index,
+              pageCount,
               trustTableProps,
               editableTables,
               onTableCellChange,
               onTableProductPick
             )}
+            <AutoPageNumber
+              pageIndex={index}
+              pageCount={pageCount}
+              elements={page.elements}
+            />
             <MadeWithInvogenBadge />
           </div>
         );

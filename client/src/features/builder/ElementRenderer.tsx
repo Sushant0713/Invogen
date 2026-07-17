@@ -14,6 +14,9 @@ import {
   parseHiddenAddressFields,
 } from './address-content';
 import { CardView } from './CardView';
+import { IconView } from './IconView';
+import { LibraryIconTile } from './LibraryIconTile';
+import { inferFieldGlyphKey } from './icon-components';
 import { ImageView } from './ImageView';
 import { isCardComponentType } from './card-components';
 import { isImageComponentType } from './image-components';
@@ -56,6 +59,7 @@ import { getElementRotation, supportsElementRotation } from './element-rotation'
 import { getDividerLineSvgTransform } from './divider-rotation';
 import { TextWithPlaceholderChips, readContentEditablePlainText } from './TextWithPlaceholderChips';
 import type { CompanyProductOption } from './use-company-products';
+import { withAutoPageNumberProps } from './page-number';
 
 interface Props {
   element: CanvasElement;
@@ -66,6 +70,8 @@ interface Props {
   layerOpacity?: number;
   /** Read-only scaled preview (gallery thumbnails). */
   previewMode?: boolean;
+  /** Intentional overlap designs — do not clip text/glyphs at the box edge. */
+  allowOverlapOverflow?: boolean;
   /** Tables already recalculated (invoice composer live preview). */
   trustTableProps?: boolean;
   /** Composer live preview: allow picking products in table cells. */
@@ -100,6 +106,10 @@ interface Props {
     recordHistory?: boolean
   ) => void;
   zoom?: number;
+  /** 0-based page index — used to auto-fill PAGE_NUMBER fields. */
+  pageIndex?: number;
+  /** Total pages in the document. */
+  pageCount?: number;
 }
 
 function EditableText({
@@ -568,7 +578,22 @@ function DataFieldSurface({
         onMouseDown={stopEditEvent}
         onPointerDown={stopEditEvent}
       >
-        {!isAddress && <span className="pointer-events-none select-none">{label}:</span>}
+        {!isAddress && props.showIcon !== true && (
+          <span className="pointer-events-none select-none">{label}:</span>
+        )}
+        {element.type === ComponentType.FIELD && props.showIcon === true && (
+          <LibraryIconTile
+            iconKey={
+              typeof props.iconKey === 'string' && props.iconKey
+                ? props.iconKey
+                : inferFieldGlyphKey(props)
+            }
+            size={Math.round(
+              (typeof props.fontSize === 'number' && props.fontSize > 0 ? props.fontSize : 12) * 1.35
+            )}
+            className="mb-1 shrink-0"
+          />
+        )}
         {isMultiline ? (
           <div
             ref={editorRef}
@@ -678,6 +703,17 @@ function DataFieldSurface({
     );
   }
 
+  const showFieldIcon = element.type === ComponentType.FIELD && props.showIcon === true;
+  const fieldGlyphKey =
+    typeof props.iconKey === 'string' && props.iconKey ? props.iconKey : inferFieldGlyphKey(props);
+  const fieldFontSize =
+    typeof props.fontSize === 'number' && props.fontSize > 0 ? props.fontSize : 12;
+  const fieldIconSize = Math.round(fieldFontSize * 1.35);
+  const isAddressLikeField =
+    fieldGlyphKey === 'address'
+    || props.multiline === true
+    || (typeof props.dataKey === 'string' && /address/i.test(props.dataKey));
+
   return (
     <div
       className="builder-field-surface h-full w-full"
@@ -685,6 +721,13 @@ function DataFieldSurface({
         ...textStyle,
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
+        ...(showFieldIcon
+          ? {
+              display: 'flex',
+              alignItems: isAddressLikeField ? 'flex-start' : 'center',
+              gap: Math.max(4, Math.round(fieldFontSize * 0.4)),
+            }
+          : {}),
       }}
       onPointerDown={handlePointerDown}
       onClick={(e) => {
@@ -696,7 +739,18 @@ function DataFieldSurface({
         enterEdit();
       }}
     >
-      {displayValue.includes('<') || displayValue.includes('{{') ? (
+      {showFieldIcon ? (
+        <LibraryIconTile iconKey={fieldGlyphKey} size={fieldIconSize} className="shrink-0" />
+      ) : null}
+      {showFieldIcon ? (
+        <span style={{ flex: 1, minWidth: 0 }}>
+          {displayValue.includes('<') || displayValue.includes('{{') ? (
+            <TextWithPlaceholderChips text={displayValue} />
+          ) : (
+            displayValue
+          )}
+        </span>
+      ) : displayValue.includes('<') || displayValue.includes('{{') ? (
         <TextWithPlaceholderChips text={displayValue} />
       ) : (
         displayValue
@@ -713,6 +767,7 @@ export function ElementRenderer({
   isCanvasDragging,
   layerOpacity = 1,
   previewMode = false,
+  allowOverlapOverflow = false,
   trustTableProps = false,
   onTableCellChange,
   onTableProductPick,
@@ -731,6 +786,8 @@ export function ElementRenderer({
   onStructuredContentHeight,
   onFrameResize,
   zoom,
+  pageIndex,
+  pageCount,
 }: Props) {
   const isDataField = isDataFieldType(element.type);
   const isStructured = isStructuredContentType(element.type);
@@ -747,8 +804,13 @@ export function ElementRenderer({
   const inlineTextEditable = !previewMode && !isDataField && isInlineCanvasEditable(element.type) && !element.locked;
   const inlineFieldEditable = !previewMode && isDataField && !element.locked;
   const usesCanvasEdit = inlineTextEditable || inlineFieldEditable;
-  const props = resolvePaginatedTextDisplayProps(
-    (element.props ?? {}) as Record<string, unknown>
+  const props = withAutoPageNumberProps(
+    element.type,
+    resolvePaginatedTextDisplayProps(
+      (element.props ?? {}) as Record<string, unknown>
+    ),
+    pageIndex,
+    pageCount
   );
   const elementRotation = getElementRotation(props);
   const isRotatable = supportsElementRotation(element.type);
@@ -789,7 +851,8 @@ export function ElementRenderer({
               ? 'grabbing'
               : 'move',
     overflow:
-      isEditing
+      allowOverlapOverflow
+      || isEditing
       || isShapeCropMode
       || isImageCropMode
       || (isImage && isSelected && !previewMode)
@@ -926,6 +989,15 @@ export function ElementRenderer({
       case ComponentType.PAYMENT_DETAILS:
         return (
           <CardView
+            element={element}
+            props={props}
+            isSelected={isSelected}
+            onSelect={onSelect}
+          />
+        );
+      case ComponentType.ICON:
+        return (
+          <IconView
             element={element}
             props={props}
             isSelected={isSelected}

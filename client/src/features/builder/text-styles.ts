@@ -6,7 +6,7 @@ import {
   toDisplayDateValue,
   usesLiveDate,
 } from '@/lib/date-format';
-import { formatAddressValue, parseAddressFromProps } from './address-content';
+import { formatAddressValue, parseAddressFromProps, parseAddressHeaderMode } from './address-content';
 import {
   ensureGoogleFontLoaded,
   formatFontFamilyCss,
@@ -209,6 +209,7 @@ export function getEditableTextKey(type: string): 'content' | 'text' | 'label' |
     case ComponentType.DUE_DATE:
     case ComponentType.GST_NUMBER:
     case ComponentType.PAN_NUMBER:
+    case ComponentType.FIELD:
     case ComponentType.ADDRESS:
     case ComponentType.PAGE_NUMBER:
       return 'label';
@@ -240,6 +241,8 @@ export function getDataFieldDefaultValue(type: string): string {
       return '27XXXXXXXXXX1Z1';
     case ComponentType.PAN_NUMBER:
       return 'XXXXX9999X';
+    case ComponentType.FIELD:
+      return 'Value';
     case ComponentType.ADDRESS:
       return formatAddressValue(parseAddressFromProps({}));
     case ComponentType.PAGE_NUMBER:
@@ -301,6 +304,13 @@ export function getDisplayText(
 ): string {
   const key = getEditableTextKey(type);
   if (key === 'label') {
+    if (type === ComponentType.PAGE_NUMBER) {
+      const value = getDataFieldValue(props, type).trim();
+      const label = typeof props.label === 'string' ? props.label.trim() : '';
+      // Auto page numbers use an empty label and a full phrase in `value`.
+      if (!label) return value || fallback || 'Page 1 of 1';
+      return value ? `${label}: ${value}` : `${label}:`;
+    }
     const label = (props.label as string) || 'Label';
     let value = getDataFieldValue(props, type).trim();
     // Avoid "Date: Date: …" when value already includes the label (placeholders / imports).
@@ -310,7 +320,14 @@ export function getDisplayText(
     } else if (value.toLowerCase().startsWith(`${label.toLowerCase()} `)) {
       value = value.slice(label.length).trim();
     }
-    if (type === ComponentType.ADDRESS) return `${label}:\n${value}`;
+    if (type === ComponentType.ADDRESS) {
+      if (parseAddressHeaderMode(props.addressHeaderMode) === 'logo') return value;
+      return `${label}:\n${value}`;
+    }
+    // Logo mode for fields (e.g. Company Address): icon replaces the text label.
+    if (type === ComponentType.FIELD && props.showIcon === true) {
+      return value;
+    }
     return value ? `${label}: ${value}` : `${label}:`;
   }
   if (key === 'text') return (props.text as string) || fallback || 'DRAFT';
@@ -412,6 +429,7 @@ export function isTextStylable(type: string): boolean {
     ComponentType.DUE_DATE,
     ComponentType.GST_NUMBER,
     ComponentType.PAN_NUMBER,
+    ComponentType.FIELD,
     ComponentType.ADDRESS,
     ComponentType.PAGE_NUMBER,
     ComponentType.WATERMARK,

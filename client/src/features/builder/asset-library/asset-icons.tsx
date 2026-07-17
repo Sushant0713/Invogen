@@ -1,7 +1,9 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
+  AtSign,
   Building2,
+  CalendarDays,
   Circle,
   Calendar,
   CalendarClock,
@@ -10,18 +12,25 @@ import {
   Diamond,
   Droplets,
   FileText,
+  Globe2,
   Hash,
   Heading1,
   IdCard,
   Image,
   Landmark,
+  Mail,
   MapPin,
+  MapPinned,
   Minus,
   MoveRight,
   PenLine,
+  PhoneCall,
+  QrCode,
   ScrollText,
   Shapes,
+  ShieldCheck,
   Sigma,
+  Smartphone,
   Square,
   Star,
   StickyNote,
@@ -31,6 +40,8 @@ import {
   Type,
   User,
   UserRound,
+  Wallet,
+  WalletCards,
 } from 'lucide-react';
 import { ComponentType } from '@invogen/shared';
 
@@ -64,6 +75,35 @@ const ICON_BY_KEY: Record<string, LucideIcon> = {
   field_invoice: FileText,
   field_date: Calendar,
   field_due_date: CalendarClock,
+  field_company: Building2,
+  field_customer: UserRound,
+  field_payment: CreditCard,
+  field_heading: Heading1,
+  field_person: UserRound,
+  field_address: MapPin,
+  field_email: Mail,
+  field_phone: PhoneCall,
+  field_bank: Landmark,
+  field_account: Wallet,
+  field_ifsc: Landmark,
+  field_upi: QrCode,
+  field_generic: Text,
+  library_phone: PhoneCall,
+  library_mobile: Smartphone,
+  library_email: Mail,
+  library_at: AtSign,
+  library_address: MapPinned,
+  library_person: UserRound,
+  library_building: Building2,
+  library_bank: Landmark,
+  library_card: CreditCard,
+  library_wallet: WalletCards,
+  library_gst: Hash,
+  library_pan: IdCard,
+  library_calendar: CalendarDays,
+  library_globe: Globe2,
+  library_upi: QrCode,
+  library_verified: ShieldCheck,
   context_page_no: Sigma,
   context_note: StickyNote,
   context_footer: Type,
@@ -85,6 +125,8 @@ const TYPE_FALLBACK: Record<string, LucideIcon> = {
   [ComponentType.DUE_DATE]: CalendarClock,
   [ComponentType.GST_NUMBER]: Hash,
   [ComponentType.PAN_NUMBER]: IdCard,
+  [ComponentType.FIELD]: Hash,
+  [ComponentType.ICON]: Shapes,
   [ComponentType.PAYMENT_DETAILS]: CreditCard,
   [ComponentType.PRODUCT_TABLE]: Table2,
   [ComponentType.INVOICE_TABLE]: Table2,
@@ -109,4 +151,10 @@ const TYPE_FALLBACK: Record<string, LucideIcon> = {
 export function getAssetIcon(type: string, iconKey?: string): LucideIcon {
   if (iconKey && ICON_BY_KEY[iconKey]) return ICON_BY_KEY[iconKey];
   return TYPE_FALLBACK[type] ?? Shapes;
+}
+
+/** Resolve icon for a stored field/card iconKey (canvas + palette). */
+export function getIconByKey(iconKey: string | null | undefined): LucideIcon | null {
+  if (!iconKey) return null;
+  return ICON_BY_KEY[iconKey] ?? null;
 }

@@ -21,6 +21,7 @@ export {
   pageNeedsReflow,
   previewPagesNeedReflow,
   builderPagesNeedLayout,
+  collectIntentionalOverlapElementIds,
   touchLogicalFlowY,
   type DocumentLayoutOptions,
   type PreviewReflowOptions,

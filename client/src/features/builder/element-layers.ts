@@ -118,6 +118,12 @@ const LAYER_TYPE_LABELS: Record<string, string> = {
   footer: 'Footer',
   notes: 'Note',
   terms: 'Terms & conditions',
+  icon: 'Icon',
+  field: 'Field',
+  company_card: 'Company card',
+  customer_card: 'Customer card',
+  payment_details: 'Payment details',
+  address: 'Address',
 };
 
 export function getLayerLabel(element: CanvasElement): string {
@@ -126,6 +132,10 @@ export function getLayerLabel(element: CanvasElement): string {
     return typeLabel ?? element.type.replace(/_/g, ' ');
   }
   const props = (element.props ?? {}) as Record<string, unknown>;
+  if (element.type === 'icon' && typeof props.iconKey === 'string' && props.iconKey.trim()) {
+    const key = props.iconKey.trim();
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  }
   if (typeof props.alt === 'string' && props.alt.trim()) return props.alt.trim();
   if (typeof props.text === 'string' && props.text.trim()) {
     const t = props.text.trim();
@@ -368,16 +378,24 @@ export function getElementSlotOverflow(
     isSelected?: boolean;
     isEditing?: boolean;
     isShapeCropMode?: boolean;
+    /** Intentional design overlaps must stay visible (builder + preview). */
+    allowOverlapOverflow?: boolean;
   } = {}
 ): 'visible' | 'hidden' {
-  const { isSelected = false, isEditing = false, isShapeCropMode = false } = options;
+  const {
+    isSelected = false,
+    isEditing = false,
+    isShapeCropMode = false,
+    allowOverlapOverflow = false,
+  } = options;
   const elementProps = (element.props ?? {}) as Record<string, unknown>;
   const elementRotation = getElementRotation(elementProps);
   const isTable = isTableElementType(element.type);
   const isImage = isImageComponentType(element.type);
 
   if (
-    isShapeCropMode
+    allowOverlapOverflow
+    || isShapeCropMode
     || (isImage && isSelected)
     || elementRotation !== 0
     || isTable

@@ -110,6 +110,27 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
     );
   }
 
+  if (element.type === ComponentType.PAYMENT_DETAILS) {
+    return patchCardElement(
+      element,
+      context,
+      {
+        bankName: 'BankName',
+        accountName: 'BankAccountName',
+        accountNumber: 'BankAccountNumber',
+        ifsc: 'BankIFSC',
+        upi: 'BankUPI',
+      },
+      [
+        { key: 'bankName', placeholder: 'HDFC Bank' },
+        { key: 'accountName', placeholder: 'Company Pvt Ltd' },
+        { key: 'accountNumber', placeholder: '50200012345678' },
+        { key: 'ifsc', placeholder: 'HDFC0001234' },
+        { key: 'upi', placeholder: 'company@hdfcbank' },
+      ]
+    );
+  }
+
   if (element.type === ComponentType.TERMS) {
     const termsText = context.TermsAndConditions?.trim();
     if (!termsText) return element;
@@ -143,11 +164,30 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
   }
 
   const dataKey = DATA_FIELD_KEYS[element.type as ComponentType];
+  if (element.type === ComponentType.FIELD) {
+    const props = (element.props ?? {}) as Record<string, unknown>;
+    const key = typeof props.dataKey === 'string' ? props.dataKey.trim() : '';
+    if (!key) return element;
+    let value: string | undefined = context[key];
+    if (key === 'CompanyGST' || key === 'GST') {
+      value = context.CompanyGST ?? context.GST;
+    }
+    if (key === 'CompanyPAN' || key === 'PAN') {
+      value = context.CompanyPAN ?? context.PAN;
+    }
+    if (value == null || value === '') return element;
+    const nextProps: Record<string, unknown> = { ...props, value };
+    if ('textRuns' in nextProps) delete nextProps.textRuns;
+    return { ...element, props: nextProps };
+  }
   if (!dataKey) return element;
 
   let value: string | undefined = context[dataKey];
   if (element.type === ComponentType.GST_NUMBER) {
     value = context.CompanyGST ?? context.GST;
+  }
+  if (element.type === ComponentType.PAN_NUMBER) {
+    value = context.CompanyPAN ?? context.PAN;
   }
   if (value == null || value === '') return element;
 

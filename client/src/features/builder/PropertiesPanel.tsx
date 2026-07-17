@@ -42,6 +42,8 @@ import { RotationControlsPanel } from './RotationControlsPanel';
 import { resolveSelectedElementLocation } from './builder-selection';
 import { writeBuilderClipboard } from './builder-clipboard';
 import { estimateStructuredBlockHeight } from './structured-content-layout';
+import { LibraryIconTile } from './LibraryIconTile';
+import { inferFieldGlyphKey } from './icon-components';
 import {
   extractPlaceholderKeysFromText,
   placeholderFieldLabel,
@@ -642,6 +644,82 @@ export function PropertiesPanel() {
               />
             </div>
           )}
+          {element.type === ComponentType.FIELD && (() => {
+            const glyph =
+              typeof props.iconKey === 'string' && props.iconKey
+                ? props.iconKey
+                : inferFieldGlyphKey(props);
+            const isAddressField =
+              glyph === 'address'
+              || props.multiline === true
+              || (typeof props.dataKey === 'string' && /address/i.test(props.dataKey));
+
+            if (isAddressField) {
+              const logoOn = props.showIcon === true;
+              return (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-1 rounded-lg bg-gray-200/70 p-1">
+                    <button
+                      type="button"
+                      className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                        !logoOn
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                      onClick={() => updateProp('showIcon', false, true)}
+                    >
+                      Label
+                    </button>
+                    <button
+                      type="button"
+                      className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                        logoOn
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                      onClick={() => updateProp('showIcon', true, true)}
+                    >
+                      <LibraryIconTile iconKey={glyph} size={16} />
+                      Logo
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    {logoOn
+                      ? 'Logo only — no Address text label.'
+                      : 'Address label + text — no logo.'}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left transition-colors hover:border-primary/40"
+                onClick={() => updateProp('showIcon', !(props.showIcon === true), true)}
+              >
+                <span className="flex items-center gap-2">
+                  <LibraryIconTile
+                    iconKey={glyph}
+                    variant={props.showIcon === true ? 'solid' : 'soft'}
+                    size={22}
+                  />
+                  <span className="text-sm text-gray-700">Show icon before value</span>
+                </span>
+                <span
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                    props.showIcon === true ? 'bg-primary' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                      props.showIcon === true ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                  />
+                </span>
+              </button>
+            );
+          })()}
         </div>
       )}
 

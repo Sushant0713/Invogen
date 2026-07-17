@@ -14,12 +14,16 @@ export enum ComponentType {
   ADDRESS = 'address',
   GST_NUMBER = 'gst_number',
   PAN_NUMBER = 'pan_number',
+  /** Standalone labeled value bound via props.dataKey (company/customer/payment fields). */
+  FIELD = 'field',
   INVOICE_NUMBER = 'invoice_number',
   DATE = 'date',
   DUE_DATE = 'due_date',
   TERMS = 'terms',
   NOTES = 'notes',
   PAYMENT_DETAILS = 'payment_details',
+  /** Decorative / attachable UI icon from the asset library. */
+  ICON = 'icon',
   QR_CODE = 'qr_code',
   BARCODE = 'barcode',
   SIGNATURE = 'signature',

@@ -39,6 +39,9 @@ export function useInsertAsset() {
       }
 
       const element = createCanvasElement(item.type, x, y, props, margins);
+      if (item.type === ComponentType.ICON) {
+        element.pinned = true;
+      }
       dispatch(addElement(element));
       recordAssetUse(item.id);
     },
