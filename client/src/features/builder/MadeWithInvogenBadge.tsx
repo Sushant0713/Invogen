@@ -35,7 +35,7 @@ export function MadeWithInvogenBadge({
 
   return (
     <div
-      className="pointer-events-none absolute bottom-5 left-6 z-[9999] flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md ring-1 ring-black/10"
+      className="pointer-events-none absolute bottom-2 left-3 z-[9999] flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md ring-1 ring-black/10"
       data-made-with-invogen="true"
       aria-hidden
     >

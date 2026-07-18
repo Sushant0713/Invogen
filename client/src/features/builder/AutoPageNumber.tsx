@@ -37,7 +37,7 @@ export function AutoPageNumber({
   return (
     <div
       className={cn(
-        'pointer-events-none absolute bottom-5 right-6 z-[9998] select-none',
+        'pointer-events-none absolute bottom-2 right-3 z-[9998] select-none',
         className
       )}
       data-auto-page-number="true"
