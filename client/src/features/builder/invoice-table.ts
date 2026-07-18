@@ -486,6 +486,9 @@ function normalizeInvoiceRows(
     columns.forEach((col) => {
       cells[col.id] = String(row.cells?.[col.id] ?? '');
     });
+    if (!String(cells[INVOICE_COL_UNITS] ?? '').trim()) {
+      cells[INVOICE_COL_UNITS] = '1';
+    }
     return {
       id: String(row.id || uuidv4()),
       name: String(row.name || `Row ${index + 1}`),

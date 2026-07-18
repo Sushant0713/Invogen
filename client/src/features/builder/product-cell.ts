@@ -4,10 +4,12 @@ import {
   updateCell,
   recalculateProductTable,
   resolveProductRateColumnId,
+  resolveProductQtyColumnId,
 } from './product-table';
 import {
   isInvoiceTable1Type,
   INVOICE_COL_RATE,
+  INVOICE_COL_UNITS,
   INVOICE_COL_DISCOUNT,
   updateInvoiceCell,
   recalculateInvoiceTable,
@@ -17,15 +19,18 @@ import {
 import {
   isInvoiceTable2Type,
   resolveInvoice2RateColumnId,
+  resolveInvoice2QtyColumnId,
   applyInvoice2CellEdits,
   recalculateInvoiceTable2,
   INVOICE2_COL_DISCOUNT,
   INVOICE2_COL_RATE,
+  INVOICE2_COL_QTY,
   type InvoiceTable2Props,
 } from './invoice-table-2';
 import {
   isInvoiceTable3Type,
   INVOICE3_COL_RATE,
+  INVOICE3_COL_QTY,
   INVOICE3_COL_DISCOUNT,
   updateInvoice3Cell,
   recalculateInvoiceTable3,
@@ -182,6 +187,27 @@ export function resolveTableRateColumnId(
   return resolveProductRateColumnId(columns, sampleCells);
 }
 
+function resolveTableQtyColumnId(
+  tableType: string,
+  columns: ProductTableColumn[],
+  sampleCells?: Record<string, string>
+): string | null {
+  if (isInvoiceTable2Type(tableType)) {
+    return resolveInvoice2QtyColumnId(columns, sampleCells) ?? INVOICE2_COL_QTY;
+  }
+  if (isInvoiceTable1Type(tableType)) {
+    return columns.some((col) => col.id === INVOICE_COL_UNITS)
+      ? INVOICE_COL_UNITS
+      : resolveProductQtyColumnId(columns, sampleCells) ?? INVOICE_COL_UNITS;
+  }
+  if (isInvoiceTable3Type(tableType)) {
+    return columns.some((col) => col.id === INVOICE3_COL_QTY)
+      ? INVOICE3_COL_QTY
+      : resolveProductQtyColumnId(columns, sampleCells) ?? INVOICE3_COL_QTY;
+  }
+  return resolveProductQtyColumnId(columns, sampleCells);
+}
+
 /**
  * Apply catalog product pick to product + rate columns and recalculate totals.
  * Pick/replace behavior matches the original path; product GST is stamped afterward.
@@ -203,6 +229,8 @@ export function applyProductPickToTable(
   const productValue = formatProductCellValue(product, showSku);
   const rateColId = resolveTableRateColumnId(tableType, table.columns, row.cells);
   const rateValue = formatProductPrice(product.price);
+  const qtyColId = resolveTableQtyColumnId(tableType, table.columns, row.cells);
+  const needsDefaultQty = Boolean(qtyColId && !String(row.cells[qtyColId] ?? '').trim());
   const discountColId = resolveTableDiscountColumnId(tableType, table.columns);
   const discountMode = resolveTableDiscountMode(table);
   const discountValue = discountColId ? formatProductDiscount(product, discountMode) : null;
@@ -211,6 +239,9 @@ export function applyProductPickToTable(
 
   if (isInvoiceTable2Type(tableType)) {
     const edits = [{ rowId: resolvedRowId, columnId: productColumnId, value: productValue }];
+    if (needsDefaultQty && qtyColId) {
+      edits.push({ rowId: resolvedRowId, columnId: qtyColId, value: '1' });
+    }
     if (rateColId && rateValue) {
       edits.push({ rowId: resolvedRowId, columnId: rateColId, value: rateValue });
       if (rateColId !== INVOICE2_COL_RATE) {
@@ -229,6 +260,9 @@ export function applyProductPickToTable(
       productValue,
       tax
     );
+    if (needsDefaultQty && qtyColId) {
+      updated = updateInvoiceCell(updated, resolvedRowId, qtyColId, '1', tax);
+    }
     if (rateColId && rateValue) {
       updated = updateInvoiceCell(updated, resolvedRowId, rateColId, rateValue, tax);
       if (rateColId !== INVOICE_COL_RATE) {
@@ -247,6 +281,9 @@ export function applyProductPickToTable(
       productValue,
       tax
     );
+    if (needsDefaultQty && qtyColId) {
+      updated = updateInvoice3Cell(updated, resolvedRowId, qtyColId, '1', tax);
+    }
     if (rateColId && rateValue) {
       updated = updateInvoice3Cell(updated, resolvedRowId, rateColId, rateValue, tax);
       if (rateColId !== INVOICE3_COL_RATE) {
@@ -259,6 +296,9 @@ export function applyProductPickToTable(
     next = updated;
   } else {
     let updated = updateCell(table, resolvedRowId, productColumnId, productValue);
+    if (needsDefaultQty && qtyColId) {
+      updated = updateCell(updated, resolvedRowId, qtyColId, '1');
+    }
     if (rateColId && rateValue) {
       updated = updateCell(updated, resolvedRowId, rateColId, rateValue);
     }

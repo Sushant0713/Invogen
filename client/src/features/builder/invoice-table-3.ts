@@ -91,7 +91,9 @@ function getFixedColumnDefs(
 function buildEmptyRowCells(columns: ProductTableColumn[]): Record<string, string> {
   const cells: Record<string, string> = {};
   for (const col of columns) {
-    if (
+    if (col.id === INVOICE3_COL_QTY) {
+      cells[col.id] = '1';
+    } else if (
       col.id === INVOICE3_COL_DISCOUNT
       || col.id === INVOICE3_COL_GST
       || col.id === INVOICE3_COL_TOTAL
@@ -426,9 +428,14 @@ function normalizeRows(
     columns.forEach((col) => {
       const raw = row.cells?.[col.id];
       if (raw !== undefined && raw !== null) {
+        // Blank qty keeps the default of 1 from emptyCells.
+        if (col.id === INVOICE3_COL_QTY && !String(raw).trim()) return;
         cells[col.id] = String(raw);
       }
     });
+    if (!String(cells[INVOICE3_COL_QTY] ?? '').trim()) {
+      cells[INVOICE3_COL_QTY] = '1';
+    }
     return {
       id: String(row.id || uuidv4()),
       name: String(row.name || `Row ${index + 1}`),
