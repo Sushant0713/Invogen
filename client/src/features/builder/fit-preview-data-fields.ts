@@ -1,7 +1,6 @@
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { ComponentType } from '@invogen/shared';
 import { getPageDimensions } from './builder-dnd';
-import { isImageComponentType } from './image-components';
 import {
   boxesHorizontallyOverlap,
   contentRectsCollide,
@@ -21,54 +20,63 @@ function verticallyOverlaps(a: CanvasElement, b: CanvasElement, pad = 4): boolea
   return a.y < b.y + b.height + pad && b.y < a.y + a.height + pad;
 }
 
-function isMediaBlocker(type: string): boolean {
-  return isImageComponentType(type) || type === ComponentType.ICON;
+/**
+ * Only real header chrome may shrink a field horizontally.
+ * Generic IMAGE / watermark / side-by-side fields must NOT — that crushed
+ * Bill To columns against neighbors and full-bleed decorative images.
+ */
+function isHorizontalChromeBlocker(type: string): boolean {
+  return (
+    type === ComponentType.LOGO
+    || type === ComponentType.SIGNATURE
+    || type === ComponentType.ICON
+  );
 }
 
-/** Horizontal clamp against neighbors/logos. May inset `x` only for left-side media. */
+/**
+ * Keep authored column widths. Only inset/clamp for logo/signature/icon that
+ * actually sits beside the field — never for every element to the right.
+ */
 function clampFieldHorizontally(
   field: CanvasElement,
   elements: CanvasElement[],
-  pageRight: number,
-  originalElements?: CanvasElement[]
+  pageRight: number
 ): { x: number; width: number } {
   const authoredRight = field.x + field.width;
   let minLeft = field.x;
-  let maxRight = pageRight;
+  // Prefer authored right; only pull in for page edge or chrome.
+  let maxRight = Math.min(authoredRight, pageRight);
 
   for (const other of elements) {
     if (other.id === field.id || other.visible === false) continue;
-
-    const isMedia = isMediaBlocker(other.type);
-    if (
-      !isMedia
-      && originalElements
-      && shouldPreserveDesignOverlap(field, other, originalElements)
-    ) {
-      continue;
-    }
+    if (!isHorizontalChromeBlocker(other.type)) continue;
     if (!verticallyOverlaps(field, other)) continue;
-
-    if (isMedia && other.x < authoredRight && other.x + other.width > field.x) {
-      // Media to the right of the field origin — clamp right edge.
-      if (other.x > field.x + 2) {
-        maxRight = Math.min(maxRight, other.x - FLOW_GAP_PX);
-        continue;
-      }
-      // Media overlapping from the left — inset start so text clears the logo.
-      minLeft = Math.max(minLeft, other.x + other.width + FLOW_GAP_PX);
+    if (other.x >= authoredRight - PUSH_TOLERANCE_PX || other.x + other.width <= field.x + PUSH_TOLERANCE_PX) {
       continue;
     }
 
-    // Non-media blocker starting to the right.
+    // Chrome starting to the right of the field origin — clamp right edge.
     if (other.x > field.x + 2) {
       maxRight = Math.min(maxRight, other.x - FLOW_GAP_PX);
+      continue;
+    }
+
+    // Chrome from the left — inset only when it occupies the left half
+    // (typical logo beside text). Full-bleed / centered graphics are ignored
+    // so columns are not collapsed to ~48px.
+    const chromeRight = other.x + other.width;
+    if (chromeRight < field.x + field.width * 0.5) {
+      minLeft = Math.max(minLeft, chromeRight + FLOW_GAP_PX);
     }
   }
 
   const nextX = minLeft;
-  const nextWidth = Math.max(48, Math.min(authoredRight, maxRight) - nextX);
-  return { x: nextX, width: nextWidth };
+  const nextWidth = Math.max(24, maxRight - nextX);
+  // Never expand past authored width; never invent a crush floor of 48 against columns.
+  return {
+    x: nextX,
+    width: Math.min(field.width - (nextX - field.x), nextWidth),
+  };
 }
 
 function estimateNeededFieldHeight(
@@ -188,7 +196,7 @@ export function fitOverflowingDataFields(
       const fontSize =
         typeof style.fontSize === 'number' && style.fontSize > 0 ? style.fontSize : 14;
 
-      const clamped = clampFieldHorizontally(element, elements, pageRight, originalElements);
+      const clamped = clampFieldHorizontally(element, elements, pageRight);
       const nextX = clamped.x;
       const nextWidth = clamped.width;
       const widthChanged = nextX !== element.x || nextWidth !== element.width;
