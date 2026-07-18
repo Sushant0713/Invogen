@@ -21,6 +21,7 @@ import {
 import { extractPlaceholderKeys } from '@/features/template-gallery/placeholder-utils';
 import { fetchTemplateDocument } from '@/features/template-gallery/template-loader';
 import { recordTemplateUse } from '@/features/template-gallery/template-manager';
+import { useFontsVersion } from '@/features/builder/use-fonts-version';
 
 export interface TemplateInvoiceLivePreviewPageProps {
   apiBase: string;
@@ -49,6 +50,8 @@ export function TemplateInvoiceLivePreviewPage({
     if (templateId) recordTemplateUse(templateId);
   }, [templateId]);
 
+  // Late web fonts change text metrics — re-run the prepared layout when they load.
+  const fontsVersion = useFontsVersion();
   const previewPages = useMemo((): TemplatePage[] => {
     if (!template?.pages?.length) return [];
     const normalized = normalizeComposerPages(template.pages);
@@ -56,7 +59,8 @@ export function TemplateInvoiceLivePreviewPage({
     const context = buildInitialFormContext(keys, undefined, normalized);
     const filled = applyInvoiceFormToPages(normalized, context);
     return prepareInvoiceLivePreviewPages(filled);
-  }, [template]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, fontsVersion]);
 
   const previewMaxWidth = useMemo(
     () => Math.min(920, Math.max(320, window.innerWidth - 48)),

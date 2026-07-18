@@ -10,10 +10,12 @@ import {
 } from './content-overlap';
 import {
   estimateWrappedLineCount,
+  measureFontFromProps,
 } from './structured-content-layout';
+import type { MeasureFont } from './text-measure';
 import { getDisplayText, getTextElementStyle, isDataFieldType } from './text-styles';
+import { FLOW_GAP_PX } from './layout-metrics';
 
-const FLOW_GAP_PX = 10;
 const PUSH_TOLERANCE_PX = 2;
 
 function verticallyOverlaps(a: CanvasElement, b: CanvasElement, pad = 4): boolean {
@@ -79,19 +81,28 @@ function clampFieldHorizontally(
   };
 }
 
+/** Line height in px matching getTextElementStyle (ratio, px value, or 1.45 default). */
+function fieldLineHeightPx(props: Record<string, unknown>, fontSize: number): number {
+  const raw = props.lineHeight;
+  if (typeof raw === 'number' && raw > 4) return raw;
+  if (typeof raw === 'number') return fontSize * raw;
+  return fontSize * 1.45;
+}
+
 function estimateNeededFieldHeight(
   text: string,
-  fontSize: number,
+  font: MeasureFont,
   width: number,
   props: Record<string, unknown>
 ): number {
+  const fontSize = font.fontSize;
   const showIcon = props.showIcon === true || props.addressHeaderMode === 'logo';
   const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
   const iconGap = showIcon ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
   const textBudget = Math.max(24, width - iconSize - iconGap);
   if (!text.trim()) return Math.max(iconSize, fontSize);
-  const lines = estimateWrappedLineCount(text, fontSize, textBudget);
-  return Math.max(iconSize, Math.ceil(lines * fontSize * 1.4));
+  const lines = estimateWrappedLineCount(text, fontSize, textBudget, font);
+  return Math.max(iconSize, Math.ceil(lines * fieldLineHeightPx(props, fontSize)));
 }
 
 /**
@@ -193,21 +204,23 @@ export function fitOverflowingDataFields(
       const props = (element.props ?? {}) as Record<string, unknown>;
       const text = getDisplayText(props, element.type);
       const style = getTextElementStyle(props, element.type);
+      const measured = measureFontFromProps(props, element.type);
       const fontSize =
         typeof style.fontSize === 'number' && style.fontSize > 0 ? style.fontSize : 14;
+      const font: MeasureFont = { ...measured, fontSize };
 
       const clamped = clampFieldHorizontally(element, elements, pageRight);
       const nextX = clamped.x;
       const nextWidth = clamped.width;
       const widthChanged = nextX !== element.x || nextWidth !== element.width;
 
-      const neededHeight = estimateNeededFieldHeight(text, fontSize, nextWidth, props);
+      const neededHeight = estimateNeededFieldHeight(text, font, nextWidth, props);
       const showIcon = props.showIcon === true || props.addressHeaderMode === 'logo';
       const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
       const iconGap = showIcon ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
       const textBudget = Math.max(24, nextWidth - iconSize - iconGap);
       const wrapLines = text.trim()
-        ? estimateWrappedLineCount(text, fontSize, textBudget)
+        ? estimateWrappedLineCount(text, fontSize, textBudget, font)
         : 0;
       // Grow only when wrap/multiline/clamp needs it — avoid reflowing every short label.
       const shouldGrowHeight =

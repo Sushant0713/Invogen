@@ -11,7 +11,7 @@ import {
   getElementOverflowPolicy,
 } from './layout-intent';
 import { getDisplayText, getTextElementStyle, isDataFieldType } from './text-styles';
-import { estimateWrappedLineCount } from './structured-content-layout';
+import { estimateWrappedLineCount, measureFontFromProps } from './structured-content-layout';
 import { isTableElementType } from './product-table';
 
 export type LayoutWarningKind =
@@ -77,7 +77,8 @@ function fieldNeedsMoreHeight(element: CanvasElement): boolean {
   const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
   const iconGap = showIcon ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
   const budget = Math.max(24, element.width - iconSize - iconGap);
-  const lines = estimateWrappedLineCount(text, fontSize, budget);
+  const font = { ...measureFontFromProps(props, element.type), fontSize };
+  const lines = estimateWrappedLineCount(text, fontSize, budget, font);
   const needed = Math.max(iconSize, Math.ceil(lines * fontSize * 1.4));
   return needed > element.height + 2;
 }

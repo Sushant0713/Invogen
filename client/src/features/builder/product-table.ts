@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeShowProductSku } from './product-settings';
+import { countWrappedLines, measureTextWidth, type MeasureFont } from './text-measure';
 
 export type TableTextAlign = 'left' | 'center' | 'right' | 'justify';
 
@@ -235,6 +236,8 @@ function normalizeRows(
     columns.forEach((col) => {
       if (isSerialColumn(col)) {
         cells[col.id] = String(index + 1);
+      } else if (isQuantityColumn(col) && !String(row.cells?.[col.id] ?? '').trim()) {
+        cells[col.id] = '1';
       } else {
         cells[col.id] = String(row.cells?.[col.id] ?? '');
       }
@@ -978,18 +981,25 @@ export function computeTableHeight(props: ProductTableProps) {
 
 const CELL_PADDING_X_PX = 16;
 const CELL_PADDING_Y_PX = 8;
-const DEFAULT_CELL_LINE_HEIGHT_RATIO = 1.4;
+/** Must match cellTextStyle's lineHeight in ProductTableView. */
+export const TABLE_CELL_LINE_HEIGHT = 1.35;
+const DEFAULT_CELL_LINE_HEIGHT_RATIO = TABLE_CELL_LINE_HEIGHT;
+const CELL_FONT_FAMILY_FALLBACK = 'Inter, sans-serif';
 
-function estimateCharsPerLine(columnWidthPx: number, fontSize: number): number {
-  const innerWidth = Math.max(20, columnWidthPx - CELL_PADDING_X_PX);
-  const avgCharWidth = Math.max(4, fontSize * 0.55);
-  return Math.max(1, Math.floor(innerWidth / avgCharWidth));
+/** Real cell font for measurement — mirrors cellTextStyle in ProductTableView. */
+function cellMeasureFont(style: TableCellStyle, isHeader: boolean): MeasureFont {
+  return {
+    fontFamily: style.fontFamily ?? CELL_FONT_FAMILY_FALLBACK,
+    fontSize: style.fontSize ?? 12,
+    fontWeight: style.fontWeight ?? (isHeader ? 600 : 400),
+    italic: style.italic === true,
+  };
 }
 
-function estimateMinColumnWidthPx(text: string, fontSize: number): number {
+function estimateMinColumnWidthPx(text: string, font: MeasureFont): number {
   const trimmed = text.trim();
   if (!trimmed) return MIN_COL_WIDTH_PX;
-  return Math.ceil(trimmed.length * fontSize * 0.55 + CELL_PADDING_X_PX);
+  return Math.ceil(measureTextWidth(trimmed, font) + CELL_PADDING_X_PX);
 }
 
 function maxColumnWidthForPreview(
@@ -1046,7 +1056,7 @@ export function fitTableColumnWidthsForPreview(
 
   visibleColumns.forEach((col, index) => {
     const label = displayColumnLabel(col);
-    const fontSize = getTableCellStyle(props, null, col.id, true).fontSize ?? 12;
+    const font = cellMeasureFont(getTableCellStyle(props, null, col.id, true), true);
     const maxWidth = maxColumnWidthForPreview(
       containerWidthPx,
       visibleColumns.length,
@@ -1054,7 +1064,7 @@ export function fitTableColumnWidthsForPreview(
     );
     targetWidths[index] = Math.max(
       targetWidths[index],
-      Math.min(estimateMinColumnWidthPx(label, fontSize), maxWidth)
+      Math.min(estimateMinColumnWidthPx(label, font), maxWidth)
     );
   });
 
@@ -1063,10 +1073,13 @@ export function fitTableColumnWidthsForPreview(
       if (isSerialColumn(col)) return;
       const raw = String(row.cells[col.id] ?? '');
       if (!raw.trim()) return;
-      const fontSize = getTableCellStyle(props, row.id, col.id, false).fontSize ?? 12;
-      const longestLine = raw
+      const font = cellMeasureFont(getTableCellStyle(props, row.id, col.id, false), false);
+      const widestLine = raw
         .split('\n')
-        .reduce((max, line) => (line.length > max.length ? line : max), '');
+        .reduce(
+          (max, line) => Math.max(max, estimateMinColumnWidthPx(line, font)),
+          0
+        );
       const maxWidth = maxColumnWidthForPreview(
         containerWidthPx,
         visibleColumns.length,
@@ -1074,7 +1087,7 @@ export function fitTableColumnWidthsForPreview(
       );
       targetWidths[index] = Math.max(
         targetWidths[index],
-        Math.min(estimateMinColumnWidthPx(longestLine, fontSize), maxWidth)
+        Math.min(widestLine, maxWidth)
       );
     });
   }
@@ -1088,39 +1101,14 @@ export function fitTableColumnWidthsForPreview(
   return { ...props, columns };
 }
 
-function estimateWrappedLineCount(text: string, columnWidthPx: number, fontSize: number): number {
+function estimateWrappedLineCount(
+  text: string,
+  columnWidthPx: number,
+  font: MeasureFont
+): number {
   if (!text.trim()) return 1;
-  const charsPerLine = estimateCharsPerLine(columnWidthPx, fontSize);
-  return text.split('\n').reduce((total, paragraph) => {
-    const trimmed = paragraph.trim();
-    if (!trimmed) return total + 1;
-    const words = trimmed.split(/\s+/);
-    let lines = 1;
-    let currentLen = 0;
-    for (const word of words) {
-      const wordLen = word.length;
-      if (wordLen > charsPerLine) {
-        if (currentLen > 0) {
-          lines += 1;
-          currentLen = 0;
-        }
-        lines += Math.ceil(wordLen / charsPerLine);
-        currentLen = wordLen % charsPerLine;
-        continue;
-      }
-      if (currentLen === 0) {
-        currentLen = wordLen;
-        continue;
-      }
-      if (currentLen + 1 + wordLen <= charsPerLine) {
-        currentLen += 1 + wordLen;
-      } else {
-        lines += 1;
-        currentLen = wordLen;
-      }
-    }
-    return total + Math.max(1, lines);
-  }, 0);
+  const innerWidth = Math.max(20, columnWidthPx - CELL_PADDING_X_PX);
+  return countWrappedLines(text, font, innerWidth);
 }
 
 function resolveColumnWidths(
@@ -1144,11 +1132,11 @@ export function fitTableHeaderHeightToText(
   let maxFontSize = 12;
   visibleColumns.forEach((col, index) => {
     const label = displayColumnLabel(col);
-    const fontSize = getTableCellStyle(props, null, col.id, true).fontSize ?? 12;
-    maxFontSize = Math.max(maxFontSize, fontSize);
+    const font = cellMeasureFont(getTableCellStyle(props, null, col.id, true), true);
+    maxFontSize = Math.max(maxFontSize, font.fontSize);
     maxLines = Math.max(
       maxLines,
-      estimateWrappedLineCount(label, widths[index], fontSize)
+      estimateWrappedLineCount(label, widths[index], font)
     );
   });
 
@@ -1176,11 +1164,11 @@ export function fitTableRowHeightsToText(
       if (isSerialColumn(col)) return;
       if (!options?.includeAllTextColumns && !isTableWrapFriendlyColumn(col)) return;
       const cellText = String(row.cells[col.id] ?? '');
-      const fontSize = getTableCellStyle(props, row.id, col.id, false).fontSize ?? 12;
-      maxFontSize = Math.max(maxFontSize, fontSize);
+      const font = cellMeasureFont(getTableCellStyle(props, row.id, col.id, false), false);
+      maxFontSize = Math.max(maxFontSize, font.fontSize);
       maxLines = Math.max(
         maxLines,
-        estimateWrappedLineCount(cellText, widths[index], fontSize)
+        estimateWrappedLineCount(cellText, widths[index], font)
       );
     });
     const lineHeight = maxFontSize * DEFAULT_CELL_LINE_HEIGHT_RATIO;
@@ -1225,12 +1213,18 @@ export function createEmptyColumn(
   };
 }
 
+function isQuantityColumn(col: ProductTableColumn): boolean {
+  if (col.id === 'col_units' || col.id === 'col_qty') return true;
+  const label = String(col.label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return /^(qty|quantity|units?)$/.test(label);
+}
+
 export function createEmptyRow(columns: ProductTableColumn[], index: number): ProductTableRow {
   const cells: Record<string, string> = {};
   columns.forEach((col) => {
     if (isSerialColumn(col)) {
       cells[col.id] = String(index);
-    } else if (col.id === 'col_units' || col.id === 'col_qty') {
+    } else if (isQuantityColumn(col)) {
       cells[col.id] = '1';
     } else {
       cells[col.id] = '';

@@ -37,6 +37,10 @@ import { normalizeDocumentFooters } from '@/features/builder/document-footer';
 import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
 import { reflowPagesForPreview } from '@/features/builder/document-layout';
 import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
+import {
+  assertLayoutIdempotent,
+  pagesGeometrySignature,
+} from '@/features/builder/layout-parity-debug';
 import { normalizeBuilderPagesForEditor } from '@/features/builder/preview-page-reflow';
 import {
   applyProductPickToTable,
@@ -157,8 +161,35 @@ export function prepareInvoiceLivePreviewPages(
   if (!pages.length) return [];
   const trustTableProps = options.trustTableProps ?? true;
   const originalElements = pages.flatMap((p) => p.elements);
-  const reflowed = reflowPagesForPreview(cloneTemplatePages(pages), { trustTableProps });
-  return fitOverflowingDataFields(reflowed, originalElements);
+
+  // Fixpoint loop: field fitting can grow/push content AFTER page breaks were
+  // decided, which used to leave overflowing or colliding pages. Re-run the
+  // reflow on fitted geometry until a fit pass changes nothing (usually 1-2
+  // iterations — fitted heights are stable inputs to the next reflow).
+  let current = reflowPagesForPreview(cloneTemplatePages(pages), { trustTableProps });
+  let result = current;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const fitted = fitOverflowingDataFields(current, originalElements);
+    if (pagesGeometrySignature(fitted) === pagesGeometrySignature(current)) {
+      result = current;
+      break;
+    }
+    result = fitted;
+    const reflowed = reflowPagesForPreview(fitted, { trustTableProps });
+    if (pagesGeometrySignature(reflowed) === pagesGeometrySignature(fitted)) {
+      result = reflowed;
+      break;
+    }
+    current = reflowed;
+  }
+
+  assertLayoutIdempotent('prepareInvoiceLivePreviewPages', result, (out) =>
+    fitOverflowingDataFields(
+      reflowPagesForPreview(cloneTemplatePages(out), { trustTableProps }),
+      originalElements
+    )
+  );
+  return result;
 }
 
 export function deleteComposerPage(pages: TemplatePage[], pageId: string): TemplatePage[] {

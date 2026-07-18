@@ -90,6 +90,7 @@ import {
   fetchSavedInvoice,
   hydrateComposerFromSavedInvoice,
 } from './saved-invoice';
+import { useFontsVersion } from '@/features/builder/use-fonts-version';
 import { buildInvoiceTotalsFromPlaceholders } from './invoice-totals';
 
 export interface InvoiceComposerConfig {
@@ -498,9 +499,13 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     return savedInvoiceId ? payload : { ...payload, status: 'draft' };
   };
 
+  // Re-run table fitting / reflow when late web fonts change text metrics.
+  const fontsVersion = useFontsVersion();
+
   const displayPages = useMemo(
     () => recalculatePagesTables(workingPages, taxSettings),
-    [workingPages, taxSettings]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workingPages, taxSettings, fontsVersion]
   );
 
   const mergedFormContext = useMemo(() => {
@@ -515,7 +520,8 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
 
   const pagesForPreview = useMemo(
     () => (filledPages.length ? prepareInvoiceLivePreviewPages(filledPages) : []),
-    [filledPages]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filledPages, fontsVersion]
   );
 
   const templateName = template?.name ?? savedInvoice?.invoiceNumber ?? 'Invoice';

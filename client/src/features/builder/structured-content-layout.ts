@@ -1,6 +1,14 @@
 import { ComponentType } from '@invogen/shared';
 import { formatAddressValue, parseAddressFromProps } from './address-content';
 import { parseTermsFromProps } from './terms-content';
+import { countWrappedLines, type MeasureFont } from './text-measure';
+import {
+  ensureGoogleFontLoaded,
+  formatFontFamilyCss,
+  getFontCategory,
+  getGoogleFontsSync,
+  parseFontFamilyName,
+} from './google-fonts';
 
 const LINE_HEIGHT = 1.45;
 const PADDING = 16;
@@ -20,62 +28,97 @@ function fontSizeFromProps(props: Record<string, unknown>, type: string): number
   return type === ComponentType.HEADING ? 24 : 14;
 }
 
-/** Rough wrapped line count for a fixed container width. */
-export function estimateWrappedLineCount(text: string, fontSize: number, width: number): number {
-  if (!text) return 0;
-
-  const avgCharWidth = fontSize * 0.52;
-  const charsPerLine = Math.max(8, Math.floor(width / avgCharWidth));
-  let lines = 0;
-
-  for (const paragraph of text.split('\n')) {
-    const len = paragraph.length;
-    if (!len) {
-      lines += 1;
-      continue;
-    }
-    lines += Math.ceil(len / charsPerLine);
-  }
-
-  return Math.max(1, lines);
+/** Real font for measurement — mirrors getTextElementStyle's font resolution. */
+export function measureFontFromProps(
+  props: Record<string, unknown>,
+  type: string
+): MeasureFont {
+  const familyName = parseFontFamilyName(props.fontFamily as string | undefined);
+  ensureGoogleFontLoaded(familyName);
+  const category = getFontCategory(familyName, getGoogleFontsSync());
+  return {
+    fontFamily: formatFontFamilyCss(familyName, category),
+    fontSize: fontSizeFromProps(props, type),
+    fontWeight: (props.fontWeight as number) || 400,
+    italic: props.italic === true,
+    letterSpacingPx:
+      typeof props.letterSpacing === 'number' ? props.letterSpacing : undefined,
+  };
 }
 
+/**
+ * Wrapped line count for a fixed container width, measured with the element's
+ * real font (canvas measureText greedy breaker). `font` should come from
+ * measureFontFromProps; when omitted, a generic font at `fontSize` is used.
+ */
+export function estimateWrappedLineCount(
+  text: string,
+  fontSize: number,
+  width: number,
+  font?: MeasureFont
+): number {
+  if (!text) return 0;
+  return countWrappedLines(text, font ?? { fontSize }, width);
+}
+
+/** Matches StructuredContentSizer's HEIGHT_PAD — builder-measured heights carry it. */
+const SIZER_PAD = 2;
+/** Matches OUTLINE_NUMBER_COLUMN ('3.5em') in TermsDisplay's numbered grid. */
+const TERMS_NUMBER_COLUMN_EM = 3.5;
+
+/**
+ * Mirror TermsDisplay / AddressDisplay geometry EXACTLY — margins are em of
+ * fontSize, list gutter is 3.5em, and neither component has vertical padding.
+ * (The old model used line-height fractions, a 28px gutter, and +16 padding,
+ * which over-estimated by roughly one line and desynced preview from builder.)
+ */
 export function estimateStructuredBlockHeight(
   type: string,
   props: Record<string, unknown>,
   width = 280,
   minHeight = MIN_HEIGHT
 ): number {
-  const fontSize = fontSizeFromProps(props, type);
+  const font = measureFontFromProps(props, type);
+  const fontSize = font.fontSize;
   const linePx = fontSize * LINE_HEIGHT;
   const safeWidth = Math.max(120, width);
+  const titleFont = { ...font, fontWeight: Math.max(font.fontWeight ?? 400, 600) };
 
   if (type === ComponentType.ADDRESS) {
     const data = parseAddressFromProps(props);
-    let lineCount = 0;
-    if (data.title.trim()) {
-      lineCount += estimateWrappedLineCount(data.title, fontSize, safeWidth);
-    }
     const body = formatAddressValue(data);
-    for (const part of body.split('\n')) {
-      lineCount += estimateWrappedLineCount(part, fontSize, safeWidth);
+    const hasBody = body.trim().length > 0;
+    const showLogo = props.addressHeaderMode === 'logo';
+    let height = 0;
+    if (data.title.trim() && !showLogo) {
+      height += estimateWrappedLineCount(data.title, fontSize, safeWidth, titleFont) * linePx;
+      if (hasBody) height += 0.35 * fontSize; // title marginBottom
     }
-    return Math.max(minHeight, Math.ceil(lineCount * linePx + PADDING));
+    if (hasBody) {
+      const iconSize = showLogo ? Math.round(fontSize * 1.35) : 0;
+      const iconGap = showLogo ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
+      const bodyWidth = Math.max(40, safeWidth - iconSize - iconGap);
+      const bodyLines = estimateWrappedLineCount(body, fontSize, bodyWidth, font);
+      height += Math.max(bodyLines * linePx, iconSize);
+    }
+    return Math.max(minHeight, Math.ceil(height + SIZER_PAD));
   }
 
   if (type === ComponentType.TERMS) {
     const { title, items } = parseTermsFromProps(props);
-    let lineCount = 0;
+    let height = 0;
     if (title.trim()) {
-      lineCount += estimateWrappedLineCount(title, fontSize, safeWidth);
-      lineCount += 0.35; // title margin
+      height += estimateWrappedLineCount(title, fontSize, safeWidth, titleFont) * linePx;
+      height += 0.45 * fontSize; // title marginBottom
     }
+    const itemWidth = Math.max(40, safeWidth - TERMS_NUMBER_COLUMN_EM * fontSize);
     for (const item of items) {
       if (!item.trim()) continue;
-      lineCount += estimateWrappedLineCount(item, fontSize, safeWidth - 28); // numbered column
-      lineCount += 0.2; // item gap
+      const lines = estimateWrappedLineCount(item, fontSize, itemWidth, font);
+      height += Math.max(lines * linePx, 1.45 * fontSize); // li minHeight 1.45em
+      height += 0.2 * fontSize; // li marginBottom
     }
-    return Math.max(minHeight, Math.ceil(lineCount * linePx + PADDING));
+    return Math.max(minHeight, Math.ceil(height + SIZER_PAD));
   }
 
   return minHeight;
@@ -102,17 +145,17 @@ export function estimateTextBlockHeight(
   width: number,
   minHeight = MIN_HEIGHT
 ): number {
-  const fontSize = fontSizeFromProps(props, type);
-  const linePx = lineHeightPx(props, fontSize);
-  const safeWidth = Math.max(80, width);
-  const padding =
+  const font = measureFontFromProps(props, type);
+  const linePx = lineHeightPx(props, font.fontSize);
+  // paddingLeft / textIndent shrink the wrappable text width, not the height.
+  const insets =
     (typeof props.paddingLeft === 'number' ? props.paddingLeft : 0)
-    + (typeof props.textIndent === 'number' ? props.textIndent : 0)
-    + PADDING;
+    + (typeof props.textIndent === 'number' ? props.textIndent : 0);
+  const safeWidth = Math.max(40, Math.max(80, width) - insets);
   const content = resolveTextBlockContent(props);
-  const lineCount = estimateWrappedLineCount(content, fontSize, safeWidth);
+  const lineCount = estimateWrappedLineCount(content, font.fontSize, safeWidth, font);
   if (lineCount === 0) return minHeight;
-  return Math.max(minHeight, Math.ceil(lineCount * linePx + padding));
+  return Math.max(minHeight, Math.ceil(lineCount * linePx + PADDING));
 }
 
 export function isStructuredContentType(type: string): boolean {

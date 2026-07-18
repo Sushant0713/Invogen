@@ -1,5 +1,13 @@
 import { ComponentType } from '@invogen/shared';
 import { resolveCardLineGlyphKey } from './icon-components';
+import { countWrappedLines, type MeasureFont } from './text-measure';
+import {
+  ensureGoogleFontLoaded,
+  formatFontFamilyCss,
+  getFontCategory,
+  getGoogleFontsSync,
+  parseFontFamilyName,
+} from './google-fonts';
 
 export type CardFieldDef = {
   key: string;
@@ -265,11 +273,35 @@ export function estimateCardBlockHeight(
   width: number,
   minHeight: number
 ): number {
-  void width;
   const lines = getCardDisplayLines(type, props);
   if (lines.length === 0) return minHeight;
   const fontSize =
     typeof props.fontSize === 'number' && props.fontSize > 0 ? props.fontSize : 12;
-  const contentHeight = lines.length * fontSize * CARD_PREVIEW_LINE_HEIGHT;
+  const familyName = parseFontFamilyName(props.fontFamily as string | undefined);
+  ensureGoogleFontLoaded(familyName);
+  const baseFont: MeasureFont = {
+    fontFamily: formatFontFamilyCss(
+      familyName,
+      getFontCategory(familyName, getGoogleFontsSync())
+    ),
+    fontSize,
+    fontWeight: (props.fontWeight as number) || 400,
+    italic: props.italic === true,
+  };
+  // Mirrors CardView: icon lines lose iconSize + gap of wrappable width.
+  const iconSize = Math.round(fontSize * 1.35);
+  const iconGap = Math.max(4, Math.round(fontSize * 0.4));
+
+  let lineCount = 0;
+  for (const line of lines) {
+    const budget = Math.max(
+      24,
+      width - (line.iconKey ? iconSize + iconGap : 0)
+    );
+    const font: MeasureFont = line.bold ? { ...baseFont, fontWeight: 700 } : baseFont;
+    lineCount += countWrappedLines(line.text, font, budget);
+  }
+
+  const contentHeight = lineCount * fontSize * CARD_PREVIEW_LINE_HEIGHT;
   return Math.max(minHeight, Math.ceil(contentHeight + CARD_PREVIEW_VERTICAL_PADDING_PX));
 }

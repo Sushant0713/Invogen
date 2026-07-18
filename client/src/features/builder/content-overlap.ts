@@ -6,6 +6,7 @@ import {
   estimateStructuredBlockHeight,
   estimateWrappedLineCount,
   isStructuredContentType,
+  measureFontFromProps,
 } from './structured-content-layout';
 import { isTableElementType } from './product-table';
 import { getDisplayText, getTextElementStyle, isDataFieldType, isTextStylable } from './text-styles';
@@ -16,7 +17,14 @@ export function isOpaqueChromeElement(element: CanvasElement): boolean {
   if (element.type === ComponentType.WATERMARK) return true;
   if (element.type === ComponentType.PAGE_NUMBER) return true;
   if (element.type === ComponentType.ICON) return true;
-  if (isImageComponentType(element.type)) return true;
+  // Document footers are band-positioned by the reflow engine — the data-field
+  // fit pass must never cascade-push them (that shoved footers off the page).
+  if (element.type === ComponentType.FOOTER) return true;
+  // SIGNATURE flows with content (pushed below grown terms/tables) — see
+  // isFixedChromeElement in preview-page-reflow.
+  if (isImageComponentType(element.type) && element.type !== ComponentType.SIGNATURE) {
+    return true;
+  }
   const props = (element.props ?? {}) as Record<string, unknown>;
   return props.fixedInFlow === true;
 }
@@ -182,7 +190,11 @@ export function estimateContentBounds(element: CanvasElement): ContentRect {
       text.includes('\n') ? 'x'.repeat(longestLine) : text,
       fontSize
     );
-    const lines = estimateWrappedLineCount(text, fontSize, textWidthBudget);
+    const font = measureFontFromProps(props, element.type);
+    const lines = estimateWrappedLineCount(text, fontSize, textWidthBudget, {
+      ...font,
+      fontSize,
+    });
     const contentW = Math.min(
       element.width,
       iconSize + iconGap + Math.min(singleLineW, textWidthBudget)
@@ -240,14 +252,30 @@ export function didVerticallyOverlapOriginally(
  * Designer intentionally overlapped blank box areas — keep relative placement
  * unless live content now collides.
  */
+function verticalOverlapAmount(a: CanvasElement, b: CanvasElement): number {
+  return Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+}
+
 export function shouldPreserveDesignOverlap(
   a: CanvasElement,
   b: CanvasElement,
   originalElements: CanvasElement[]
 ): boolean {
   if (!didVerticallyOverlapOriginally(a.id, b.id, originalElements)) return false;
-  // Blank-on-blank was fine; live ink collision must be resolved.
-  return !contentRectsCollide(a, b);
+  // Blank-on-blank was fine.
+  if (!contentRectsCollide(a, b)) return true;
+  // Ink overlap that data injection did NOT worsen is authored design — the
+  // builder renders it exactly like this (e.g. a section title box lapping the
+  // field below by a few px). Pushing it apart shifted whole columns +17px
+  // and tore side-by-side rows. Only push when the overlap grew.
+  const originalA = originalElements.find((el) => el.id === a.id);
+  const originalB = originalElements.find((el) => el.id === b.id);
+  if (originalA && originalB) {
+    const originalOverlap = verticalOverlapAmount(originalA, originalB);
+    const currentOverlap = verticalOverlapAmount(a, b);
+    if (currentOverlap <= originalOverlap + 2) return true;
+  }
+  return false;
 }
 
 export function didBoxesOverlapOriginally(

@@ -21,6 +21,7 @@ import {
 import type { SelectedTableCell } from '@/store/slices/builderSlice';
 import {
   DEFAULT_ROW_HEIGHT_PX,
+  TABLE_CELL_LINE_HEIGHT,
   getTableBorderCss,
   getTableCellFocusOrder,
   getTableCellStyle,
@@ -271,7 +272,7 @@ function cellTextStyle(style: TableCellStyle, isHeaderRow: boolean): React.CSSPr
     color: style.color ?? (isHeaderRow ? '#1f2937' : '#374151'),
     fontSize: style.fontSize ?? 12,
     fontFamily: style.fontFamily ?? 'Inter, sans-serif',
-    lineHeight: 1.35,
+    lineHeight: TABLE_CELL_LINE_HEIGHT,
     userSelect: 'text',
     WebkitUserSelect: 'text',
   };

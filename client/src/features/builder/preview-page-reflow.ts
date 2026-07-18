@@ -44,9 +44,9 @@ import {
   normalizeDocumentFooters,
 } from './document-footer';
 import { shouldSkipPushForOriginalOverlap } from './content-overlap';
+import { FLOW_GAP_PX } from './layout-metrics';
 
 const PUSH_TOLERANCE_PX = 2;
-const FLOW_GAP_PX = 12;
 const ROW_Y_TOLERANCE_PX = 24;
 /** Keep invoice date + due date together across pages even when slightly staggered. */
 const DATE_CLUSTER_Y_PX = 100;
@@ -111,10 +111,12 @@ export function isFixedChromeElement(element: CanvasElement): boolean {
   if (isDocumentFooterElement(element)) return true;
   if (element.type === ComponentType.PAGE_NUMBER) return true;
   if (element.type === ComponentType.ICON) return true;
+  // SIGNATURE is intentionally NOT fixed chrome: an authorized-signature block
+  // sits below terms/tables and must be pushed down when they grow — keeping it
+  // absolute made it appear to "move up" through the grown content.
   if (
     element.type === ComponentType.IMAGE
     || element.type === ComponentType.LOGO
-    || element.type === ComponentType.SIGNATURE
   ) {
     return true;
   }
@@ -458,12 +460,13 @@ function shouldJoinToFlowUnit(unit: CanvasElement[], candidate: CanvasElement): 
     return true;
   }
 
-  // Intentional overlap in the same column — move as one unit and preserve offsets.
-  if (
-    unit.some(
-      (el) => elementsVerticallyOverlap(el, candidate) && elementsShareColumn(el, candidate)
-    )
-  ) {
+  // Vertical-span intersection joins the unit:
+  // - same column → intentional design overlap, preserve offsets
+  // - different columns → a two-column row (Payment Details | Terms) even when
+  //   staggered past ROW_Y_TOLERANCE_PX; linearizing it stacked the columns.
+  // placeFlowUnitAt keeps relative offsets, so row height = max(member bottoms)
+  // and members stay top-aligned.
+  if (unit.some((el) => elementsVerticallyOverlap(el, candidate))) {
     return true;
   }
 
@@ -760,10 +763,19 @@ function pushStackedElementsBelowAnchor(
   const anchor = elements[anchorIndex];
   const anchorBottom = anchor.y + anchor.height;
   const minYBelowAnchor = anchorBottom + FLOW_GAP_PX;
+  // Span the anchor occupied before this growth pass — a neighbor inside that
+  // span in a DIFFERENT column is a two-column row-mate (Payment | Terms) and
+  // must keep its top alignment; only rows below the pre-growth bottom move.
+  const preGrowthBottom = anchorBottom - Math.max(0, heightDelta);
 
-  const below = elements.filter(
-    (element) => element.id !== anchor.id && isStackedBelow(anchor, element)
-  );
+  const below = elements.filter((element) => {
+    if (element.id === anchor.id || !isStackedBelow(anchor, element)) return false;
+    const sideBySideBeforeGrowth =
+      element.y < preGrowthBottom - PUSH_TOLERANCE_PX
+      && element.y + element.height > anchor.y + PUSH_TOLERANCE_PX
+      && !elementsShareColumn(anchor, element);
+    return !sideBySideBeforeGrowth;
+  });
   if (below.length === 0) return { elements, changed: false };
 
   const needsOverlapFix = below.some(
@@ -3394,6 +3406,16 @@ function reflowPagesWordStyle(
   const { elements: gathered } = gatherReflowElements(flowSourcePages);
   const allOriginalElements = source.flatMap((p) => p.elements);
 
+  // Footers may be authored on any flow page (commonly the last) — page 1 is
+  // not necessarily the master. Without this, a page-2 footer vanished from
+  // the preview entirely.
+  const footerSourcePage =
+    flowSourcePages.find((page) =>
+      page.elements.some(
+        (element) => element.visible !== false && isDocumentFooterElement(element)
+      )
+    ) ?? master;
+
   if (gathered.length === 0 && preservedTail.length === 0) {
     return applyPreviewPageNumbers(dropEmptyTrailingPages(source));
   }
@@ -3473,11 +3495,11 @@ function reflowPagesWordStyle(
 
     const pinned = isFirst
       ? page1Pinned
-      : appendFootersFromMasterPage(master, shell);
+      : appendFootersFromMasterPage(footerSourcePage, shell);
 
     let footers = pinned.filter(isDocumentFooterElement);
     if (footers.length === 0) {
-      footers = appendFootersFromMasterPage(master, shell);
+      footers = appendFootersFromMasterPage(footerSourcePage, shell);
     }
     const nonFooterPinned = pinned.filter((el) => !isDocumentFooterElement(el));
     const preplaced = isFirst ? headerBand : [];
@@ -3514,7 +3536,7 @@ function reflowPagesWordStyle(
       pageSize: master.pageSize ? { ...master.pageSize } : undefined,
       userAuthored: false,
       elements: [
-        ...appendFootersFromMasterPage(master, {
+        ...appendFootersFromMasterPage(footerSourcePage, {
           id: '',
           name: '',
           margins: master.margins,
@@ -3532,7 +3554,7 @@ function reflowPagesWordStyle(
         id: uuidv4(),
         name: `Page ${pageNumber}`,
         elements: [
-          ...appendFootersFromMasterPage(master, salvageShell),
+          ...appendFootersFromMasterPage(footerSourcePage, salvageShell),
           ...stackOverflowElementsAtPageTop(salvageRemaining, master.margins),
         ],
       };
@@ -3552,7 +3574,7 @@ function reflowPagesWordStyle(
           id: uuidv4(),
           name: `Page ${pageNumber}`,
           elements: [
-            ...appendFootersFromMasterPage(master, shell),
+            ...appendFootersFromMasterPage(footerSourcePage, shell),
             ...stackOverflowElementsAtPageTop(laidOut.overflow, master.margins),
           ],
         });
@@ -3561,6 +3583,20 @@ function reflowPagesWordStyle(
       salvageRemaining = laidOut.overflow;
     }
   }
+
+  // Fixed chrome authored on later flow pages (images, watermarks, page
+  // numbers) previously vanished in the rebuild — only page-1 pinned content
+  // was carried over. Re-attach at the same page index (clamped to last page).
+  flowSourcePages.forEach((page, index) => {
+    if (index === 0 || result.length === 0) return;
+    for (const element of page.elements) {
+      if (element.visible === false || !isPinnedPreviewElement(element)) continue;
+      if (isDocumentFooterElement(element)) continue; // cloned per page above
+      const target = result[Math.min(index, result.length - 1)];
+      if (target.elements.some((el) => el.id === element.id)) continue;
+      target.elements = [...target.elements, clearLogicalFlowStamp({ ...element })];
+    }
+  });
 
   const combined = [
     ...result,

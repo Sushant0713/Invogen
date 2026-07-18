@@ -60,12 +60,134 @@ export function replacePlaceholdersInString(
   return next;
 }
 
+type RunLike = { text: string } & Record<string, unknown>;
+
+function isRunArray(value: unknown): value is RunLike[] {
+  return (
+    Array.isArray(value)
+    && value.length > 0
+    && value.every(
+      (run) => run && typeof run === 'object' && typeof (run as RunLike).text === 'string'
+    )
+  );
+}
+
+type ReplacementSpan = { start: number; end: number; replacement: string };
+
+function collectMatches(
+  source: string,
+  regex: RegExp,
+  resolve: (match: RegExpExecArray) => string
+): ReplacementSpan[] {
+  const out: ReplacementSpan[] = [];
+  regex.lastIndex = 0;
+  let match = regex.exec(source);
+  while (match) {
+    const replacement = resolve(match);
+    if (replacement !== match[0]) {
+      out.push({ start: match.index, end: match.index + match[0].length, replacement });
+    }
+    match = regex.exec(source);
+  }
+  return out;
+}
+
+/**
+ * Apply span replacements to rich-text runs. A token that spans run boundaries
+ * gets its replacement in the run where the token starts, so bold/italic runs
+ * stay in sync with the substituted plain content (getTextRuns' stale-run guard
+ * would otherwise drop ALL formatting in the live preview).
+ */
+function applyMatchesToRuns(
+  runs: RunLike[],
+  source: string,
+  matches: ReplacementSpan[]
+): RunLike[] {
+  if (matches.length === 0) return runs;
+
+  // Owner run for each source char index.
+  const owner = new Array<number>(source.length);
+  let runIdx = 0;
+  let runEnd = runs[0]?.text.length ?? 0;
+  for (let i = 0; i < source.length; i += 1) {
+    while (i >= runEnd && runIdx < runs.length - 1) {
+      runIdx += 1;
+      runEnd += runs[runIdx].text.length;
+    }
+    owner[i] = runIdx;
+  }
+
+  const texts = runs.map(() => '');
+  let pos = 0;
+  for (const match of matches) {
+    for (let i = pos; i < match.start; i += 1) texts[owner[i]] += source[i];
+    const target = owner[Math.min(match.start, source.length - 1)] ?? 0;
+    texts[target] += match.replacement;
+    pos = match.end;
+  }
+  for (let i = pos; i < source.length; i += 1) texts[owner[i]] += source[i];
+
+  return runs
+    .map((run, index) => ({ ...run, text: texts[index] }))
+    .filter((run) => run.text.length > 0);
+}
+
+/** Substitute tokens in content + textRuns coherently (joined runs === content stays true). */
+function replaceInRunsAndContent(
+  content: string,
+  runs: RunLike[],
+  context: PlaceholderContext
+): { content: string; textRuns: RunLike[] } {
+  let source = content;
+  let currentRuns = runs;
+  const passes: Array<[RegExp, (m: RegExpExecArray) => string]> = [
+    [MUSTACHE_RE, (m) => resolvedPlaceholderValue(m[1], context, `{{${m[1]}}}`)],
+    [
+      ANGLE_RE,
+      (m) => {
+        const key = normalizeAnglePlaceholderLabel(m[1]);
+        if (!key) return m[0];
+        return resolvedPlaceholderValue(key, context, unresolvedPlaceholderDisplay(key));
+      },
+    ],
+  ];
+  for (const [regex, resolve] of passes) {
+    const matches = collectMatches(source, regex, resolve);
+    if (matches.length === 0) continue;
+    currentRuns = applyMatchesToRuns(currentRuns, source, matches);
+    source = currentRuns.map((run) => run.text).join('');
+  }
+  return { content: source, textRuns: currentRuns };
+}
+
 function transformValue(value: unknown, context: PlaceholderContext): unknown {
   if (typeof value === 'string') return replacePlaceholdersInString(value, context);
   if (Array.isArray(value)) return value.map((item) => transformValue(item, context));
   if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+
+    // Rich-text props: substitute content + runs as one string so they cannot
+    // desync when a token spans run boundaries (which drops bold in preview).
+    const plainKey =
+      typeof obj.content === 'string' ? 'content' : typeof obj.text === 'string' ? 'text' : null;
+    if (plainKey && isRunArray(obj.textRuns)) {
+      const runs = obj.textRuns;
+      const joined = runs.map((run) => run.text).join('');
+      if (joined === obj[plainKey]) {
+        const replaced = replaceInRunsAndContent(joined, runs, context);
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (k === plainKey || k === 'textRuns') continue;
+          out[k] = transformValue(v, context);
+        }
+        out[plainKey] = replaced.content;
+        out.textRuns = replaced.textRuns;
+        return out;
+      }
+    }
+
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(obj)) {
       out[k] = transformValue(v, context);
     }
     return out;

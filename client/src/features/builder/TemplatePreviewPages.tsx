@@ -1,4 +1,4 @@
-import { useMemo, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import type { TemplatePage } from '@invogen/shared';
 import { ComponentType } from '@invogen/shared';
 import { ElementRenderer } from '@/features/builder/ElementRenderer';
@@ -22,6 +22,12 @@ import { MadeWithInvogenBadge } from '@/features/builder/MadeWithInvogenBadge';
 import { AutoPageNumber } from '@/features/builder/AutoPageNumber';
 import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-date-order';
 import { PageIndicator } from '@/features/builder/PageIndicator';
+import { useFontsVersion } from '@/features/builder/use-fonts-version';
+import {
+  PREVIEW_ELEMENT_ID_ATTR,
+  isLayoutDebugEnabled,
+  logLayoutParity,
+} from '@/features/builder/layout-parity-debug';
 
 export const TEMPLATE_PREVIEW_PAGE_ATTR = 'data-template-preview-page';
 
@@ -83,6 +89,7 @@ function renderPageElements(
       return (
       <div
         key={element.id}
+        {...{ [PREVIEW_ELEMENT_ID_ATTR]: element.id }}
         style={{
           position: 'absolute',
           left: element.x,
@@ -150,6 +157,8 @@ export function TemplatePreviewPages({
   onTableProductPick,
 }: TemplatePreviewPagesProps) {
   const shouldFitFields = fitDataFields ?? autoReflow;
+  // Late-arriving web fonts change text metrics — re-run layout when they load.
+  const fontsVersion = useFontsVersion();
   const renderPages = useMemo(() => {
     let resolved = pages;
     if (placeholderContext) resolved = applyInvoiceFormToPages(pages, placeholderContext);
@@ -175,10 +184,22 @@ export function TemplatePreviewPages({
     const originalElements = cloned.flatMap((p) => p.elements);
     const fitted = fitOverflowingDataFields(laidOut, originalElements);
     return enforceInvoiceDueDateOrderOnPages(fitted).pages;
-  }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow, shouldFitFields]);
+    // fontsVersion invalidates measurements cached against fallback fonts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow, shouldFitFields, fontsVersion]);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isLayoutDebugEnabled()) return;
+    // Wait a frame so fonts/images inside the preview have painted.
+    const frame = requestAnimationFrame(() => {
+      logLayoutParity(rootRef.current, renderPages);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [renderPages]);
 
   return (
-    <div className={`flex flex-col items-center gap-8 ${className}`}>
+    <div ref={rootRef} className={`flex flex-col items-center gap-8 ${className}`}>
       {renderPages.map((page, index) => {
         const { width, height } = getPageDimensions(page);
         const scale = previewMaxWidth ? previewMaxWidth / width : 1;

@@ -2,12 +2,13 @@ import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { ComponentType } from '@invogen/shared';
 import { getPageDimensions } from './builder-dnd';
+import { FLOW_GAP_PX } from './layout-metrics';
 
 export const SHARED_FOOTER_ID_KEY = '__sharedFooterId';
 export const FOOTER_BOTTOM_OFFSET_KEY = '__footerBottomOffset';
 
 const DEFAULT_FOOTER_BOTTOM_GAP = 20;
-const FOOTER_FLOW_GAP_PX = 12;
+const FOOTER_FLOW_GAP_PX = FLOW_GAP_PX;
 
 export function isDocumentFooterElement(element: CanvasElement): boolean {
   return element.type === ComponentType.FOOTER;
@@ -99,19 +100,29 @@ export function prepareNewFooterElement(
   );
 }
 
+/**
+ * Deterministic id for a per-page footer clone. Random uuids made every layout
+ * pass mint new elements — breaking layout idempotency, churning React keys,
+ * and defeating fixpoint convergence checks.
+ */
+export function footerCloneIdForPage(sharedId: string, pageName: string): string {
+  return `${sharedId}::${pageName || 'page'}`;
+}
+
 export function cloneFooterForPage(
   master: CanvasElement,
-  page: TemplatePage
+  page: TemplatePage,
+  bottomOffset?: number
 ): CanvasElement {
-  const referencePage = page;
-  const bottomOffset = resolveFooterBottomOffset(master, referencePage);
+  const offset = bottomOffset ?? resolveFooterBottomOffset(master, page);
+  const sharedId = getSharedFooterId(master) ?? master.id;
   return positionFooterOnPage(
     {
       ...JSON.parse(JSON.stringify(master)) as CanvasElement,
-      id: uuidv4(),
+      id: footerCloneIdForPage(sharedId, page.name),
     },
     page,
-    bottomOffset
+    offset
   );
 }
 
@@ -121,7 +132,9 @@ export function appendFootersFromMasterPage(
 ): CanvasElement[] {
   return masterPage.elements
     .filter((element) => element.visible !== false && isDocumentFooterElement(element))
-    .map((footer) => cloneFooterForPage(footer, targetPage));
+    .map((footer) =>
+      cloneFooterForPage(footer, targetPage, resolveFreshFooterBottomOffset(footer, masterPage))
+    );
 }
 
 /** Keep one linked footer per page — same content/position, unique element id per page. */
@@ -138,7 +151,7 @@ export function syncSharedFooterAcrossPages(
   const referencePage = sourcePageIndex >= 0 ? pages[sourcePageIndex] : pages[0];
   if (!referencePage) return pages;
 
-  const bottomOffset = resolveFooterBottomOffset(sourceFooter, referencePage);
+  const bottomOffset = resolveFreshFooterBottomOffset(sourceFooter, referencePage);
   const template = positionFooterOnPage(sourceFooter, referencePage, bottomOffset);
 
   return pages.map((page) => {
@@ -150,7 +163,10 @@ export function syncSharedFooterAcrossPages(
     const placed = positionFooterOnPage(
       {
         ...template,
-        id: existingIndex >= 0 ? page.elements[existingIndex].id : uuidv4(),
+        id:
+          existingIndex >= 0
+            ? page.elements[existingIndex].id
+            : footerCloneIdForPage(sharedId, page.name),
         zIndex:
           existingIndex >= 0
             ? page.elements[existingIndex].zIndex
@@ -197,13 +213,45 @@ export function collectLinkedFooterElementIds(
   return ids.length > 0 ? ids : [elementId];
 }
 
-/** Saved templates: link page-1 footers and ensure every page has a matching copy. */
+/**
+ * Bottom offset for re-placing a footer, trusting the most plausible source:
+ * authored geometry first (dragging in the builder doesn't refresh the stamp),
+ * but fall back to a sane stamp when geometry would land the footer off-page
+ * (snapshots saved by older reflow passes carry off-page y values).
+ */
+export function resolveFreshFooterBottomOffset(
+  footer: CanvasElement,
+  page: TemplatePage
+): number {
+  const { height: pageHeight } = getPageDimensions(page);
+  const geometric = pageHeight - page.margins.bottom - (footer.y + footer.height);
+  if (geometric >= 0) return geometric;
+  const stamped = (footer.props ?? {})[FOOTER_BOTTOM_OFFSET_KEY];
+  if (typeof stamped === 'number' && Number.isFinite(stamped) && stamped >= 0) {
+    return stamped;
+  }
+  return 0;
+}
+
+/**
+ * Saved templates: link footers and ensure every page has a matching copy.
+ * Masters come from ANY page — a footer authored on page 2 must not vanish
+ * just because page 1 has none.
+ */
 export function normalizeDocumentFooters(pages: TemplatePage[]): TemplatePage[] {
   if (pages.length === 0) return pages;
 
-  const masterFooters = pages[0].elements.filter(
-    (element) => element.visible !== false && isDocumentFooterElement(element)
-  );
+  const seenShared = new Set<string>();
+  const masterFooters: CanvasElement[] = [];
+  for (const page of pages) {
+    for (const element of page.elements) {
+      if (element.visible === false || !isDocumentFooterElement(element)) continue;
+      const sharedId = getSharedFooterId(element) ?? element.id;
+      if (seenShared.has(sharedId)) continue;
+      seenShared.add(sharedId);
+      masterFooters.push(element);
+    }
+  }
   if (masterFooters.length === 0) return pages;
 
   let next = pages;
