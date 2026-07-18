@@ -17,12 +17,6 @@ export function isOpaqueChromeElement(element: CanvasElement): boolean {
   if (element.type === ComponentType.PAGE_NUMBER) return true;
   if (element.type === ComponentType.ICON) return true;
   if (isImageComponentType(element.type)) return true;
-  if (
-    element.type === ComponentType.STAMP
-    || element.type === ComponentType.BARCODE
-  ) {
-    return true;
-  }
   const props = (element.props ?? {}) as Record<string, unknown>;
   return props.fixedInFlow === true;
 }

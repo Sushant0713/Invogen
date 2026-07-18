@@ -1,3 +1,7 @@
+/**
+ * Preview layout for live preview / composer: grow tables, push rows below, paginate.
+ * Same engine as the template builder (`layoutBuilderPages`).
+ */
 export {
   layoutDocumentPages,
   layoutBuilderPages,
@@ -30,24 +34,3 @@ export {
   normalizeDocumentFooters,
   syncSharedFooterAcrossPages,
 } from './document-footer';
-
-export {
-  clampFieldAgainstChrome,
-  isLayoutFixedChrome,
-  isHorizontalChromeBlocker,
-  pagesOverflowContentBottom,
-  shouldSkipPushForOriginalOverlap,
-  shouldPreserveDesignOverlap,
-} from './layout-policy';
-
-export {
-  shouldPushRelatedElement,
-  buildLayoutIntentProps,
-  getElementFlowGroupId,
-  getElementLayoutMode,
-  getElementOverflowPolicy,
-  getElementCollisionPolicy,
-  suggestFlowGroupId,
-} from './layout-intent';
-
-export { detectLayoutWarnings, applyStressDataToElements } from './layout-warnings';

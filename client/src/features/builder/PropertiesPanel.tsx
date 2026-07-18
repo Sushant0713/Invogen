@@ -48,8 +48,6 @@ import {
   extractPlaceholderKeysFromText,
   placeholderFieldLabel,
 } from '@/features/template-gallery/placeholder-utils';
-import { LayoutIntentPanel, LayoutWarningsPanel } from './LayoutIntentPanel';
-import { buildLayoutIntentProps, suggestFlowGroupId } from './layout-intent';
 
 export function PropertiesPanel() {
   const dispatch = useAppDispatch();
@@ -78,28 +76,6 @@ export function PropertiesPanel() {
           </p>
         )}
         <div className="flex flex-col gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={() => {
-              const groupId = suggestFlowGroupId('flow');
-              for (const el of selectedElements) {
-                if (el.locked) continue;
-                dispatch(
-                  updateElement({
-                    id: el.id,
-                    changes: { props: buildLayoutIntentProps({ flowGroupId: groupId }) },
-                    recordHistory: true,
-                  })
-                );
-              }
-              toast.success(`Grouped ${unlockedCount} components as “${groupId}”`);
-            }}
-            disabled={unlockedCount < 2}
-          >
-            Group as flow (live push together)
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -178,8 +154,7 @@ export function PropertiesPanel() {
     );
 
     return (
-      <div className="w-64 border-l border-gray-200 bg-white p-4 space-y-4">
-        <LayoutWarningsPanel />
+      <div className="w-64 border-l border-gray-200 bg-white p-4">
         {reference ? (
           <div className="space-y-3">
             <p className="text-sm text-gray-700">
@@ -429,9 +404,6 @@ export function PropertiesPanel() {
           Pin to position
         </Button>
       )}
-
-      <LayoutIntentPanel element={element} />
-      <LayoutWarningsPanel />
 
       <fieldset
         disabled={!!element.locked}

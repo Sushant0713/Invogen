@@ -350,6 +350,33 @@ function commitDocumentLayout(state: BuilderState, plain: TemplatePage[]) {
   remapSelectionAfterDocumentLayout(state, previousPages, next);
 }
 
+function isGeometryOnlyChange(changes: Partial<CanvasElement>): boolean {
+  const keys = Object.keys(changes);
+  return (
+    keys.length > 0
+    && keys.every((key) => key === 'x' || key === 'y' || key === 'width' || key === 'height')
+  );
+}
+
+/** True when a mutation should re-run document flow layout (not manual drag/resize/crop). */
+function shouldTriggerDocumentLayout(
+  changes: Partial<CanvasElement>,
+  skipDocumentLayout?: boolean
+): boolean {
+  if (skipDocumentLayout) return false;
+  if (isGeometryOnlyChange(changes)) return false;
+  if (changes.props !== undefined) return true;
+  if (
+    changes.height !== undefined
+    && changes.width === undefined
+    && changes.x === undefined
+    && changes.y === undefined
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function applyManualElementUpdate(elements: CanvasElement[], idx: number, merged: CanvasElement) {
   elements[idx] = touchLogicalFlowY(merged);
 }
@@ -715,8 +742,7 @@ const builderSlice = createSlice({
         } else {
           let next = merged;
           // Grow free-text frames as content grows (typing / prop edits) without
-          // waiting for a DOM measure. Full document reflow is invoice-live only;
-          // designers use Relayout tables when they need Word-style pagination.
+          // waiting for a DOM measure. Full reflow runs on committed edits below.
           if (propsPatch !== undefined && isAutoHeightTextType(merged.type)) {
             const fitted = estimateTextBlockHeight(
               merged.type,
@@ -729,43 +755,53 @@ const builderSlice = createSlice({
             }
           }
 
+          // Prop-only live typing must not reflow the whole document every key.
+          // Committed prop edits (recordHistory) and geometry still reflow.
+          const layoutChanges =
+            propsPatch !== undefined && action.payload.recordHistory === true
+              ? { ...restChanges, props: propsPatch }
+              : restChanges;
+          const shouldLayout = shouldTriggerDocumentLayout(layoutChanges, skipLayout);
           const geometryChanged =
             restChanges.x !== undefined
             || restChanges.y !== undefined
             || restChanges.width !== undefined
             || restChanges.height !== undefined;
-
-          // Paginated text boxes: splice edits into shared full content without
-          // relocating unrelated neighbors (authored geometry stays stable).
-          const nextProps = (next.props ?? {}) as Record<string, unknown>;
-          if (
-            isPaginatedTextBoxType(next.type)
-            && hasTextPaginationMeta(nextProps)
-            && propsPatch !== undefined
-            && (typeof propsPatch.content === 'string' || propsPatch.textRuns !== undefined)
-          ) {
-            const boxId = resolvePaginationTextBoxId(nextProps, next.id);
-            const segmentContent =
-              typeof propsPatch.content === 'string'
-                ? propsPatch.content
-                : typeof nextProps.content === 'string'
-                  ? (nextProps.content as string)
-                  : '';
-            const segmentRuns = getTextRuns(nextProps);
+          if (shouldLayout) {
             let plain = clonePages(state.pages);
-            const elIdx =
-              plain[targetPageIndex]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
+            const pageIdx = targetPageIndex;
+            const elIdx = plain[pageIdx]?.elements.findIndex((e) => e.id === action.payload.id) ?? -1;
             if (elIdx >= 0) {
-              plain[targetPageIndex].elements[elIdx] = next;
+              plain[pageIdx].elements[elIdx] = next;
             }
-            plain = syncPaginatedTextContentAcrossSegments(
-              plain,
-              boxId,
-              next.id,
-              segmentContent,
-              segmentRuns
-            ) as TemplatePage[];
-            state.pages = plain;
+
+            // Paginated text boxes: splice edits into shared full content, then reflow
+            // (same idea as syncPaginatedTableRowsAcrossSegments — table path untouched).
+            const nextProps = (next.props ?? {}) as Record<string, unknown>;
+            if (
+              isPaginatedTextBoxType(next.type)
+              && hasTextPaginationMeta(nextProps)
+              && propsPatch !== undefined
+              && (typeof propsPatch.content === 'string' || propsPatch.textRuns !== undefined)
+            ) {
+              const boxId = resolvePaginationTextBoxId(nextProps, next.id);
+              const segmentContent =
+                typeof propsPatch.content === 'string'
+                  ? propsPatch.content
+                  : typeof nextProps.content === 'string'
+                    ? (nextProps.content as string)
+                    : '';
+              const segmentRuns = getTextRuns(nextProps);
+              plain = syncPaginatedTextContentAcrossSegments(
+                plain,
+                boxId,
+                next.id,
+                segmentContent,
+                segmentRuns
+              ) as TemplatePage[];
+            }
+
+            commitDocumentLayout(state, plain);
           } else {
             applyHostOrIconGeometry(elements, idx, next, geometryChanged);
           }

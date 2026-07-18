@@ -43,8 +43,7 @@ import {
   isDocumentFooterElement,
   normalizeDocumentFooters,
 } from './document-footer';
-import { shouldSkipPushForOriginalOverlap } from './layout-policy';
-import { shouldPushRelatedElement } from './layout-intent';
+import { shouldSkipPushForOriginalOverlap } from './content-overlap';
 
 const PUSH_TOLERANCE_PX = 2;
 const FLOW_GAP_PX = 12;
@@ -104,7 +103,7 @@ function cloneElements(elements: CanvasElement[]): CanvasElement[] {
 
 /**
  * Fixed chrome — never pushed by table/card growth and never restacked.
- * Logos/images/stamps stay at authored positions so live preview matches the builder.
+ * Logos/images stay at authored positions so live preview matches the builder.
  */
 export function isFixedChromeElement(element: CanvasElement): boolean {
   if (element.visible === false) return false;
@@ -116,8 +115,6 @@ export function isFixedChromeElement(element: CanvasElement): boolean {
     element.type === ComponentType.IMAGE
     || element.type === ComponentType.LOGO
     || element.type === ComponentType.SIGNATURE
-    || element.type === ComponentType.STAMP
-    || element.type === ComponentType.BARCODE
   ) {
     return true;
   }
@@ -648,8 +645,6 @@ function isStackedBelow(anchor: CanvasElement, element: CanvasElement): boolean 
   // Fixed chrome never moves. Soft-pinned (user Pin) below a table still pushes —
   // otherwise "pin all" + growing table overlaps everything underneath.
   if (isFixedChromeElement(element)) return false;
-  // Explicit layout intent / flow groups — do not move unrelated design blocks.
-  if (!shouldPushRelatedElement(anchor, element)) return false;
 
   const anchorBottom = anchor.y + anchor.height;
 

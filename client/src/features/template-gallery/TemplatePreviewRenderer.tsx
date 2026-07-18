@@ -28,7 +28,7 @@ interface TemplatePreviewRendererProps {
   maxWidth?: number;
   /** Replace {{Placeholders}} with sample data for realistic previews. */
   useSampleData?: boolean;
-  /** Run live reflow (invoice only). Template gallery keeps authored geometry. */
+  /** Run the same reflow engine as builder preview / live preview. */
   autoReflow?: boolean;
   /** Where logo/signature are loaded from (defaults to tenant company). */
   brandingScope?: CompanyBrandingScope;
@@ -45,7 +45,7 @@ export function TemplatePreviewRenderer({
   scale = 0.22,
   maxWidth,
   useSampleData = true,
-  autoReflow = false,
+  autoReflow = true,
   brandingScope = 'admin',
   className = '',
 }: TemplatePreviewRendererProps) {
