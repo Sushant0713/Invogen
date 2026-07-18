@@ -39,12 +39,14 @@ interface TemplatePreviewPagesProps {
   trustTableProps?: boolean;
   /**
    * When true, expand overflowing blocks and push content on a preview-only copy.
-   * Leave false when pages were already prepared via prepareInvoiceLivePreviewPages
-   * (avoids a second reflow/fit that mismatches the builder).
+   * Template/sample preview must leave this false so geometry matches the builder.
+   * Invoice live preview prepares pages via prepareInvoiceLivePreviewPages first,
+   * then also passes false to avoid a second layout pass.
    */
   autoReflow?: boolean;
   /**
-   * When false, skip fitOverflowingDataFields (pages already fitted upstream).
+   * When false, skip fitOverflowingDataFields (pages already fitted upstream,
+   * or template preview which must preserve authored boxes).
    * Defaults to true when autoReflow is true, false when autoReflow is false.
    */
   fitDataFields?: boolean;
@@ -142,8 +144,8 @@ export function TemplatePreviewPages({
   pageRefs,
   className = '',
   trustTableProps = false,
-  /** Default on so every live preview matches builder Word-style flow/pagination. */
-  autoReflow = true,
+  /** Default off — template preview must match authored builder geometry. */
+  autoReflow = false,
   fitDataFields,
   editableTables = false,
   onTableCellChange,

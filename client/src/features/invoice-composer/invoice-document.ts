@@ -38,6 +38,7 @@ import { enforceInvoiceDueDateOrderOnPages } from '@/features/builder/invoice-da
 import { reflowPagesForPreview } from '@/features/builder/document-layout';
 import { fitOverflowingDataFields } from '@/features/builder/fit-preview-data-fields';
 import { normalizeBuilderPagesForEditor } from '@/features/builder/preview-page-reflow';
+import { pagesOverflowContentBottom } from '@/features/builder/layout-policy';
 import {
   applyProductPickToTable,
   type ProductPick,
@@ -149,6 +150,9 @@ export function hydrateComposerTemplatePages(pages: TemplatePage[]): TemplatePag
 /**
  * Word-style reflow + data-field fitting — shared by invoice composer, platform invoice preview, and PDF print.
  * Keeps pagination/reflow; run once then pass to TemplatePreviewPages with autoReflow={false}.
+ *
+ * Bounded convergence: if field fitting pushes content past the page bottom,
+ * re-run reflow + fit once so long live values cannot leave orphan overflow.
  */
 export function prepareInvoiceLivePreviewPages(
   pages: TemplatePage[],
@@ -157,8 +161,20 @@ export function prepareInvoiceLivePreviewPages(
   if (!pages.length) return [];
   const trustTableProps = options.trustTableProps ?? true;
   const originalElements = pages.flatMap((p) => p.elements);
-  const reflowed = reflowPagesForPreview(cloneTemplatePages(pages), { trustTableProps });
-  return fitOverflowingDataFields(reflowed, originalElements);
+
+  let result = fitOverflowingDataFields(
+    reflowPagesForPreview(cloneTemplatePages(pages), { trustTableProps }),
+    originalElements
+  );
+
+  if (pagesOverflowContentBottom(result)) {
+    result = fitOverflowingDataFields(
+      reflowPagesForPreview(cloneTemplatePages(result), { trustTableProps }),
+      originalElements
+    );
+  }
+
+  return result;
 }
 
 export function deleteComposerPage(pages: TemplatePage[], pageId: string): TemplatePage[] {

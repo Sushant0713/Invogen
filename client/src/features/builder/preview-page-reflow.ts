@@ -43,7 +43,7 @@ import {
   isDocumentFooterElement,
   normalizeDocumentFooters,
 } from './document-footer';
-import { shouldSkipPushForOriginalOverlap } from './content-overlap';
+import { shouldSkipPushForOriginalOverlap } from './layout-policy';
 
 const PUSH_TOLERANCE_PX = 2;
 const FLOW_GAP_PX = 12;
@@ -103,7 +103,7 @@ function cloneElements(elements: CanvasElement[]): CanvasElement[] {
 
 /**
  * Fixed chrome — never pushed by table/card growth and never restacked.
- * Logos/images stay at authored positions so live preview matches the builder.
+ * Logos/images/stamps stay at authored positions so live preview matches the builder.
  */
 export function isFixedChromeElement(element: CanvasElement): boolean {
   if (element.visible === false) return false;
@@ -115,6 +115,8 @@ export function isFixedChromeElement(element: CanvasElement): boolean {
     element.type === ComponentType.IMAGE
     || element.type === ComponentType.LOGO
     || element.type === ComponentType.SIGNATURE
+    || element.type === ComponentType.STAMP
+    || element.type === ComponentType.BARCODE
   ) {
     return true;
   }

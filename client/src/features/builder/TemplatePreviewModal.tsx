@@ -207,7 +207,8 @@ export function TemplatePreviewModal({
                 pages={pages}
                 useSampleData={false}
                 trustTableProps
-                autoReflow
+                autoReflow={false}
+                fitDataFields={false}
                 previewMaxWidth={Math.min(680, window.innerWidth - 120)}
               />
             </div>
@@ -285,7 +286,8 @@ export function TemplatePreviewModal({
               pageRefs={exportPageRefs}
               useSampleData={false}
               trustTableProps
-              autoReflow
+              autoReflow={false}
+              fitDataFields={false}
             />
           </div>
         </div>
