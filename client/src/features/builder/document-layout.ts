@@ -18,6 +18,7 @@ export {
   applyContinuationTableStructuralEdit,
   absorbPaginationAfterPageDelete,
   isPinnedPreviewElement,
+  isFixedChromeElement,
   pageNeedsReflow,
   previewPagesNeedReflow,
   builderPagesNeedLayout,

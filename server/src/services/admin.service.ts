@@ -796,16 +796,14 @@ export const adminService = {
 
     const sourceTemplateId =
       typeof data.sourceTemplateId === 'string' ? data.sourceTemplateId.trim() : '';
-    if (!sourceTemplateId) {
-      throw new AppError('System template selection is required', 400);
+    const startBlank = data.startBlank === true;
+    if (!sourceTemplateId && !startBlank) {
+      throw new AppError('Choose a system template or Custom template', 400);
     }
 
-    const pages = await resolveInitialTemplatePages(
-      companyId,
-      category,
-      data.pages,
-      sourceTemplateId
-    );
+    const pages = startBlank
+      ? await resolveInitialTemplatePages(companyId, category, data.pages, undefined, true)
+      : await resolveInitialTemplatePages(companyId, category, data.pages, sourceTemplateId);
 
     const companyObjectId = toCompanyObjectId(companyId);
     const nameTaken = await InvoiceTemplate.exists({
@@ -820,9 +818,10 @@ export const adminService = {
       );
     }
 
-    const sourceObjectId = mongoose.Types.ObjectId.isValid(sourceTemplateId)
-      ? new mongoose.Types.ObjectId(sourceTemplateId)
-      : undefined;
+    const sourceObjectId =
+      !startBlank && mongoose.Types.ObjectId.isValid(sourceTemplateId)
+        ? new mongoose.Types.ObjectId(sourceTemplateId)
+        : undefined;
 
     return InvoiceTemplate.create({
       name,

@@ -39,9 +39,15 @@ interface TemplatePreviewPagesProps {
   trustTableProps?: boolean;
   /**
    * When true, expand overflowing blocks and push content on a preview-only copy.
-   * Leave false for builder/gallery so the saved template layout is unchanged.
+   * Leave false when pages were already prepared via prepareInvoiceLivePreviewPages
+   * (avoids a second reflow/fit that mismatches the builder).
    */
   autoReflow?: boolean;
+  /**
+   * When false, skip fitOverflowingDataFields (pages already fitted upstream).
+   * Defaults to true when autoReflow is true, false when autoReflow is false.
+   */
+  fitDataFields?: boolean;
   /** Enable product picker and other table cell edits in scaled live preview. */
   editableTables?: boolean;
   onTableCellChange?: (
@@ -138,10 +144,12 @@ export function TemplatePreviewPages({
   trustTableProps = false,
   /** Default on so every live preview matches builder Word-style flow/pagination. */
   autoReflow = true,
+  fitDataFields,
   editableTables = false,
   onTableCellChange,
   onTableProductPick,
 }: TemplatePreviewPagesProps) {
+  const shouldFitFields = fitDataFields ?? autoReflow;
   const renderPages = useMemo(() => {
     let resolved = pages;
     if (placeholderContext) resolved = applyInvoiceFormToPages(pages, placeholderContext);
@@ -159,11 +167,15 @@ export function TemplatePreviewPages({
     const laidOut = autoReflow
       ? reflowPagesForPreview(cloned, { trustTableProps })
       : applyPreviewPageNumbers(cloned);
-    // Keep long live values (invoice #, dates) clear of logos/neighbors in every preview.
+    // Only fit fields when this pass owns layout. Pre-prepared invoice pages
+    // already ran fitOverflowingDataFields — a second pass relocates boxes.
+    if (!shouldFitFields) {
+      return enforceInvoiceDueDateOrderOnPages(laidOut).pages;
+    }
     const originalElements = cloned.flatMap((p) => p.elements);
     const fitted = fitOverflowingDataFields(laidOut, originalElements);
     return enforceInvoiceDueDateOrderOnPages(fitted).pages;
-  }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow]);
+  }, [pages, placeholderContext, useSampleData, trustTableProps, autoReflow, shouldFitFields]);
 
   return (
     <div className={`flex flex-col items-center gap-8 ${className}`}>

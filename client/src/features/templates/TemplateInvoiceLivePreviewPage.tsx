@@ -107,7 +107,7 @@ export function TemplateInvoiceLivePreviewPage({
                     pages={previewPages}
                     useSampleData={false}
                     trustTableProps
-                    autoReflow
+                    autoReflow={false}
                     previewMaxWidth={previewMaxWidth}
                   />
                 </div>

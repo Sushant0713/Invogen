@@ -101,12 +101,10 @@ function cloneElements(elements: CanvasElement[]): CanvasElement[] {
 }
 
 /**
- * Background / fixed layers — do not participate in Word-like document flow.
- * Keep watermarks, footers, and media (image/logo/signature) at authored canvas Y
- * so Live Preview matches the builder (Word-flow was packing logos upward).
- * Text/dates still flow with the document; set fixedInFlow to pin other elements.
+ * Fixed chrome — never pushed by table/card growth and never restacked.
+ * Logos/images stay at authored positions so live preview matches the builder.
  */
-export function isPinnedPreviewElement(element: CanvasElement): boolean {
+export function isFixedChromeElement(element: CanvasElement): boolean {
   if (element.visible === false) return false;
   if (element.type === ComponentType.WATERMARK) return true;
   if (isDocumentFooterElement(element)) return true;
@@ -119,11 +117,25 @@ export function isPinnedPreviewElement(element: CanvasElement): boolean {
   ) {
     return true;
   }
-  if (element.pinned === true) return true;
   const props = (element.props ?? {}) as Record<string, unknown>;
-  // Opt-in: template authors can pin other elements with fixedInFlow.
+  // Explicit absolute lock (not the soft "Pin" toggle).
   if (props.fixedInFlow === true) return true;
   return false;
+}
+
+/**
+ * Layers excluded from Word-like gather/restack and never pushed by growth.
+ * Soft UI "Pin" is intentionally NOT included — pinned content below a table
+ * must still move when the table grows, otherwise live invoices overlap.
+ * Use props.fixedInFlow for a true absolute lock.
+ */
+export function isPinnedPreviewElement(element: CanvasElement): boolean {
+  return isFixedChromeElement(element);
+}
+
+/** Soft-pinned content that still participates in push/pagination when tables grow. */
+export function isAnchoredPinnedElement(element: CanvasElement): boolean {
+  return element.pinned === true && !isFixedChromeElement(element);
 }
 
 export type PreviewReflowOptions = {
@@ -242,7 +254,7 @@ function contentOverlapsExpandedBlock(
 
   return page.elements.some((element) => {
     if (element.id === block.id || element.visible === false) return false;
-    if (isPinnedPreviewElement(element)) return false;
+    if (isFixedChromeElement(element)) return false;
 
     const sameRow = Math.abs(element.y - block.y) <= ROW_Y_TOLERANCE_PX;
     if (sameRow) return false;
@@ -256,7 +268,7 @@ function contentOverlapsExpandedBlock(
 function pageContentOverflows(page: TemplatePage): boolean {
   const contentBottom = getFlowContentBottomLimit(page);
   return page.elements.some((element) => {
-    if (element.visible === false || isPinnedPreviewElement(element)) return false;
+    if (element.visible === false || isFixedChromeElement(element)) return false;
     return element.y + element.height > contentBottom + PUSH_TOLERANCE_PX;
   });
 }
@@ -606,11 +618,12 @@ function groupElementsIntoRows(elements: CanvasElement[]): CanvasElement[][] {
 }
 
 function elementsShareColumn(a: CanvasElement, b: CanvasElement): boolean {
-  // Require real horizontal overlap so side-by-side columns (logo / invoice meta
-  // beside a company card) are not treated as stacked document flow.
+  // Any horizontal overlap counts as intentional same-column stacking/overlap.
+  // Side-by-side columns with a gap (logo | meta) stay separate units via
+  // shouldJoinToFlowUnit's same-row check instead.
   const overlap =
     Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
-  return overlap > Math.min(a.width, b.width) * 0.15;
+  return overlap > PUSH_TOLERANCE_PX;
 }
 
 /** True when two elements' vertical spans intersect (intentional design overlap). */
@@ -645,7 +658,9 @@ function didOverlapOriginally(
 
 function isStackedBelow(anchor: CanvasElement, element: CanvasElement): boolean {
   if (element.id === anchor.id || element.visible === false) return false;
-  if (isPinnedPreviewElement(element)) return false;
+  // Fixed chrome never moves. Soft-pinned (user Pin) below a table still pushes —
+  // otherwise "pin all" + growing table overlaps everything underneath.
+  if (isFixedChromeElement(element)) return false;
 
   const anchorBottom = anchor.y + anchor.height;
 
@@ -3618,7 +3633,8 @@ function pageOverflowsPastMargins(page: TemplatePage): boolean {
   const { height: pageHeight } = getPageDimensions(page);
   const contentBottom = pageHeight - page.margins.bottom;
   return page.elements.some((element) => {
-    if (element.visible === false || isPinnedPreviewElement(element)) return false;
+    if (element.visible === false || isFixedChromeElement(element)) return false;
+    // Soft-pinned and flow content both count — a grown table must trigger pagination.
     return element.y + element.height > contentBottom + PUSH_TOLERANCE_PX;
   });
 }

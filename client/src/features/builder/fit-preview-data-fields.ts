@@ -5,6 +5,7 @@ import { isImageComponentType } from './image-components';
 import { getDisplayText, getTextElementStyle, isDataFieldType } from './text-styles';
 
 const FLOW_GAP_PX = 10;
+const PUSH_TOLERANCE_PX = 2;
 
 function didOverlapOriginally(
   aId: string,
@@ -17,7 +18,6 @@ function didOverlapOriginally(
 
   const aBottom = a.y + a.height;
   const bBottom = b.y + b.height;
-  const PUSH_TOLERANCE_PX = 2;
   return (
     a.y < bBottom - PUSH_TOLERANCE_PX &&
     b.y < aBottom - PUSH_TOLERANCE_PX
@@ -65,11 +65,11 @@ function rightLimitForField(
 }
 
 /**
- * Universal preview/view fix:
- * Keep invoice # / dates / GST / PAN readable without covering logos or neighbors.
- * - Always clamp fields so they do not sit under images/logos
- * - Widen when live values are longer than the template sample box
- * - Wrap + grow height when horizontal space is still too tight
+ * Keep live values readable without relocating fields (which caused invoice
+ * live preview to mismatch the template builder).
+ * - Never change `x` — authored position is sacred
+ * - May shrink width to clear logos/neighbors on the right
+ * - May grow height to wrap text when the box is too narrow
  */
 export function fitOverflowingDataFields(
   pages: TemplatePage[],
@@ -98,38 +98,26 @@ export function fitOverflowingDataFields(
         ? estimateTextWidth(text, fontSize)
         : element.width;
 
-      // Nothing to do when text fits and the box already clears neighbors.
+      // Fits in authored box and clears neighbors — leave geometry alone.
       if (!overlapsBlocker && neededWidth <= element.width + 1) continue;
 
-      let nextX = element.x;
-      let nextWidth = Math.min(Math.max(element.width, neededWidth), available);
-
-      // Always pull the right edge left of logos / blockers.
+      // Keep authored x; only shrink width so we don't cover logos to the right.
+      let nextWidth = element.width;
       if (overlapsBlocker || nextWidth > available) {
         nextWidth = available;
       }
 
-      // Prefer growing left if more width is still needed.
-      if (neededWidth > nextWidth + 1) {
-        const growLeft = Math.min(
-          neededWidth - nextWidth,
-          Math.max(0, element.x - page.margins.left)
-        );
-        nextX = element.x - growLeft;
-        nextWidth = Math.min(neededWidth, Math.max(48, maxRight - nextX));
-      }
-
-      nextWidth = Math.max(48, Math.min(nextWidth, maxRight - nextX));
-
       let nextHeight = element.height;
+      // Wrap inside the (possibly narrowed) box instead of growing left / moving.
       if (neededWidth > nextWidth + 2) {
-        const lines = Math.max(1, Math.ceil(neededWidth / nextWidth));
+        const lines = Math.max(1, Math.ceil(neededWidth / Math.max(nextWidth, 1)));
         nextHeight = Math.max(element.height, Math.ceil(lines * fontSize * 1.4));
       }
 
+      if (nextWidth === element.width && nextHeight === element.height) continue;
+
       elements[index] = {
         ...element,
-        x: nextX,
         width: nextWidth,
         height: nextHeight,
       };

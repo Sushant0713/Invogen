@@ -377,7 +377,9 @@ export function PropertiesPanel() {
             <div>
               <p className="text-sm font-medium text-blue-900">Pinned to position</p>
               <p className="mt-1 text-xs text-blue-800/80">
-                This component won't move in live preview. It stays exactly here, even if tables above it change size.
+                Soft pin: prefers this spot when content fits. If a table above grows,
+                this component still moves down and paginates so invoices do not overlap.
+                Logos, watermarks, and footers stay fixed automatically.
               </p>
             </div>
           </div>

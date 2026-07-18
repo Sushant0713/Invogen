@@ -58,15 +58,21 @@ async function loadSystemTemplateForClone(
 /**
  * Pages for a newly created company template.
  * When sourceTemplateId is set, always clone that system template (or fail).
+ * When startBlank is true, return an empty page (custom template from scratch).
  */
 export async function resolveInitialTemplatePages(
   companyId: string,
   category: string,
   providedPages?: unknown,
-  sourceTemplateId?: string
+  sourceTemplateId?: string,
+  startBlank = false
 ): Promise<TemplatePage[]> {
   if (hasPages(providedPages)) {
     return pagesToPlain(providedPages);
+  }
+
+  if (startBlank) {
+    return createBlankTemplate(category);
   }
 
   const normalizedSourceId =
