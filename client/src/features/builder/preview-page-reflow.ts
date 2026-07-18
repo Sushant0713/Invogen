@@ -43,6 +43,7 @@ import {
   isDocumentFooterElement,
   normalizeDocumentFooters,
 } from './document-footer';
+import { shouldSkipPushForOriginalOverlap } from './content-overlap';
 
 const PUSH_TOLERANCE_PX = 2;
 const FLOW_GAP_PX = 12;
@@ -639,23 +640,6 @@ function elementsVerticallyOverlap(a: CanvasElement, b: CanvasElement): boolean 
   );
 }
 
-function didOverlapOriginally(
-  aId: string,
-  bId: string,
-  originalElements: CanvasElement[]
-): boolean {
-  const a = originalElements.find((el) => el.id === aId);
-  const b = originalElements.find((el) => el.id === bId);
-  if (!a || !b) return false;
-
-  const aBottom = a.y + a.height;
-  const bBottom = b.y + b.height;
-  return (
-    a.y < bBottom - PUSH_TOLERANCE_PX &&
-    b.y < aBottom - PUSH_TOLERANCE_PX
-  );
-}
-
 function isStackedBelow(anchor: CanvasElement, element: CanvasElement): boolean {
   if (element.id === anchor.id || element.visible === false) return false;
   // Fixed chrome never moves. Soft-pinned (user Pin) below a table still pushes —
@@ -784,7 +768,7 @@ function pushStackedElementsBelowAnchor(
 
   const needsOverlapFix = below.some(
     (element) => {
-      if (originalElements && didOverlapOriginally(anchor.id, element.id, originalElements)) {
+      if (originalElements && shouldSkipPushForOriginalOverlap(anchor, element, originalElements)) {
         return false;
       }
       return (
@@ -809,7 +793,7 @@ function pushStackedElementsBelowAnchor(
     // Resolve overlap only — preserve authored spacing when already clear.
     const overlapsAnchor = row.some(
       (element) => {
-        if (originalElements && didOverlapOriginally(anchor.id, element.id, originalElements)) {
+        if (originalElements && shouldSkipPushForOriginalOverlap(anchor, element, originalElements)) {
           return false;
         }
         return (
@@ -1025,7 +1009,9 @@ function enforceStackGapBelowTables(
       if (elementIndex === index) continue;
       const element = result[elementIndex];
       if (element.visible === false || isPinnedPreviewElement(element)) continue;
-      if (originalElements && didOverlapOriginally(anchor.id, element.id, originalElements)) continue;
+      if (originalElements && shouldSkipPushForOriginalOverlap(anchor, element, originalElements)) {
+        continue;
+      }
       if (!isStackedBelow(anchor, element)) continue;
       if (element.y + PUSH_TOLERANCE_PX < minYBelow) {
         result[elementIndex] = withLogicalFlowY({ ...element, y: minYBelow }, minYBelow);
@@ -1788,7 +1774,9 @@ function layoutPageDocumentFlow(
       for (const p of blockingElements) {
         for (const el of unit) {
           if (!elementsShareColumn(p, el)) continue;
-          if (originalElements && didOverlapOriginally(p.id, el.id, originalElements)) continue;
+          if (originalElements && shouldSkipPushForOriginalOverlap(p, el, originalElements)) {
+            continue;
+          }
           if (
             cursorY < p.y + p.height + FLOW_GAP_PX &&
             cursorY + unitHeight > p.y - PUSH_TOLERANCE_PX
