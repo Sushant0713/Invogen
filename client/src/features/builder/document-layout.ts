@@ -39,3 +39,15 @@ export {
   shouldSkipPushForOriginalOverlap,
   shouldPreserveDesignOverlap,
 } from './layout-policy';
+
+export {
+  shouldPushRelatedElement,
+  buildLayoutIntentProps,
+  getElementFlowGroupId,
+  getElementLayoutMode,
+  getElementOverflowPolicy,
+  getElementCollisionPolicy,
+  suggestFlowGroupId,
+} from './layout-intent';
+
+export { detectLayoutWarnings, applyStressDataToElements } from './layout-warnings';

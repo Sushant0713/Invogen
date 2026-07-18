@@ -11,6 +11,10 @@ import {
   LAYOUT_PUSH_TOLERANCE_PX,
   shouldPreserveDesignOverlap,
 } from './layout-policy';
+import {
+  getElementOverflowPolicy,
+  shouldPushRelatedElement,
+} from './layout-intent';
 import { estimateWrappedLineCount } from './structured-content-layout';
 import { getDisplayText, getTextElementStyle, isDataFieldType } from './text-styles';
 
@@ -56,6 +60,7 @@ function pushBelowGrownFields(
       if (lowerIndex < 0) continue;
       let lower = result[lowerIndex];
       if (lower.visible === false || isPushBlockedChrome(lower)) continue;
+      if (!shouldPushRelatedElement(upper, lower)) continue;
       if (!boxesHorizontallyOverlap(upper, lower)) continue;
       if (originalElements && shouldPreserveDesignOverlap(upper, lower, originalElements)) {
         continue;
@@ -85,6 +90,9 @@ function pushBelowGrownFields(
         if (nextIndex < 0) continue;
         const next = result[nextIndex];
         if (next.visible === false || isPushBlockedChrome(next)) continue;
+        if (!shouldPushRelatedElement(upper, next) && !shouldPushRelatedElement(lower, next)) {
+          continue;
+        }
         if (!boxesHorizontallyOverlap(lower, next) && !boxesHorizontallyOverlap(upper, next)) {
           continue;
         }
@@ -135,6 +143,7 @@ export function fitOverflowingDataFields(
       const nextWidth = clamped.width;
       const widthChanged = nextX !== element.x || nextWidth !== element.width;
 
+      const overflowPolicy = getElementOverflowPolicy(element);
       const neededHeight = estimateNeededFieldHeight(text, fontSize, nextWidth, props);
       const showIcon = props.showIcon === true || props.addressHeaderMode === 'logo';
       const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
@@ -143,12 +152,15 @@ export function fitOverflowingDataFields(
       const wrapLines = text.trim()
         ? estimateWrappedLineCount(text, fontSize, textBudget)
         : 0;
-      const shouldGrowHeight =
-        widthChanged
-        || wrapLines > 1
-        || text.includes('\n')
-        || neededHeight > element.height + PUSH_TOLERANCE_PX;
-      const nextHeight = shouldGrowHeight
+      const wantsGrow =
+        overflowPolicy === 'wrapGrow'
+        && (
+          widthChanged
+          || wrapLines > 1
+          || text.includes('\n')
+          || neededHeight > element.height + PUSH_TOLERANCE_PX
+        );
+      const nextHeight = wantsGrow
         ? Math.max(element.height, neededHeight)
         : element.height;
 

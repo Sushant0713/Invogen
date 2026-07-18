@@ -44,6 +44,7 @@ import {
   normalizeDocumentFooters,
 } from './document-footer';
 import { shouldSkipPushForOriginalOverlap } from './layout-policy';
+import { shouldPushRelatedElement } from './layout-intent';
 
 const PUSH_TOLERANCE_PX = 2;
 const FLOW_GAP_PX = 12;
@@ -647,6 +648,8 @@ function isStackedBelow(anchor: CanvasElement, element: CanvasElement): boolean 
   // Fixed chrome never moves. Soft-pinned (user Pin) below a table still pushes —
   // otherwise "pin all" + growing table overlaps everything underneath.
   if (isFixedChromeElement(element)) return false;
+  // Explicit layout intent / flow groups — do not move unrelated design blocks.
+  if (!shouldPushRelatedElement(anchor, element)) return false;
 
   const anchorBottom = anchor.y + anchor.height;
 
