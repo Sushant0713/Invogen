@@ -4,7 +4,6 @@ import { estimateCardBlockHeight, isCardComponentType } from './card-components'
 import { isImageComponentType } from './image-components';
 import {
   estimateStructuredBlockHeight,
-  estimateTextBlockHeight,
   estimateWrappedLineCount,
   isStructuredContentType,
 } from './structured-content-layout';
@@ -31,7 +30,8 @@ export type ContentRect = {
 
 const TOLERANCE = 2;
 
-function estimateTextWidth(text: string, fontSize: number): number {
+/** Shared with fit-preview so clamp and collide agree. */
+export function estimateTextWidth(text: string, fontSize: number): number {
   return Math.ceil(Math.max(1, text.length) * fontSize * 0.55) + 4;
 }
 
@@ -65,10 +65,38 @@ export function boxesOverlap(a: CanvasElement, b: CanvasElement, pad = TOLERANCE
   return boxesVerticallyOverlap(a, b, pad) && boxesHorizontallyOverlap(a, b, pad);
 }
 
+function isDecorativeShapeType(type: string): boolean {
+  return (
+    type === ComponentType.RECTANGLE
+    || type === ComponentType.ROUNDED_RECT
+    || type === ComponentType.CIRCLE
+    || type === ComponentType.DIVIDER
+    || type === ComponentType.LINE
+  );
+}
+
+function resolveTextAlign(props: Record<string, unknown>): 'left' | 'center' | 'right' {
+  const align = props.textAlign;
+  if (align === 'center' || align === 'right') return align;
+  return 'left';
+}
+
+function placeContentX(
+  boxX: number,
+  boxW: number,
+  contentW: number,
+  align: 'left' | 'center' | 'right'
+): number {
+  if (align === 'right') return boxX + Math.max(0, boxW - contentW);
+  if (align === 'center') return boxX + Math.max(0, (boxW - contentW) / 2);
+  return boxX;
+}
+
 /**
  * Approximate the ink/content rectangle inside an element's box.
  * Blank padding does not count — so intentional empty-box overlaps stay safe
  * until live text/icons fill that space.
+ * Height is NOT capped to the box: overflow:visible intentional overlaps can paint past it.
  */
 export function estimateContentBounds(element: CanvasElement): ContentRect {
   const box: ContentRect = {
@@ -82,16 +110,16 @@ export function estimateContentBounds(element: CanvasElement): ContentRect {
     return { ...box, width: 0, height: 0 };
   }
 
-  // Opaque media / tables / shapes fill their box.
+  // Decorative shapes are background, not ink — don't force text off banners.
+  if (isDecorativeShapeType(element.type)) {
+    return { x: element.x, y: element.y, width: 0, height: 0 };
+  }
+
+  // Opaque media / tables fill their box.
   if (
     isImageComponentType(element.type)
     || isTableElementType(element.type)
     || element.type === ComponentType.WATERMARK
-    || element.type === ComponentType.RECTANGLE
-    || element.type === ComponentType.ROUNDED_RECT
-    || element.type === ComponentType.CIRCLE
-    || element.type === ComponentType.DIVIDER
-    || element.type === ComponentType.LINE
   ) {
     return box;
   }
@@ -109,7 +137,7 @@ export function estimateContentBounds(element: CanvasElement): ContentRect {
       x: element.x,
       y: element.y,
       width: element.width,
-      height: Math.min(element.height, Math.max(16, contentH)),
+      height: Math.max(16, contentH),
     };
   }
 
@@ -124,7 +152,7 @@ export function estimateContentBounds(element: CanvasElement): ContentRect {
       x: element.x,
       y: element.y,
       width: element.width,
-      height: Math.min(element.height, Math.max(16, contentH)),
+      height: Math.max(16, contentH),
     };
   }
 
@@ -137,33 +165,35 @@ export function estimateContentBounds(element: CanvasElement): ContentRect {
     const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
     const iconGap = showIcon ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
     const textWidthBudget = Math.max(24, element.width - iconSize - iconGap);
+    const align = resolveTextAlign(props);
 
     if (!text) {
+      const emptyW = Math.min(element.width, Math.max(iconSize, 8));
       return {
-        x: element.x,
+        x: placeContentX(element.x, element.width, emptyW, align),
         y: element.y,
-        width: Math.min(element.width, Math.max(iconSize, 8)),
-        height: Math.min(element.height, Math.max(iconSize, fontSize)),
+        width: emptyW,
+        height: Math.max(iconSize, fontSize),
       };
     }
 
-    const singleLineW = estimateTextWidth(text, fontSize);
+    const longestLine = text.split('\n').reduce((max, line) => Math.max(max, line.length), 0);
+    const singleLineW = estimateTextWidth(
+      text.includes('\n') ? 'x'.repeat(longestLine) : text,
+      fontSize
+    );
     const lines = estimateWrappedLineCount(text, fontSize, textWidthBudget);
     const contentW = Math.min(
       element.width,
       iconSize + iconGap + Math.min(singleLineW, textWidthBudget)
     );
-    const contentH = Math.min(
-      element.height,
-      Math.max(
-        iconSize,
-        Math.ceil(lines * fontSize * 1.4),
-        estimateTextBlockHeight(text, fontSize, textWidthBudget)
-      )
+    const contentH = Math.max(
+      iconSize,
+      Math.ceil(lines * fontSize * 1.4)
     );
 
     return {
-      x: element.x,
+      x: placeContentX(element.x, element.width, contentW, align),
       y: element.y,
       width: Math.max(8, contentW),
       height: Math.max(8, contentH),
@@ -185,7 +215,25 @@ export function estimateContentBounds(element: CanvasElement): ContentRect {
 }
 
 export function contentRectsCollide(a: CanvasElement, b: CanvasElement): boolean {
-  return rectsIntersect(estimateContentBounds(a), estimateContentBounds(b));
+  const ra = estimateContentBounds(a);
+  const rb = estimateContentBounds(b);
+  if (ra.width <= 0 || ra.height <= 0 || rb.width <= 0 || rb.height <= 0) return false;
+  return rectsIntersect(ra, rb);
+}
+
+/**
+ * Match legacy reflow: intentional overlap was tracked by vertical Y-range only.
+ * Keep that predicate so table/card push behavior does not regress.
+ */
+export function didVerticallyOverlapOriginally(
+  aId: string,
+  bId: string,
+  originalElements: CanvasElement[]
+): boolean {
+  const a = originalElements.find((el) => el.id === aId);
+  const b = originalElements.find((el) => el.id === bId);
+  if (!a || !b) return false;
+  return boxesVerticallyOverlap(a, b);
 }
 
 /**
@@ -197,10 +245,7 @@ export function shouldPreserveDesignOverlap(
   b: CanvasElement,
   originalElements: CanvasElement[]
 ): boolean {
-  const origA = originalElements.find((el) => el.id === a.id);
-  const origB = originalElements.find((el) => el.id === b.id);
-  if (!origA || !origB) return false;
-  if (!boxesOverlap(origA, origB)) return false;
+  if (!didVerticallyOverlapOriginally(a.id, b.id, originalElements)) return false;
   // Blank-on-blank was fine; live ink collision must be resolved.
   return !contentRectsCollide(a, b);
 }

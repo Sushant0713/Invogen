@@ -9,32 +9,37 @@ import {
   isOpaqueChromeElement,
   shouldPreserveDesignOverlap,
 } from './content-overlap';
+import {
+  estimateWrappedLineCount,
+} from './structured-content-layout';
 import { getDisplayText, getTextElementStyle, isDataFieldType } from './text-styles';
 
 const FLOW_GAP_PX = 10;
 const PUSH_TOLERANCE_PX = 2;
 
-function estimateTextWidth(text: string, fontSize: number): number {
-  return Math.ceil(Math.max(1, text.length) * fontSize * 0.58) + 6;
-}
-
 function verticallyOverlaps(a: CanvasElement, b: CanvasElement, pad = 4): boolean {
   return a.y < b.y + b.height + pad && b.y < a.y + a.height + pad;
 }
 
-function rightLimitForField(
+function isMediaBlocker(type: string): boolean {
+  return isImageComponentType(type) || type === ComponentType.ICON;
+}
+
+/** Horizontal clamp against neighbors/logos. May inset `x` only for left-side media. */
+function clampFieldHorizontally(
   field: CanvasElement,
   elements: CanvasElement[],
   pageRight: number,
   originalElements?: CanvasElement[]
-): number {
+): { x: number; width: number } {
+  const authoredRight = field.x + field.width;
+  let minLeft = field.x;
   let maxRight = pageRight;
 
   for (const other of elements) {
     if (other.id === field.id || other.visible === false) continue;
 
-    const isMedia = isImageComponentType(other.type) || other.type === ComponentType.ICON;
-    // Blank intentional overlaps may skip non-media blockers; logos always clamp.
+    const isMedia = isMediaBlocker(other.type);
     if (
       !isMedia
       && originalElements
@@ -44,22 +49,41 @@ function rightLimitForField(
     }
     if (!verticallyOverlaps(field, other)) continue;
 
-    // Anything starting to the right of this field's left edge can block growth.
-    if (other.x > field.x + 2) {
-      maxRight = Math.min(maxRight, other.x - FLOW_GAP_PX);
+    if (isMedia && other.x < authoredRight && other.x + other.width > field.x) {
+      // Media to the right of the field origin — clamp right edge.
+      if (other.x > field.x + 2) {
+        maxRight = Math.min(maxRight, other.x - FLOW_GAP_PX);
+        continue;
+      }
+      // Media overlapping from the left — inset start so text clears the logo.
+      minLeft = Math.max(minLeft, other.x + other.width + FLOW_GAP_PX);
       continue;
     }
-    // Logo/image already overlapping this field — keep text strictly left of it.
-    if (
-      isMedia
-      && other.x < field.x + field.width
-      && other.x + other.width > field.x
-    ) {
+
+    // Non-media blocker starting to the right.
+    if (other.x > field.x + 2) {
       maxRight = Math.min(maxRight, other.x - FLOW_GAP_PX);
     }
   }
 
-  return maxRight;
+  const nextX = minLeft;
+  const nextWidth = Math.max(48, Math.min(authoredRight, maxRight) - nextX);
+  return { x: nextX, width: nextWidth };
+}
+
+function estimateNeededFieldHeight(
+  text: string,
+  fontSize: number,
+  width: number,
+  props: Record<string, unknown>
+): number {
+  const showIcon = props.showIcon === true || props.addressHeaderMode === 'logo';
+  const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
+  const iconGap = showIcon ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
+  const textBudget = Math.max(24, width - iconSize - iconGap);
+  if (!text.trim()) return Math.max(iconSize, fontSize);
+  const lines = estimateWrappedLineCount(text, fontSize, textBudget);
+  return Math.max(iconSize, Math.ceil(lines * fontSize * 1.4));
 }
 
 /**
@@ -70,14 +94,14 @@ function pushBelowGrownFields(
   elements: CanvasElement[],
   originalElements?: CanvasElement[]
 ): CanvasElement[] {
-  let result = elements.map((element) => ({ ...element }));
+  const result = elements.map((element) => ({ ...element }));
   const sorted = [...result].sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id));
 
   for (let i = 0; i < sorted.length; i += 1) {
     const upperId = sorted[i].id;
     const upperIndex = result.findIndex((el) => el.id === upperId);
     if (upperIndex < 0) continue;
-    let upper = result[upperIndex];
+    const upper = result[upperIndex];
     if (upper.visible === false) continue;
 
     for (let j = i + 1; j < sorted.length; j += 1) {
@@ -104,14 +128,14 @@ function pushBelowGrownFields(
         Math.max(upper.y + upper.height, upperContent.y + upperContent.height) + FLOW_GAP_PX;
       if (lower.y + PUSH_TOLERANCE_PX >= minY) continue;
 
-      const delta = minY - lower.y;
+      const prevY = lower.y;
+      const delta = minY - prevY;
       result[lowerIndex] = { ...lower, y: minY };
-      // Keep sorted snapshot in sync for later pairs in this pass.
       sorted[j] = result[lowerIndex];
       lower = result[lowerIndex];
 
-      // Cascade the same delta to anything that was below this lower element
-      // in the same column so a chain of address/phone/email stays spaced.
+      // Cascade delta to everything that was at/below this field in the same column
+      // so address → phone → email keeps relative spacing.
       for (let k = j + 1; k < sorted.length; k += 1) {
         const nextIndex = result.findIndex((el) => el.id === sorted[k].id);
         if (nextIndex < 0) continue;
@@ -120,10 +144,9 @@ function pushBelowGrownFields(
         if (!boxesHorizontallyOverlap(lower, next) && !boxesHorizontallyOverlap(upper, next)) {
           continue;
         }
-        if (next.y + PUSH_TOLERANCE_PX < lower.y + lower.height) {
-          result[nextIndex] = { ...next, y: next.y + delta };
-          sorted[k] = result[nextIndex];
-        }
+        if (next.y + PUSH_TOLERANCE_PX < prevY) continue;
+        result[nextIndex] = { ...next, y: next.y + delta };
+        sorted[k] = result[nextIndex];
       }
     }
   }
@@ -131,12 +154,19 @@ function pushBelowGrownFields(
   return result;
 }
 
+function shouldFitDataField(type: string): boolean {
+  if (!isDataFieldType(type)) return false;
+  // Chrome / pagination labels must keep authored geometry.
+  if (type === ComponentType.PAGE_NUMBER) return false;
+  return true;
+}
+
 /**
  * Keep live values readable without relocating fields (which caused invoice
  * live preview to mismatch the template builder).
- * - Never change `x` — authored position is sacred
+ * - Authored `x` stays unless left-side logo forces a minimal inset
  * - May shrink width to clear logos/neighbors on the right
- * - May grow height to wrap text when the box is too narrow
+ * - May grow height for wrap / multiline / icons
  * - May push stacked fields when live ink collides (blank overlaps stay)
  */
 export function fitOverflowingDataFields(
@@ -150,8 +180,7 @@ export function fitOverflowingDataFields(
 
     for (let index = 0; index < elements.length; index += 1) {
       const element = elements[index];
-      if (element.visible === false || !isDataFieldType(element.type)) continue;
-      if (element.type === ComponentType.ADDRESS) continue;
+      if (element.visible === false || !shouldFitDataField(element.type)) continue;
 
       const props = (element.props ?? {}) as Record<string, unknown>;
       const text = getDisplayText(props, element.type);
@@ -159,33 +188,40 @@ export function fitOverflowingDataFields(
       const fontSize =
         typeof style.fontSize === 'number' && style.fontSize > 0 ? style.fontSize : 14;
 
-      const maxRight = rightLimitForField(element, elements, pageRight, originalElements);
-      const available = Math.max(48, maxRight - element.x);
-      const overlapsBlocker = element.x + element.width > maxRight + 1;
-      const neededWidth = text.trim()
-        ? estimateTextWidth(text, fontSize)
-        : element.width;
+      const clamped = clampFieldHorizontally(element, elements, pageRight, originalElements);
+      const nextX = clamped.x;
+      const nextWidth = clamped.width;
+      const widthChanged = nextX !== element.x || nextWidth !== element.width;
 
-      // Fits in authored box and clears neighbors — leave geometry alone.
-      if (!overlapsBlocker && neededWidth <= element.width + 1) continue;
+      const neededHeight = estimateNeededFieldHeight(text, fontSize, nextWidth, props);
+      const showIcon = props.showIcon === true || props.addressHeaderMode === 'logo';
+      const iconSize = showIcon ? Math.round(fontSize * 1.35) : 0;
+      const iconGap = showIcon ? Math.max(4, Math.round(fontSize * 0.4)) : 0;
+      const textBudget = Math.max(24, nextWidth - iconSize - iconGap);
+      const wrapLines = text.trim()
+        ? estimateWrappedLineCount(text, fontSize, textBudget)
+        : 0;
+      // Grow only when wrap/multiline/clamp needs it — avoid reflowing every short label.
+      const shouldGrowHeight =
+        widthChanged
+        || wrapLines > 1
+        || text.includes('\n')
+        || neededHeight > element.height + PUSH_TOLERANCE_PX;
+      const nextHeight = shouldGrowHeight
+        ? Math.max(element.height, neededHeight)
+        : element.height;
 
-      // Keep authored x; only shrink width so we don't cover logos to the right.
-      let nextWidth = element.width;
-      if (overlapsBlocker || nextWidth > available) {
-        nextWidth = available;
+      if (
+        nextX === element.x
+        && nextWidth === element.width
+        && nextHeight === element.height
+      ) {
+        continue;
       }
-
-      let nextHeight = element.height;
-      // Wrap inside the (possibly narrowed) box instead of growing left / moving.
-      if (neededWidth > nextWidth + 2) {
-        const lines = Math.max(1, Math.ceil(neededWidth / Math.max(nextWidth, 1)));
-        nextHeight = Math.max(element.height, Math.ceil(lines * fontSize * 1.4));
-      }
-
-      if (nextWidth === element.width && nextHeight === element.height) continue;
 
       elements[index] = {
         ...element,
+        x: nextX,
         width: nextWidth,
         height: nextHeight,
       };
