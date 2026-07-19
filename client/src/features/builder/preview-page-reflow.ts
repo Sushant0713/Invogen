@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import { ComponentType } from '@invogen/shared';
 import type { CanvasElement, TemplatePage } from '@invogen/shared';
 import { getPageDimensions, type PageMargins } from './builder-dnd';
@@ -38,6 +37,7 @@ import { isTextStylable } from './text-styles';
 import { formatPageNumberLabel, readPageNumberFormat } from './page-number';
 import { cloneTemplatePages } from '@/features/invoice-composer/invoice-document';
 import {
+  FOOTER_BOTTOM_OFFSET_KEY,
   appendFootersFromMasterPage,
   getFlowContentBottomLimit,
   isDocumentFooterElement,
@@ -95,6 +95,29 @@ function clearLogicalFlowStampsInPages(pages: TemplatePage[]): TemplatePage[] {
 /** Record manual canvas position as document-flow order (after drag / resize). */
 export function touchLogicalFlowY(element: CanvasElement): CanvasElement {
   return withLogicalFlowY(element, element.y);
+}
+
+/**
+ * Remove layout-only stamps before persisting a template. `__logicalFlowY` is
+ * rebuilt from visual Y on every layout pass and `__footerBottomOffset` is
+ * derived from authored geometry — persisting either lets stale layout state
+ * masquerade as authored data (the source of past footer-position bugs).
+ * Pagination range keys are NOT stripped: saved multi-page tables need them.
+ */
+export function stripLayoutOnlyStampsFromPages(pages: TemplatePage[]): TemplatePage[] {
+  return pages.map((page) => ({
+    ...page,
+    elements: page.elements.map((element) => {
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (!(LOGICAL_FLOW_Y_KEY in props) && !(FOOTER_BOTTOM_OFFSET_KEY in props)) {
+        return element;
+      }
+      const next = { ...props };
+      delete next[LOGICAL_FLOW_Y_KEY];
+      delete next[FOOTER_BOTTOM_OFFSET_KEY];
+      return { ...element, props: next };
+    }),
+  }));
 }
 
 function cloneElements(elements: CanvasElement[]): CanvasElement[] {
@@ -1130,7 +1153,9 @@ function makeTableContinuationElement(
   const anchorId = resolvePaginationTableId(elementProps, element.id);
   return {
     ...element,
-    id: uuidv4(),
+    // Deterministic id: random uuids minted a "new" element every layout pass,
+    // churning React keys and defeating fixpoint/idempotency convergence.
+    id: `${anchorId}::rows-${rowStart}`,
     x: element.x,
     width: element.width,
     y: element.y,
@@ -1154,7 +1179,8 @@ function makeTextContinuationElement(
   const fullRuns = resolveFullTextRuns(sourceProps);
   return {
     ...source,
-    id: uuidv4(),
+    // Deterministic id — see makeTableContinuationElement.
+    id: `${boxId}::text-${start}`,
     y: source.y,
     height,
     props: textPropsForPageSegment(sourceProps, fullContent, fullRuns, boxId, start, end),
@@ -3303,7 +3329,7 @@ function createContinuationPage(
   footerSource?: TemplatePage
 ): TemplatePage {
   const page: TemplatePage = {
-    id: uuidv4(),
+    id: `${sourcePage.id}::p${pageNumber}`,
     name: `Page ${pageNumber}`,
     margins: { ...sourcePage.margins },
     pageSize: sourcePage.pageSize ? { ...sourcePage.pageSize } : undefined,
@@ -3485,7 +3511,7 @@ function reflowPagesWordStyle(
     guard += 1;
 
     const shell: TemplatePage = {
-      id: isFirst ? master.id : uuidv4(),
+      id: isFirst ? master.id : `${master.id}::p${pageNumber}`,
       name: `Page ${pageNumber}`,
       margins: { ...master.margins },
       pageSize: master.pageSize ? { ...master.pageSize } : undefined,
@@ -3530,7 +3556,7 @@ function reflowPagesWordStyle(
   // Always restack with placeFlowUnitAt so intentional overlap units keep relative Y.
   if (remaining.length > 0) {
     const salvageShell: TemplatePage = {
-      id: uuidv4(),
+      id: `${master.id}::p${pageNumber}`,
       name: `Page ${pageNumber}`,
       margins: { ...master.margins },
       pageSize: master.pageSize ? { ...master.pageSize } : undefined,
@@ -3551,7 +3577,7 @@ function reflowPagesWordStyle(
       salvageGuard += 1;
       const shell: TemplatePage = {
         ...salvageShell,
-        id: uuidv4(),
+        id: `${master.id}::p${pageNumber}`,
         name: `Page ${pageNumber}`,
         elements: [
           ...appendFootersFromMasterPage(footerSourcePage, salvageShell),
@@ -3571,7 +3597,7 @@ function reflowPagesWordStyle(
         // No progress — keep unit-relative positions so components stay visible.
         result.push({
           ...shell,
-          id: uuidv4(),
+          id: `${master.id}::p${pageNumber}`,
           name: `Page ${pageNumber}`,
           elements: [
             ...appendFootersFromMasterPage(footerSourcePage, shell),

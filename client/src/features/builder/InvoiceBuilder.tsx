@@ -33,6 +33,7 @@ import {
   publishSavedTemplateDocument,
   primeTemplateCache,
 } from '@/features/template-gallery/template-loader';
+import { stripLayoutOnlyStampsFromPages } from './preview-page-reflow';
 
 interface InvoiceBuilderProps {
   templateId: string;
@@ -116,10 +117,13 @@ export function InvoiceBuilder({
     setSaving(true);
     try {
       // Deep-clone so Redux proxies / circular refs cannot break JSON serialization
-      // when many pages and components are present.
+      // when many pages and components are present. Layout-only stamps are
+      // stripped — persisted templates must hold authored state only.
       const payload = {
         name: templateName,
-        pages: JSON.parse(JSON.stringify(pages)) as typeof pages,
+        pages: JSON.parse(
+          JSON.stringify(stripLayoutOnlyStampsFromPages(pages))
+        ) as typeof pages,
       };
       const res = await api.patch(`${apiBase}/${templateId}`, payload);
       const updated = res.data?.data as TemplateDocument | undefined;
@@ -173,7 +177,9 @@ export function InvoiceBuilder({
         name: newName,
         category,
         sourceTemplateId: templateId,
-        pages: JSON.parse(JSON.stringify(pages)) as typeof pages,
+        pages: JSON.parse(
+          JSON.stringify(stripLayoutOnlyStampsFromPages(pages))
+        ) as typeof pages,
       });
       const created = res.data?.data as TemplateDocument | undefined;
       if (!created?._id) {
@@ -210,7 +216,9 @@ export function InvoiceBuilder({
         const res = await api.post(`${apiBase}/${templateId}/duplicate`, {
           name: payload.name,
           description: payload.description,
-          pages: JSON.parse(JSON.stringify(pages)) as typeof pages,
+          pages: JSON.parse(
+            JSON.stringify(stripLayoutOnlyStampsFromPages(pages))
+          ) as typeof pages,
         });
         const created = res.data?.data as TemplateDocument | undefined;
         if (!created?._id) {

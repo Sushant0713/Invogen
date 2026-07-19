@@ -80,6 +80,17 @@ describe('estimateStructuredBlockHeight — ADDRESS (mirrors AddressDisplay CSS)
 });
 
 describe('estimateTextBlockHeight', () => {
+  it('matches lines * lineHeight + 2px sizer pad — no phantom padding', () => {
+    // fontSize 14 (mock char 7px), width 300 → 42 chars/line.
+    // Three explicit lines → ceil(3 * 14*1.45 + 2) = 63.
+    const height = estimateTextBlockHeight(
+      ComponentType.TEXT,
+      { fontSize: 14, content: 'one\ntwo\nthree' },
+      300
+    );
+    expect(height).toBe(Math.ceil(3 * 14 * 1.45 + 2));
+  });
+
   it('grows with wrapped lines', () => {
     const short = estimateTextBlockHeight(ComponentType.TEXT, { fontSize: 14, content: 'hi' }, 300);
     const long = estimateTextBlockHeight(

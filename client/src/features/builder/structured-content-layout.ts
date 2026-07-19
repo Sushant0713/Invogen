@@ -11,7 +11,6 @@ import {
 } from './google-fonts';
 
 const LINE_HEIGHT = 1.45;
-const PADDING = 16;
 const MIN_HEIGHT = 40;
 
 function fontSizeFromProps(props: Record<string, unknown>, type: string): number {
@@ -155,7 +154,9 @@ export function estimateTextBlockHeight(
   const content = resolveTextBlockContent(props);
   const lineCount = estimateWrappedLineCount(content, font.fontSize, safeWidth, font);
   if (lineCount === 0) return minHeight;
-  return Math.max(minHeight, Math.ceil(lineCount * linePx + PADDING));
+  // Text surfaces have no vertical padding — only the sizer's +2 pad applies.
+  // (The old +16 over-estimated every text block by roughly a line's worth.)
+  return Math.max(minHeight, Math.ceil(lineCount * linePx + SIZER_PAD));
 }
 
 export function isStructuredContentType(type: string): boolean {

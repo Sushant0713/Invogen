@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from '@invogen/shared';
 import type { TemplatePage } from '@invogen/shared';
-import { reflowPagesForPreview } from '../preview-page-reflow';
+import {
+  reflowPagesForPreview,
+  stripLayoutOnlyStampsFromPages,
+} from '../preview-page-reflow';
 import { pagesGeometrySignature } from '../layout-parity-debug';
 import { findById, makeElement, makePage } from './layout-fixtures';
 
@@ -196,6 +199,40 @@ describe('reflowPagesForPreview — invariants', () => {
         ).toBeLessThanOrEqual(CONTENT_BOTTOM + 3);
       }
     }
+
+    // Idempotency must hold for PAGINATED output too — continuation pages and
+    // text/table segments need deterministic ids or the signature never
+    // converges (random uuids per pass broke the fixpoint loop).
+    const again = reflowPagesForPreview(result);
+    expect(pagesGeometrySignature(again)).toBe(pagesGeometrySignature(result));
+  });
+
+  it('strips layout-only stamps for template save, keeping pagination ranges', () => {
+    const pages: TemplatePage[] = [
+      makePage([
+        makeElement({
+          id: 'stamped',
+          type: ComponentType.TEXT,
+          x: 80,
+          y: 100,
+          width: 300,
+          height: 30,
+          props: {
+            content: 'Hello',
+            __logicalFlowY: 240,
+            __footerBottomOffset: 12,
+            __previewTextRangeStart: 0,
+          },
+        }),
+      ]),
+    ];
+    const stripped = stripLayoutOnlyStampsFromPages(pages);
+    const props = stripped[0].elements[0].props;
+    expect(props.__logicalFlowY).toBeUndefined();
+    expect(props.__footerBottomOffset).toBeUndefined();
+    // Authored/pagination state survives.
+    expect(props.content).toBe('Hello');
+    expect(props.__previewTextRangeStart).toBe(0);
   });
 
   it('does not move elements on an already-fitting page with no growth', () => {
