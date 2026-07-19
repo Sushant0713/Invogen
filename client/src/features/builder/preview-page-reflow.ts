@@ -1625,6 +1625,26 @@ function paginateTableInDocumentFlow(
   };
 }
 
+/**
+ * Cap for preserving authored inter-unit gaps. Larger pre-gaps usually mean
+ * the units came from different authored pages (document-stamped Y), where
+ * the page break itself was the separator.
+ */
+const MAX_PRESERVED_GAP_PX = 400;
+
+/** Extra cursor advance so consecutive units keep their authored breathing room. */
+function preservedGapAdjustment(
+  prevUnitPreBottom: number | null,
+  unitPreTop: number
+): number {
+  if (prevUnitPreBottom === null) return 0;
+  const authoredGap = unitPreTop - prevUnitPreBottom;
+  if (authoredGap > FLOW_GAP_PX && authoredGap <= MAX_PRESERVED_GAP_PX) {
+    return authoredGap - FLOW_GAP_PX;
+  }
+  return 0;
+}
+
 function spillRemainingFlow(
   flow: CanvasElement[],
   startIndex: number,
@@ -1634,7 +1654,13 @@ function spillRemainingFlow(
   const remaining = flow.slice(startIndex);
   const units = groupFlowIntoUnits(remaining);
   let y = cursorY;
+  let prevPreBottom: number | null = null;
   for (const unit of units) {
+    // Keep authored spacing between spilled units — uniform FLOW_GAP stacking
+    // squeezed sections together (a signature authored 162px below the bank
+    // block landed 12px below it on the continuation page).
+    y += preservedGapAdjustment(prevPreBottom, Math.min(...unit.map((el) => el.y)));
+    prevPreBottom = Math.max(...unit.map((el) => el.y + el.height));
     const result = placeFlowUnitAt(unit, y);
     overflow.push(...result.placed);
     y = result.nextCursorY;
@@ -1802,9 +1828,18 @@ function layoutPageDocumentFlow(
     (p) => !isDocumentFooterElement(p) && p.type !== ComponentType.WATERMARK
   );
 
+  let prevUnitPreBottom: number | null = null;
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
     const unit = units[unitIndex];
-    
+
+    // Preserve authored breathing room between consecutive units instead of
+    // normalizing every gap to FLOW_GAP (see spillRemainingFlow).
+    cursorY += preservedGapAdjustment(
+      prevUnitPreBottom,
+      Math.min(...unit.map((el) => el.y))
+    );
+    prevUnitPreBottom = Math.max(...unit.map((el) => el.y + el.height));
+
     let overlapFound = true;
     while (overlapFound) {
       overlapFound = false;

@@ -207,6 +207,37 @@ describe('reflowPagesForPreview — invariants', () => {
     expect(pagesGeometrySignature(again)).toBe(pagesGeometrySignature(result));
   });
 
+  it('preserves authored breathing room between units during restack', () => {
+    // A (tall) + B, then C authored 80px below B, then D past the page bottom
+    // (forces the cross-page restack). The B→C gap must survive as ~80px,
+    // not be normalized to the 12px flow gap.
+    const fieldEl = (id: string, y: number, h: number) =>
+      makeElement({
+        id,
+        type: ComponentType.FIELD,
+        x: 80,
+        y,
+        width: 300,
+        height: h,
+        props: { value: id, dataKey: id, fontSize: 14 },
+      });
+    const pages: TemplatePage[] = [
+      makePage([
+        fieldEl('blockA', 40, 800),
+        fieldEl('blockB', 850, 40),
+        fieldEl('blockC', 970, 40), // authored gap below B = 80
+        fieldEl('blockD', 1085, 50), // bottom 1135 > 1083 → triggers restack
+      ]),
+    ];
+
+    const result = reflowPagesForPreview(pages);
+    const b = findById(result, 'blockB')!;
+    const c = findById(result, 'blockC')!;
+    const authoredGap = 970 - (850 + 40);
+    const placedGap = c.y - (b.y + b.height);
+    expect(Math.abs(placedGap - authoredGap)).toBeLessThanOrEqual(3);
+  });
+
   it('strips layout-only stamps for template save, keeping pagination ranges', () => {
     const pages: TemplatePage[] = [
       makePage([

@@ -153,19 +153,46 @@ function pushBelowGrownFields(
       sorted[j] = result[lowerIndex];
       lower = result[lowerIndex];
 
-      // Cascade delta to everything that was at/below this field in the same column
-      // so address → phone → email keeps relative spacing.
-      for (let k = j + 1; k < sorted.length; k += 1) {
-        const nextIndex = result.findIndex((el) => el.id === sorted[k].id);
-        if (nextIndex < 0) continue;
-        const next = result[nextIndex];
-        if (next.visible === false || isOpaqueChromeElement(next)) continue;
-        if (!boxesHorizontallyOverlap(lower, next) && !boxesHorizontallyOverlap(upper, next)) {
-          continue;
+      // Transitive cascade: an element follows the push when it sat at/below
+      // the pre-push Y of ANY already-moved element it horizontally overlaps.
+      // Full-width movers (dividers, tables) carry the push across columns, so
+      // a two-column row below the grown field travels as one row instead of
+      // tearing (left column pushed, right column left behind — which used to
+      // double-shift everything under the torn row on the repagination pass).
+      const movedPreY = new Map<string, number>([[lower.id, prevY]]);
+      let progressed = true;
+      while (progressed) {
+        progressed = false;
+        for (let k = j + 1; k < sorted.length; k += 1) {
+          const nextIndex = result.findIndex((el) => el.id === sorted[k].id);
+          if (nextIndex < 0) continue;
+          const next = result[nextIndex];
+          if (movedPreY.has(next.id)) continue;
+          if (next.visible === false || isOpaqueChromeElement(next)) continue;
+
+          let follows = false;
+          if (
+            (boxesHorizontallyOverlap(lower, next) || boxesHorizontallyOverlap(upper, next))
+            && next.y + PUSH_TOLERANCE_PX >= prevY
+          ) {
+            follows = true;
+          } else {
+            for (const [movedId, movedFromY] of movedPreY) {
+              if (next.y + PUSH_TOLERANCE_PX < movedFromY) continue;
+              const movedEl = result.find((el) => el.id === movedId);
+              if (movedEl && boxesHorizontallyOverlap(movedEl, next)) {
+                follows = true;
+                break;
+              }
+            }
+          }
+          if (!follows) continue;
+
+          movedPreY.set(next.id, next.y);
+          result[nextIndex] = { ...next, y: next.y + delta };
+          sorted[k] = result[nextIndex];
+          progressed = true;
         }
-        if (next.y + PUSH_TOLERANCE_PX < prevY) continue;
-        result[nextIndex] = { ...next, y: next.y + delta };
-        sorted[k] = result[nextIndex];
       }
     }
   }
