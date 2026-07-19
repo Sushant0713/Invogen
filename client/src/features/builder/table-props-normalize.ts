@@ -1,13 +1,18 @@
 import { ComponentType } from '@invogen/shared';
-import { normalizeProductTableProps, productTablePropsToRecord, recalculateProductTable, resolveProductAmountColumnIds, resolveProductQtyColumnId, resolveProductRateColumnId } from './product-table';
+import { computeTableHeight, normalizeProductTableProps, productTablePropsToRecord, recalculateProductTable, resolveProductAmountColumnIds, resolveProductQtyColumnId, resolveProductRateColumnId } from './product-table';
 import { isInvoiceTable1Type, normalizeInvoiceTableProps } from './invoice-table';
 import {
   INVOICE2_COL_DISCOUNT,
   INVOICE2_COL_LINE_TOTAL,
+  computeInvoiceTable2Height,
   isInvoiceTable2Type,
   normalizeInvoiceTable2Props,
 } from './invoice-table-2';
-import { isInvoiceTable3Type, normalizeInvoiceTable3Props } from './invoice-table-3';
+import {
+  computeInvoiceTable3Height,
+  isInvoiceTable3Type,
+  normalizeInvoiceTable3Props,
+} from './invoice-table-3';
 import type { ProductTableProps } from './product-table';
 import { resolveBuilderTablePropsForEdit } from './product-table';
 
@@ -48,7 +53,19 @@ export function normalizeTablePropsForType(
 
 export { productTablePropsToRecord };
 
-/** Row/column structure changes need Word-style pagination; cosmetic props do not. */
+/** Rendered table height for layout-change detection — mirrors resolveTableElementSize. */
+function computedTableHeightForType(elementType: string, table: ProductTableProps): number {
+  if (isInvoiceTable2Type(elementType)) return computeInvoiceTable2Height(table);
+  if (isInvoiceTable3Type(elementType)) return computeInvoiceTable3Height(table);
+  return computeTableHeight(table);
+}
+
+/**
+ * Row/column structure changes need Word-style pagination; cosmetic props do
+ * not. Any change to the table's COMPUTED height (amount-in-words toggle,
+ * total footer, header) also needs layout — skipping it left a stale box and
+ * content below never adjusted.
+ */
 export function tablePropsNeedDocumentLayout(
   elementType: string,
   prev: Record<string, unknown>,
@@ -62,6 +79,15 @@ export function tablePropsNeedDocumentLayout(
     elementType,
     resolveBuilderTablePropsForEdit(next)
   );
+
+  if (
+    Math.abs(
+      computedTableHeightForType(elementType, prevTable)
+      - computedTableHeightForType(elementType, nextTable)
+    ) > 1
+  ) {
+    return true;
+  }
 
   if (prevTable.rows.length !== nextTable.rows.length) return true;
   if (prevTable.columns.length !== nextTable.columns.length) return true;
