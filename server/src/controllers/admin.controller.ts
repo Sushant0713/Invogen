@@ -1,6 +1,16 @@
 import { adminService } from '../services/admin.service';
+import { customerSuggestService } from '../services/customer-suggest.service';
 import { InvoiceStatus } from '@invogen/shared';
 import { wrap, param } from '../utils/controller';
+
+/** Offer to save a manually-typed customer that was billed before. */
+export const suggestCustomer = wrap((req) =>
+  customerSuggestService.suggestFromInvoiceHistory(req.companyId!, {
+    name: req.query.name as string | undefined,
+    phone: req.query.phone as string | undefined,
+    email: req.query.email as string | undefined,
+  })
+);
 
 export const getDashboard = wrap((req) => adminService.getDashboard(req.companyId!));
 export const getCompany = wrap((req) => adminService.getCompany(req.companyId!));

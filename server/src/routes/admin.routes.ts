@@ -39,6 +39,11 @@ router.post('/employees/:id/reject', ctrl.rejectEmployee);
 router.patch('/employees/:id', ctrl.updateEmployee);
 router.delete('/employees/:id', ctrl.deleteEmployee);
 router.get('/customers', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.getCustomers);
+router.get(
+  '/customers/suggest',
+  requirePermission(PERMISSIONS.CUSTOMER_MANAGE),
+  ctrl.suggestCustomer
+);
 router.post('/customers', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.createCustomer);
 router.patch('/customers/:id', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.updateCustomer);
 router.delete('/customers/:id', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.deleteCustomer);

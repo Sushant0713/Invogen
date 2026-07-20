@@ -99,6 +99,8 @@ interface InvoiceComposerFormProps {
   customers: CustomerRecord[];
   selectedCustomerId: string;
   onSelectCustomer: (customerId: string) => void;
+  /** Banner offering to save a manually-typed repeat customer. */
+  customerPrompt?: ReactNode;
   /** When false, hides page delete controls (settings preview). */
   showPageManagement?: boolean;
 }
@@ -233,6 +235,7 @@ export function InvoiceComposerForm({
   customers,
   selectedCustomerId,
   onSelectCustomer,
+  customerPrompt,
   showPageManagement = true,
 }: InvoiceComposerFormProps) {
   // Scan tables from working pages (pageList) — same document edits/pick write to.
@@ -287,6 +290,8 @@ export function InvoiceComposerForm({
 
   return (
     <div className="space-y-4">
+      {customerPrompt}
+
       {showPageManagement ? (
         <InvoicePagesSection pages={pageList} onDeletePage={onDeletePage} />
       ) : null}

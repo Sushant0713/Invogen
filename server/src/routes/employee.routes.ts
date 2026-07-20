@@ -65,6 +65,11 @@ router.post('/products', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.cre
 router.patch('/products/:id', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.updateProduct);
 router.delete('/products/:id', requirePermission(PERMISSIONS.PRODUCT_MANAGE), ctrl.deleteProduct);
 router.get('/customers', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.getCustomers);
+router.get(
+  '/customers/suggest',
+  requirePermission(PERMISSIONS.CUSTOMER_MANAGE),
+  ctrl.suggestCustomer
+);
 router.post('/customers', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.createCustomer);
 router.patch('/customers/:id', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.updateCustomer);
 router.delete('/customers/:id', requirePermission(PERMISSIONS.CUSTOMER_MANAGE), ctrl.deleteCustomer);

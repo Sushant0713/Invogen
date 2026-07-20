@@ -92,6 +92,9 @@ import {
   hydrateComposerFromSavedInvoice,
 } from './saved-invoice';
 import { useFontsVersion } from '@/features/builder/use-fonts-version';
+import { useRepeatCustomerSuggestion } from './customer-suggest';
+import { SaveCustomerPrompt } from './SaveCustomerPrompt';
+import { parseCustomerAddress } from './parse-customer-address';
 import { buildInvoiceTotalsFromPlaceholders } from './invoice-totals';
 
 export interface InvoiceComposerConfig {
@@ -469,6 +472,68 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     },
     [customers]
   );
+
+  // Offer to save a manually-typed customer we have billed before.
+  const [dismissedCustomerKeys, setDismissedCustomerKeys] = useState<string[]>([]);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const { data: customerSuggestion, identityKey: customerIdentityKey } =
+    useRepeatCustomerSuggestion({
+      apiBase: config.apiBase,
+      // Only when they typed instead of picking, and we can actually save one.
+      enabled: !selectedCustomerId && !!config.customersApi,
+      name: formContext.ClientName,
+      phone: formContext.Phone,
+      email: formContext.Email,
+    });
+
+  const handleAddSuggestedCustomer = useCallback(async () => {
+    const suggestion = customerSuggestion?.suggestion;
+    if (!suggestion || !config.customersApi) return;
+    setSavingCustomer(true);
+    try {
+      const addressText = suggestion.address || formContext.Address;
+      const billingAddress = parseCustomerAddress(addressText);
+      const res = await api.post(config.customersApi, {
+        name: suggestion.name || formContext.ClientName || 'Customer',
+        email: suggestion.email || formContext.Email,
+        phone: suggestion.phone || formContext.Phone,
+        gst: suggestion.gst || formContext.GST,
+        type: 'individual',
+        ...(Object.keys(billingAddress).length ? { billingAddress } : {}),
+      });
+      const created = res.data?.data as { _id?: string } | undefined;
+      await queryClient.invalidateQueries({
+        queryKey: ['invoice-composer-customers', config.customersApi],
+      });
+      if (created?._id) setSelectedCustomerId(created._id);
+      setDismissedCustomerKeys((prev) => [...prev, customerIdentityKey]);
+      toast.success('Customer added');
+    } catch (error) {
+      const message =
+        error && typeof error === 'object' && 'response' in error
+          ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      toast.error(message || 'Failed to add customer');
+    } finally {
+      setSavingCustomer(false);
+    }
+  }, [customerSuggestion, config.customersApi, formContext, queryClient, customerIdentityKey]);
+
+  const customerPrompt =
+    customerSuggestion?.shouldSuggest
+    && customerSuggestion.suggestion
+    && !dismissedCustomerKeys.includes(customerIdentityKey) ? (
+      <SaveCustomerPrompt
+        suggestion={customerSuggestion.suggestion}
+        isRepeat={customerSuggestion.isRepeat}
+        priorInvoiceCount={customerSuggestion.priorInvoiceCount}
+        saving={savingCustomer}
+        onAdd={() => void handleAddSuggestedCustomer()}
+        onDismiss={() =>
+          setDismissedCustomerKeys((prev) => [...prev, customerIdentityKey])
+        }
+      />
+    ) : null;
 
   const handleSelectTemplate = useCallback(
     (nextTemplateId: string) => {
@@ -856,6 +921,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
             customers={customers}
             selectedCustomerId={selectedCustomerId}
             onSelectCustomer={handleSelectCustomer}
+            customerPrompt={customerPrompt}
           />
           </ProductSettingsProvider>
         </div>
