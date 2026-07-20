@@ -97,15 +97,119 @@ export function touchLogicalFlowY(element: CanvasElement): CanvasElement {
   return withLogicalFlowY(element, element.y);
 }
 
+const PAGINATION_STAMP_KEYS = [
+  PREVIEW_PAGINATION_ROWS_KEY,
+  PREVIEW_PAGINATION_RANGE_START_KEY,
+  PREVIEW_PAGINATION_RANGE_END_KEY,
+  PREVIEW_PAGINATION_SHOW_TOTALS_KEY,
+  PREVIEW_PAGINATION_TABLE_ID_KEY,
+] as const;
+
+function hasAnyPaginationStamp(props: Record<string, unknown>): boolean {
+  return PAGINATION_STAMP_KEYS.some((key) => key in props);
+}
+
+function stripPaginationStampsFromProps(props: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...props };
+  for (const key of PAGINATION_STAMP_KEYS) delete next[key];
+  return next;
+}
+
+/**
+ * Collapse every paginated table back to a single authored table with its
+ * complete row set and NO pagination stamps.
+ *
+ * Preview pagination (splitting a table across pages, forcing the total footer
+ * onto the last segment) is a render-time concern that must never be persisted.
+ * When these stamps leaked into a saved template, a 1-row anchor could carry
+ * `__previewPaginationRows: 16` with `start: 15, end: 16` — so on reload the
+ * table showed a stale 16-row snapshot, split wrongly, and dropped the grand
+ * total footer. Running this on save AND on load keeps authored data clean and
+ * heals already-corrupted templates.
+ */
+export function consolidatePaginatedTablesToAuthored(pages: TemplatePage[]): TemplatePage[] {
+  type Segment = { pageIndex: number; element: CanvasElement };
+  const groups = new Map<string, Segment[]>();
+
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    for (const element of pages[pageIndex].elements) {
+      if (!isTableElementType(element.type)) continue;
+      const props = (element.props ?? {}) as Record<string, unknown>;
+      if (!hasAnyPaginationStamp(props)) continue;
+      const key = resolvePaginationTableId(props, element.id);
+      const list = groups.get(key) ?? [];
+      list.push({ pageIndex, element });
+      groups.set(key, list);
+    }
+  }
+
+  if (groups.size === 0) return pages;
+
+  const next = cloneTemplatePages(pages);
+
+  for (const [tableId, segments] of groups) {
+    segments.sort((a, b) => a.pageIndex - b.pageIndex || a.element.y - b.element.y);
+    const primary = segments[0];
+    const fullRows = mergeSegmentRows(
+      segments.map((segment) => ({
+        element: segment.element,
+        allRows: resolvePaginationAllRows(
+          (segment.element.props ?? {}) as Record<string, unknown>,
+          normalizeTablePropsForType(
+            segment.element.type,
+            (segment.element.props ?? {}) as Record<string, unknown>
+          ) as ProductTableProps
+        ),
+      }))
+    );
+
+    // Totals belong to the whole table; restore the intended footer flags.
+    const wantsTotals = segments
+      .map((segment) => (segment.element.props ?? {})[PREVIEW_PAGINATION_SHOW_TOTALS_KEY])
+      .find((value): value is boolean => typeof value === 'boolean') !== false;
+
+    const cleanProps = stripPaginationStampsFromProps({
+      ...((primary.element.props ?? {}) as Record<string, unknown>),
+    });
+    cleanProps.rows = fullRows;
+    if (wantsTotals) {
+      if ('showGrandTotalFooter' in cleanProps) cleanProps.showGrandTotalFooter = true;
+      if ('showTotalFooter' in cleanProps) cleanProps.showTotalFooter = true;
+      if ('showSummaryTable' in cleanProps) cleanProps.showSummaryTable = true;
+    }
+
+    const size = resolveTableElementSize(
+      primary.element.type,
+      normalizeTablePropsForType(primary.element.type, cleanProps) as ProductTableProps
+    );
+    const restored: CanvasElement = {
+      ...primary.element,
+      height: size.height,
+      props: cleanProps,
+    };
+
+    // Drop every segment of this table, then re-add the single clean anchor.
+    for (let pageIndex = 0; pageIndex < next.length; pageIndex += 1) {
+      next[pageIndex].elements = next[pageIndex].elements.filter((element) => {
+        if (!isTableElementType(element.type)) return true;
+        return resolvePaginationTableId((element.props ?? {}) as Record<string, unknown>, element.id) !== tableId;
+      });
+    }
+    next[primary.pageIndex].elements.push(restored);
+  }
+
+  return next;
+}
+
 /**
  * Remove layout-only stamps before persisting a template. `__logicalFlowY` is
- * rebuilt from visual Y on every layout pass and `__footerBottomOffset` is
- * derived from authored geometry — persisting either lets stale layout state
- * masquerade as authored data (the source of past footer-position bugs).
- * Pagination range keys are NOT stripped: saved multi-page tables need them.
+ * rebuilt from visual Y on every layout pass, `__footerBottomOffset` is derived
+ * from authored geometry, and pagination stamps are recomputed on every render
+ * — persisting any of them lets stale layout state masquerade as authored data.
  */
 export function stripLayoutOnlyStampsFromPages(pages: TemplatePage[]): TemplatePage[] {
-  return pages.map((page) => ({
+  const consolidated = consolidatePaginatedTablesToAuthored(pages);
+  return consolidated.map((page) => ({
     ...page,
     elements: page.elements.map((element) => {
       const props = (element.props ?? {}) as Record<string, unknown>;

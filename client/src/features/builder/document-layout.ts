@@ -15,6 +15,7 @@ export {
   applyPreviewPageNumbers,
   measurePreviewPageContentHeight,
   normalizeBuilderPagesForEditor,
+  consolidatePaginatedTablesToAuthored,
   applyContinuationTableStructuralEdit,
   absorbPaginationAfterPageDelete,
   isPinnedPreviewElement,
