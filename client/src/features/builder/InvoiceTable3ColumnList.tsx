@@ -203,6 +203,7 @@ function SortableFlexibleColumnRow({
       <ColumnWidthSlider table={table} col={col} onChange={onChange} />
       {isProductColumn(col) ? (
         <ProductColumnSkuInline
+          columns={table.columns}
           tableShowProductSku={table.showProductSku}
           onTableShowProductSkuChange={(value) =>
             onChange({ ...table, showProductSku: value })

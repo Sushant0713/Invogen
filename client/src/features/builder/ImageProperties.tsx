@@ -299,6 +299,87 @@ export function ImageProperties({
         </div>
       )}
 
+      {elementType === ComponentType.SIGNATURE && (
+        <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50/80 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Caption
+            </p>
+            <label className="flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={props.showSignatureCaption !== false && (
+                  props.showSignatureCaption === true
+                  || typeof props.signatureTitle === 'string'
+                  || typeof props.signatureName === 'string'
+                )}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    onChangeMany({
+                      showSignatureCaption: true,
+                      signatureTitle:
+                        typeof props.signatureTitle === 'string'
+                          ? props.signatureTitle
+                          : 'Authorized signature',
+                      signatureName:
+                        typeof props.signatureName === 'string'
+                          ? props.signatureName
+                          : '<Authorized name>',
+                      textAlign:
+                        typeof props.textAlign === 'string' ? props.textAlign : 'center',
+                      fontSize:
+                        typeof props.fontSize === 'number' ? props.fontSize : 12,
+                      color: typeof props.color === 'string' ? props.color : '#000000',
+                    }, true);
+                  } else {
+                    onChange('showSignatureCaption', false, true);
+                  }
+                }}
+              />
+              Show under image
+            </label>
+          </div>
+          {(props.showSignatureCaption === true
+            || typeof props.signatureTitle === 'string'
+            || typeof props.signatureName === 'string')
+            && props.showSignatureCaption !== false && (
+            <>
+              <div>
+                <label className="text-xs text-gray-500">Line 1</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-lg border bg-white p-2 text-sm"
+                  value={
+                    typeof props.signatureTitle === 'string'
+                      ? props.signatureTitle
+                      : 'Authorized signature'
+                  }
+                  onChange={(e) => onChange('signatureTitle', e.target.value)}
+                  onBlur={(e) => onChange('signatureTitle', e.target.value, true)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Line 2 (placeholder)</label>
+                <p className="mt-0.5 text-[11px] text-gray-400">
+                  Use {'<Authorized name>'} so it fills on the invoice form.
+                </p>
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-lg border bg-white p-2 text-sm"
+                  value={
+                    typeof props.signatureName === 'string'
+                      ? props.signatureName
+                      : '<Authorized name>'
+                  }
+                  onChange={(e) => onChange('signatureName', e.target.value)}
+                  onBlur={(e) => onChange('signatureName', e.target.value, true)}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Image URL ────────────────────────────────── */}
       <div>
         <label className="text-xs text-gray-500">Image URL</label>

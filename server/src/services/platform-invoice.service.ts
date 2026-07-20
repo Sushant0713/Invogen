@@ -52,10 +52,11 @@ const formatInvoiceNumber = (settings: PlatformInvoiceSettings, sequence: number
   const year = new Date().getFullYear();
   const padded = String(sequence).padStart(5, '0');
   return settings.numberFormat
-    .replace('{PREFIX}', settings.prefix)
-    .replace('{YYYY}', String(year))
-    .replace('{NNNNN}', padded)
-    .replace('{NNNN}', padded.slice(-4));
+    .replace(/\{PREFIX\}/g, settings.prefix)
+    .replace(/\{YYYY\}/g, String(year))
+    .replace(/\{NNNNN\}/g, padded)
+    .replace(/\{NNNN\}/g, padded.slice(-4))
+    .replace(/\{NNN\}/g, String(sequence).padStart(3, '0'));
 };
 
 async function loadPlatformInvoiceSettings(): Promise<PlatformInvoiceSettings> {

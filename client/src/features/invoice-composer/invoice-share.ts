@@ -47,6 +47,10 @@ export interface PublicInvoiceView {
   totals?: { total?: number };
   issueDate?: string;
   companyName: string;
+  companyBranding?: {
+    logo: string;
+    signature: string;
+  };
   showMadeWithInvogen?: boolean;
   madeWithImage?: string;
 }

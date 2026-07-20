@@ -113,6 +113,8 @@ export const CUSTOMER_CARD_FIELDS: CardFieldDef[] = [
   { key: 'title', label: 'Section title', placeholder: 'Bill To' },
   { key: 'name', label: 'Name', placeholder: 'Customer Name' },
   { key: 'address', label: 'Address', placeholder: 'Billing Address\nCity, State', multiline: true },
+  { key: 'gst', label: 'GSTIN', placeholder: '27XXXXXXXXXX1Z1', prefix: 'GST: ' },
+  { key: 'pan', label: 'PAN', placeholder: 'XXXXX9999X', prefix: 'PAN: ' },
   { key: 'email', label: 'Email', placeholder: 'customer@email.com' },
   { key: 'phone', label: 'Phone', placeholder: '+91 98765 43210' },
 ];
@@ -123,6 +125,7 @@ export const PAYMENT_DETAILS_FIELDS: CardFieldDef[] = [
   { key: 'accountName', label: 'Account name', placeholder: 'Company Pvt Ltd' },
   { key: 'accountNumber', label: 'Account number', placeholder: '50200012345678' },
   { key: 'ifsc', label: 'IFSC', placeholder: 'HDFC0001234' },
+  { key: 'branch', label: 'Branch', placeholder: 'Mumbai Main Branch' },
   { key: 'upi', label: 'UPI ID', placeholder: 'company@hdfcbank' },
 ];
 

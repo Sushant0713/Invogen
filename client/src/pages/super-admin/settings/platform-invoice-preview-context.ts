@@ -10,6 +10,7 @@ import { formatInvoiceNumber, formatPreviewDate } from './invoice-settings.types
 import { computeInvoiceTotals, formatInr } from './invoice-preview-data';
 import type { TaxSettings } from '@/features/builder/tax-settings';
 import { DEFAULT_TERMS_TITLE } from '@/features/builder/terms-content';
+import { formatIndianStateWithCode } from '@/lib/location-data';
 
 const PREVIEW_PLAN_NAME = 'Invogen Professional Plan';
 const PREVIEW_BILLING_CYCLE = 'Monthly';
@@ -18,7 +19,9 @@ function formatSellerAddress(seller: InvoiceSettings['seller']): string {
   return [
     seller.addressLine1,
     seller.addressLine2,
-    [seller.city, seller.state, seller.zipCode].filter(Boolean).join(', '),
+    [seller.city, formatIndianStateWithCode(seller.state), seller.zipCode]
+      .filter(Boolean)
+      .join(', '),
     seller.country,
   ]
     .filter(Boolean)

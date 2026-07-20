@@ -15,14 +15,16 @@ export interface TableCellStyle {
 }
 
 /** Column behavior on the canvas. Default is `na` (plain text). */
-export type TableColumnType = 'na' | 'sr_no' | 'product';
+export type TableColumnType = 'na' | 'sr_no' | 'product' | 'sku' | 'hsn';
 
-export const TABLE_COLUMN_TYPES: TableColumnType[] = ['na', 'sr_no', 'product'];
+export const TABLE_COLUMN_TYPES: TableColumnType[] = ['na', 'sr_no', 'product', 'sku', 'hsn'];
 
 export const TABLE_COLUMN_TYPE_LABELS: Record<TableColumnType, string> = {
   na: 'NA',
   sr_no: 'Sr.No.',
   product: 'Product',
+  sku: 'SKU',
+  hsn: 'HSN',
 };
 
 export interface ProductTableColumn {
@@ -54,6 +56,7 @@ export interface ProductTableProps {
   cellStyles?: Record<string, TableCellStyle>;
   showGrandTotalFooter?: boolean;
   grandTotalFooterHeightPx?: number;
+  showAmountInWords?: boolean;
   /** When true, picked products show as "Name (SKU)" in the product column. */
   showProductSku?: boolean;
 }
@@ -69,9 +72,12 @@ export const DEFAULT_BORDER_WIDTH_PX = 1;
 export const MIN_BORDER_WIDTH_PX = 1;
 export const MAX_BORDER_WIDTH_PX = 8;
 export const DEFAULT_HEADER_FILL_OPACITY = 12;
+export const DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX = 32;
 
 export function normalizeColumnType(value: unknown): TableColumnType {
-  if (value === 'sr_no' || value === 'product' || value === 'na') return value;
+  if (value === 'sr_no' || value === 'product' || value === 'sku' || value === 'hsn' || value === 'na') {
+    return value;
+  }
   return 'na';
 }
 
@@ -87,14 +93,42 @@ export function isProductColumn(col: Pick<ProductTableColumn, 'columnType'>): bo
   return getColumnType(col) === 'product';
 }
 
+export function isSkuColumn(col: Pick<ProductTableColumn, 'id' | 'columnType' | 'label'>): boolean {
+  if (getColumnType(col) === 'sku') return true;
+  const label = String(col.label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (label === 'sku') return true;
+  const id = String(col.id ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return id === 'sku' || id === 'colsku' || id.endsWith('sku');
+}
+
+export function isHsnColumn(col: Pick<ProductTableColumn, 'id' | 'columnType' | 'label'>): boolean {
+  if (getColumnType(col) === 'hsn') return true;
+  const label = String(col.label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (label === 'hsn' || label === 'hsnsac' || label === 'sac') return true;
+  const id = String(col.id ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return id === 'hsn' || id === 'colhsn' || id.endsWith('hsn') || id === 'sac' || id.endsWith('sac');
+}
+
+export function tableHasSkuColumn(
+  columns: Array<Pick<ProductTableColumn, 'columnType' | 'label' | 'visible'>>
+): boolean {
+  return columns.some((col) => col.visible !== false && isSkuColumn(col));
+}
+
+export function tableHasHsnColumn(
+  columns: Array<Pick<ProductTableColumn, 'columnType' | 'label' | 'visible'>>
+): boolean {
+  return columns.some((col) => col.visible !== false && isHsnColumn(col));
+}
+
 /** Product picker + free-text name (catalog or custom) for product/item columns. */
 export function isProductLikeColumn(
   col: Pick<ProductTableColumn, 'id' | 'label' | 'columnType'>
 ): boolean {
   if (isProductColumn(col)) return true;
-  if (isSerialColumn(col)) return false;
+  if (isSerialColumn(col) || isSkuColumn(col) || isHsnColumn(col)) return false;
   const type = getColumnType(col);
-  if (type !== 'na' && type !== 'text') return false;
+  if (type !== 'na') return false;
   const token = `${col.id} ${col.label}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
   return /\b(item|items|product|products|description|particular|service|name)\b/.test(token);
 }
@@ -128,6 +162,8 @@ export function isTableWrapFriendlyColumn(
 export function defaultLabelForColumnType(type: TableColumnType, _index?: number): string {
   if (type === 'sr_no') return 'Sr.No.';
   if (type === 'product') return 'Product';
+  if (type === 'sku') return 'SKU';
+  if (type === 'hsn') return 'HSN';
   return '';
 }
 
@@ -138,6 +174,8 @@ export function displayColumnLabel(col: Pick<ProductTableColumn, 'label' | 'colu
   const type = getColumnType(col);
   if (type === 'sr_no') return 'Sr.No.';
   if (type === 'product') return 'Product';
+  if (type === 'sku') return 'SKU';
+  if (type === 'hsn') return 'HSN';
   return 'Column';
 }
 
@@ -236,8 +274,6 @@ function normalizeRows(
     columns.forEach((col) => {
       if (isSerialColumn(col)) {
         cells[col.id] = String(index + 1);
-      } else if (isQuantityColumn(col) && !String(row.cells?.[col.id] ?? '').trim()) {
-        cells[col.id] = '1';
       } else {
         cells[col.id] = String(row.cells?.[col.id] ?? '');
       }
@@ -608,6 +644,7 @@ export function normalizeProductTableProps(raw: Record<string, unknown> = {}): P
       headerStyles: normalizeStyleMap(raw.headerStyles),
       cellStyles: normalizeStyleMap(raw.cellStyles),
       showProductSku: normalizeShowProductSku(raw.showProductSku),
+      showAmountInWords: raw.showAmountInWords !== false,
     };
   }
   return structuredClone(DEFAULT_PRODUCT_TABLE_PROPS);
@@ -976,7 +1013,11 @@ export function computeTableHeight(props: ProductTableProps) {
   const footer = props.showGrandTotalFooter
     ? (props.grandTotalFooterHeightPx ?? DEFAULT_ROW_HEIGHT_PX)
     : 0;
-  return header + body + footer + 2;
+  const amountInWords =
+    props.showGrandTotalFooter && props.showAmountInWords !== false
+      ? DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX
+      : 0;
+  return header + body + footer + amountInWords + 2;
 }
 
 const CELL_PADDING_X_PX = 16;

@@ -32,6 +32,11 @@ import { CroppedImageDisplay } from './image-editor/CroppedImageDisplay';
 import type { ImageCropTransform } from './image-editor/types';
 import type { ElementBounds } from './element-resize';
 import { useImageUpload } from './use-image-upload';
+import {
+  estimateSignatureCaptionHeight,
+  parseSignatureCaption,
+} from './signature-content';
+import { SignatureCaptionBlock } from './SignatureCaptionBlock';
 
 interface Props {
   element: CanvasElement;
@@ -63,8 +68,16 @@ function ImageViewInner({
 }: Props) {
   const branding = useCompanyBranding();
   const image = normalizeImageProps(props);
+  const signatureCaption = element.type === ComponentType.SIGNATURE
+    ? parseSignatureCaption(props)
+    : null;
+  const captionHeight =
+    signatureCaption?.enabled ? estimateSignatureCaptionHeight(props) : 0;
+  const imageFrameH = Math.max(40, element.height - captionHeight);
   const effectiveFit =
-    element.type === ComponentType.SIGNATURE ? 'fill' : (image.objectFit ?? 'contain');
+    element.type === ComponentType.SIGNATURE
+      ? (signatureCaption?.enabled ? 'contain' : 'fill')
+      : (image.objectFit ?? 'contain');
   const fromSettings = usesCompanyBrandingSource(element.type, image.src);
   const src = resolveBrandingImageSrc(element.type, image.src, branding);
   const label = getImagePlaceholderLabel(element.type);
@@ -139,7 +152,7 @@ function ImageViewInner({
             ? cropTransformToProps(
                 defaultCropForFrame(
                   element.width,
-                  element.height,
+                  imageFrameH,
                   img.naturalWidth,
                   img.naturalHeight,
                   effectiveFit
@@ -160,7 +173,7 @@ function ImageViewInner({
     image.imageNaturalW,
     image.imageNaturalH,
     element.width,
-    element.height,
+    imageFrameH,
     previewMode,
     effectiveFit,
   ]);
@@ -169,22 +182,22 @@ function ImageViewInner({
     () =>
       getFitBaseSize(
         element.width,
-        element.height,
+        imageFrameH,
         naturalSize.w,
         naturalSize.h,
         effectiveFit
       ),
-    [element.width, element.height, naturalSize.w, naturalSize.h, effectiveFit]
+    [element.width, imageFrameH, naturalSize.w, naturalSize.h, effectiveFit]
   );
 
   const crop = useMemo(() => {
     if (naturalSize.w > 0 && naturalSize.h > 0) {
-      const raw = getImageCropFromProps(props, element.width, element.height);
+      const raw = getImageCropFromProps(props, element.width, imageFrameH);
       const fit = effectiveFit;
       if (shouldAutoCenterImageCrop(raw)) {
         return defaultCropForFrame(
           element.width,
-          element.height,
+          imageFrameH,
           naturalSize.w,
           naturalSize.h,
           fit
@@ -192,18 +205,18 @@ function ImageViewInner({
       }
       return raw;
     }
-    return image.imageCrop ?? defaultCropForFrame(element.width, element.height, 1, 1);
-  }, [props, element.width, element.height, naturalSize, image.imageCrop, effectiveFit]);
+    return image.imageCrop ?? defaultCropForFrame(element.width, imageFrameH, 1, 1);
+  }, [props, element.width, imageFrameH, naturalSize, image.imageCrop, effectiveFit]);
 
   const imageCropKey = props.imageCrop ? JSON.stringify(props.imageCrop) : '';
 
   useLayoutEffect(() => {
     if (!isInteractive || naturalSize.w <= 0 || naturalSize.h <= 0) return;
-    const raw = getImageCropFromProps(propsRef.current, element.width, element.height);
+    const raw = getImageCropFromProps(propsRef.current, element.width, imageFrameH);
     if (!shouldAutoCenterImageCrop(raw)) return;
     const aligned = defaultCropForFrame(
       element.width,
-      element.height,
+      imageFrameH,
       naturalSize.w,
       naturalSize.h,
       effectiveFit
@@ -217,7 +230,7 @@ function ImageViewInner({
     onUpdatePropsRef.current?.(cropTransformToProps(aligned), false);
   }, [
     element.width,
-    element.height,
+    imageFrameH,
     naturalSize.w,
     naturalSize.h,
     effectiveFit,
@@ -231,7 +244,7 @@ function ImageViewInner({
       cropTransformToProps(
         defaultCropForFrame(
           element.width,
-          element.height,
+          imageFrameH,
           naturalSize.w,
           naturalSize.h,
           effectiveFit
@@ -245,7 +258,7 @@ function ImageViewInner({
     naturalSize.h,
     imageCropKey,
     element.width,
-    element.height,
+    imageFrameH,
     effectiveFit,
   ]);
 
@@ -258,7 +271,7 @@ function ImageViewInner({
     if (naturalSize.w <= 0 || naturalSize.h <= 0) return;
     if (effectiveFit !== 'contain') return;
 
-    const rawCrop = getImageCropFromProps(propsRef.current, element.width, element.height);
+    const rawCrop = getImageCropFromProps(propsRef.current, element.width, imageFrameH);
     if (!shouldAutoCenterImageCrop(rawCrop)) return;
 
     const fitKey = `${element.id}:${src ?? ''}`;
@@ -266,13 +279,13 @@ function ImageViewInner({
 
     const fitted = getFitBaseSize(
       element.width,
-      element.height,
+      imageFrameH,
       naturalSize.w,
       naturalSize.h,
       'contain'
     );
     const nextW = Math.round(fitted.width);
-    const nextH = Math.round(fitted.height);
+    const nextH = Math.round(fitted.height) + captionHeight;
     // Only collapse when there is meaningful dead space to remove.
     if (element.width - nextW <= 2 && element.height - nextH <= 2) {
       autoFitSrcRef.current = fitKey;
@@ -282,7 +295,7 @@ function ImageViewInner({
     autoFitSrcRef.current = fitKey;
     const alignedCrop = defaultCropForFrame(
       nextW,
-      nextH,
+      Math.max(40, nextH - captionHeight),
       naturalSize.w,
       naturalSize.h,
       'contain'
@@ -299,6 +312,8 @@ function ImageViewInner({
     element.y,
     element.width,
     element.height,
+    imageFrameH,
+    captionHeight,
     naturalSize.w,
     naturalSize.h,
     effectiveFit,
@@ -334,12 +349,13 @@ function ImageViewInner({
       };
     }
 
+    const nextImageH = Math.max(40, finalBounds.height - captionHeight);
     const scaledCrop = scaleCropForFrameResize(
       crop,
       element.width,
-      element.height,
+      imageFrameH,
       finalBounds.width,
-      finalBounds.height
+      nextImageH
     );
     const cropPatch =
       fit === 'contain'
@@ -349,7 +365,7 @@ function ImageViewInner({
         ? cropTransformToProps(
             defaultCropForFrame(
               finalBounds.width,
-              finalBounds.height,
+              nextImageH,
               naturalSize.w,
               naturalSize.h,
               fit
@@ -375,15 +391,18 @@ function ImageViewInner({
     if (previewMode) {
       return (
         <div
-          className="builder-image-surface flex h-full min-h-[40px] w-full items-center justify-center bg-transparent"
+          className="builder-image-surface flex h-full min-h-[40px] w-full flex-col bg-transparent"
           style={{ borderRadius: image.borderRadius }}
-        />
+        >
+          <div className="min-h-0 flex-1" />
+          {signatureCaption?.enabled ? <SignatureCaptionBlock props={props} /> : null}
+        </div>
       );
     }
 
     return (
       <div
-        className="builder-image-surface flex h-full min-h-[80px] w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-300 bg-gray-50 p-2 text-gray-400"
+        className="builder-image-surface flex h-full min-h-[80px] w-full flex-col border-2 border-dashed border-gray-300 bg-gray-50 text-gray-400"
         style={{ borderRadius: image.borderRadius }}
         onPointerDown={handlePointerDown}
         onClick={(e) => {
@@ -392,6 +411,7 @@ function ImageViewInner({
         }}
         onDoubleClick={openUpload}
       >
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-2">
         {input}
         {uploading ? (
           <span className="text-xs">Uploading…</span>
@@ -430,27 +450,18 @@ function ImageViewInner({
             )}
           </>
         )}
+        </div>
+        {signatureCaption?.enabled ? (
+          <SignatureCaptionBlock props={props} className="px-2 pb-2" />
+        ) : null}
       </div>
     );
   }
 
-  return (
-    <div
-      className="builder-image-surface relative h-full min-h-[40px] w-full"
-      style={getImageFrameStyle(image)}
-      onPointerDown={handlePointerDown}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect?.();
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        if (!element.locked && src) {
-          dispatch(setImageCropMode(element.id));
-        }
-      }}
-    >
-      {input}
+  const showCaption = Boolean(signatureCaption?.enabled);
+
+  const imageBody = (
+    <>
       {isReferenceBg && !isInteractive && (
         <div className="pointer-events-none absolute left-2 top-2 z-30 rounded-md bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white">
           Reference — delete when finished
@@ -467,7 +478,7 @@ function ImageViewInner({
           src={src}
           alt={image.alt || label}
           frameW={element.width}
-          frameH={element.height}
+          frameH={imageFrameH}
           base={base}
           crop={crop}
           image={image}
@@ -486,11 +497,59 @@ function ImageViewInner({
           src={src}
           alt={image.alt || label}
           frameW={element.width}
-          frameH={element.height}
+          frameH={imageFrameH}
           base={base}
           crop={crop}
           image={image}
         />
+      )}
+    </>
+  );
+
+  return (
+    <div
+      className={
+        showCaption
+          ? 'builder-image-surface relative flex h-full min-h-[40px] w-full flex-col overflow-hidden bg-white'
+          : 'builder-image-surface relative h-full min-h-[40px] w-full'
+      }
+      style={
+        showCaption
+          ? {
+              borderRadius: image.borderRadius,
+              border:
+                (image.borderWidth ?? 0) > 0
+                  ? `${image.borderWidth}px solid ${image.borderColor ?? '#e5e7eb'}`
+                  : undefined,
+              boxSizing: 'border-box',
+            }
+          : getImageFrameStyle(image)
+      }
+      onPointerDown={handlePointerDown}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (!element.locked && src) {
+          dispatch(setImageCropMode(element.id));
+        }
+      }}
+    >
+      {input}
+      {showCaption ? (
+        <>
+          <div
+            className="relative w-full shrink-0 overflow-hidden"
+            style={{ height: imageFrameH, maxHeight: `calc(100% - ${captionHeight}px)` }}
+          >
+            {imageBody}
+          </div>
+          <SignatureCaptionBlock props={props} />
+        </>
+      ) : (
+        imageBody
       )}
     </div>
   );

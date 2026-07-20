@@ -16,11 +16,21 @@ import {
   Wind,
   Sparkles,
   RefreshCw,
+  Bold,
+  Italic,
+  Underline,
+  Minus,
+  Plus,
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
 } from 'lucide-react';
+import { ComponentType } from '@invogen/shared';
 import {
   type ImageObjectFit,
   normalizeImageProps,
 } from './image-components';
+import { parseSignatureCaption } from './signature-content';
 import { resolveBrandingImageSrc } from './company-branding';
 import { useCompanyBranding } from './CompanyBrandingProvider';
 import { useAppSelector } from '@/hooks/useAppDispatch';
@@ -49,12 +59,14 @@ function ToolbarIconButton({
   title,
   active,
   disabled,
+  compact,
   onClick,
   children,
 }: {
   title: string;
   active?: boolean;
   disabled?: boolean;
+  compact?: boolean;
   onClick?: () => void;
   children: React.ReactNode;
 }) {
@@ -64,7 +76,9 @@ function ToolbarIconButton({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+      className={`flex items-center justify-center rounded-full transition-colors ${
+        compact ? 'h-7 w-7' : 'h-8 w-8'
+      } ${
         disabled
           ? 'cursor-not-allowed text-gray-300'
           : active
@@ -476,6 +490,16 @@ export function ImageToolbar({
     (image.blur ?? 0) !== 0;
 
   const hasShadow = !!image.shadowEnabled;
+  const isSignature = element?.type === ComponentType.SIGNATURE;
+  const signatureCaption = isSignature ? parseSignatureCaption(props) : null;
+  const showCaptionStyles = Boolean(signatureCaption?.enabled);
+  const fontSize = typeof props.fontSize === 'number' && props.fontSize > 0 ? props.fontSize : 12;
+  const fontWeight = typeof props.fontWeight === 'number' ? props.fontWeight : 400;
+  const isBold = fontWeight >= 600;
+  const isItalic = !!props.italic;
+  const isUnderline = !!props.underline;
+  const textColor = typeof props.color === 'string' ? props.color : '#000000';
+  const textAlign = typeof props.textAlign === 'string' ? props.textAlign : 'center';
 
   return (
     <div className={TOOLBAR_SLOT_CLASS}>
@@ -596,6 +620,101 @@ export function ImageToolbar({
               >
                 <ChevronDown className="h-4 w-4" />
               </ToolbarIconButton>
+
+              {showCaptionStyles ? (
+                <>
+                  <Divider />
+                  <div className="flex items-center rounded-lg border border-gray-200 bg-gray-50">
+                    <ToolbarIconButton
+                      title="Decrease font size"
+                      compact
+                      onClick={() =>
+                        onUpdateProp('fontSize', Math.max(8, fontSize - 1), true)
+                      }
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </ToolbarIconButton>
+                    <span className="w-8 text-center text-xs font-semibold tabular-nums text-gray-800">
+                      {fontSize}
+                    </span>
+                    <ToolbarIconButton
+                      title="Increase font size"
+                      compact
+                      onClick={() =>
+                        onUpdateProp('fontSize', Math.min(72, fontSize + 1), true)
+                      }
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </ToolbarIconButton>
+                  </div>
+                  <label
+                    title="Caption text color"
+                    className="relative inline-flex h-8 w-8 shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-lg text-gray-700 hover:bg-gray-100"
+                  >
+                    <span className="text-sm font-bold leading-none" style={{ color: textColor }}>
+                      A
+                    </span>
+                    <span
+                      className="mt-0.5 h-0.5 w-4 rounded-full"
+                      style={{
+                        background:
+                          'linear-gradient(to right, #ef4444, #f59e0b, #22c55e, #3b82f6, #a855f7)',
+                      }}
+                    />
+                    <input
+                      type="color"
+                      value={textColor}
+                      onChange={(e) => onUpdateProp('color', e.target.value, true)}
+                      className="absolute inset-0 h-full w-full min-h-0 min-w-0 cursor-pointer opacity-0"
+                      aria-label="Caption text color"
+                    />
+                  </label>
+                  <ToolbarIconButton
+                    title="Bold"
+                    active={isBold}
+                    onClick={() =>
+                      onUpdateProp('fontWeight', isBold ? 400 : 700, true)
+                    }
+                  >
+                    <Bold className="h-4 w-4" />
+                  </ToolbarIconButton>
+                  <ToolbarIconButton
+                    title="Italic"
+                    active={isItalic}
+                    onClick={() => onUpdateProp('italic', !isItalic, true)}
+                  >
+                    <Italic className="h-4 w-4" />
+                  </ToolbarIconButton>
+                  <ToolbarIconButton
+                    title="Underline"
+                    active={isUnderline}
+                    onClick={() => onUpdateProp('underline', !isUnderline, true)}
+                  >
+                    <Underline className="h-4 w-4" />
+                  </ToolbarIconButton>
+                  <ToolbarIconButton
+                    title="Align left"
+                    active={textAlign === 'left'}
+                    onClick={() => onUpdateProp('textAlign', 'left', true)}
+                  >
+                    <AlignLeft className="h-4 w-4" />
+                  </ToolbarIconButton>
+                  <ToolbarIconButton
+                    title="Align center"
+                    active={textAlign === 'center'}
+                    onClick={() => onUpdateProp('textAlign', 'center', true)}
+                  >
+                    <AlignCenter className="h-4 w-4" />
+                  </ToolbarIconButton>
+                  <ToolbarIconButton
+                    title="Align right"
+                    active={textAlign === 'right'}
+                    onClick={() => onUpdateProp('textAlign', 'right', true)}
+                  >
+                    <AlignRight className="h-4 w-4" />
+                  </ToolbarIconButton>
+                </>
+              ) : null}
         </div>
       </div>
     </div>

@@ -8,6 +8,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
 import { cn } from '@/lib/utils';
+import {
+  CUSTOM_INVOICE_NUMBER_FORMAT,
+  INVOICE_NUMBER_FORMAT_PRESETS,
+  invoiceNumberFormatSelectValue,
+} from '@/lib/invoice-number-formats';
 import { PlatformInvoiceLiveWorkspace } from './PlatformInvoiceLiveWorkspace';
 import type { InvoiceSettings } from './invoice-settings.types';
 import type { CompanyBranding } from './company-branding';
@@ -189,7 +194,41 @@ export function InvoiceSettingPanel({
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Input label="Invoice title" value={form.invoiceTitle} onChange={(e) => update('invoiceTitle', e.target.value)} />
               <Input label="Invoice prefix" value={form.prefix} onChange={(e) => update('prefix', e.target.value)} />
-              <Input label="Number format" value={form.numberFormat} onChange={(e) => update('numberFormat', e.target.value)} />
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="platform-invoice-number-format"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Number format
+                </label>
+                <select
+                  id="platform-invoice-number-format"
+                  className={selectClass}
+                  value={invoiceNumberFormatSelectValue(form.numberFormat)}
+                  onChange={(e) =>
+                    update(
+                      'numberFormat',
+                      e.target.value === CUSTOM_INVOICE_NUMBER_FORMAT ? '' : e.target.value
+                    )
+                  }
+                >
+                  {INVOICE_NUMBER_FORMAT_PRESETS.map((preset) => (
+                    <option key={preset.value} value={preset.value}>
+                      {preset.label}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_INVOICE_NUMBER_FORMAT}>Customize format…</option>
+                </select>
+                {invoiceNumberFormatSelectValue(form.numberFormat)
+                  === CUSTOM_INVOICE_NUMBER_FORMAT ? (
+                  <Input
+                    label="Custom format"
+                    value={form.numberFormat}
+                    placeholder="{PREFIX}{NNN}/{YYYY}"
+                    onChange={(e) => update('numberFormat', e.target.value)}
+                  />
+                ) : null}
+              </div>
               <Input
                 label="Next invoice number"
                 type="number"
@@ -209,7 +248,7 @@ export function InvoiceSettingPanel({
               <Input label="Timezone" value={form.timezone} onChange={(e) => update('timezone', e.target.value)} />
             </div>
             <p className="text-xs text-gray-500">
-              Tokens: {'{PREFIX}'}, {'{YYYY}'}, {'{NNNNN}'}, {'{NNNN}'}
+              Tokens: {'{PREFIX}'}, {'{YYYY}'}, {'{NNN}'}, {'{NNNN}'}, {'{NNNNN}'}
             </p>
           </SectionCard>
 

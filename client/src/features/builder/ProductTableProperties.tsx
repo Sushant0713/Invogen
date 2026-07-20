@@ -85,8 +85,8 @@ export function ProductTableProperties({
       </div>
 
       <p className="text-xs text-gray-500">
-        Choose a column type when adding: <strong>NA</strong> (plain text), <strong>Sr.No.</strong>{' '}
-        (auto numbers), or <strong>Product</strong> (searchable list from Admin → Products).
+        Choose a column type when adding: <strong>NA</strong>, <strong>Sr.No.</strong>,{' '}
+        <strong>Product</strong>, <strong>SKU</strong>, or <strong>HSN</strong>.
       </p>
 
       <ProductColumnOptions
@@ -149,6 +149,7 @@ export function ProductTableProperties({
               </div>
               {isProductColumn(col) ? (
                 <ProductColumnSkuInline
+                  columns={table.columns}
                   tableShowProductSku={table.showProductSku}
                   onTableShowProductSkuChange={(value) =>
                     commit({ ...table, showProductSku: value })

@@ -19,8 +19,10 @@ import {
   clearTableCellSelection,
 } from '@/store/slices/builderSlice';
 import type { SelectedTableCell } from '@/store/slices/builderSlice';
+import type { ProductTableRow } from '@/features/builder/product-table';
 import {
   DEFAULT_ROW_HEIGHT_PX,
+  DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX,
   TABLE_CELL_LINE_HEIGHT,
   getTableBorderCss,
   getTableCellFocusOrder,
@@ -42,6 +44,7 @@ import {
   isProductLikeColumn,
   displayColumnLabel,
   recalculateProductTable,
+  tableHasSkuColumn,
   type ProductTableProps,
   type TableCellRef,
   type TableCellStyle,
@@ -69,6 +72,7 @@ import {
   isInvoice2SummaryRowId,
   isInvoiceTable2Type,
   recalculateInvoiceTable2,
+  resolveInvoice2SummaryRows,
   getVisibleInvoice2Columns,
   resolveInvoice2TaxOptions,
   getInvoice2SummaryGap,
@@ -100,6 +104,7 @@ import { useProductSettings } from './ProductSettingsProvider';
 import { resolveShowProductSku } from './product-settings';
 import type { TaxSettings } from './tax-settings';
 import type { CanvasInteractionMode } from './builder-interaction';
+import { amountInWords, parseFormattedAmount } from './amount-in-words';
 
 const PREVIEW_PAGINATION_ROWS_KEY = '__previewPaginationRows';
 const PREVIEW_PAGINATION_RANGE_START_KEY = '__previewPaginationStart';
@@ -157,10 +162,11 @@ function applyPendingCellEdits(
 function applyInvoice2PendingEdits(
   props: InvoiceTable2Props,
   pending: Record<string, string>,
-  tax: TaxSettings
+  tax: TaxSettings,
+  rowsForSummary?: ProductTableRow[]
 ): InvoiceTable2Props {
   if (Object.keys(pending).length === 0) {
-    return recalculateInvoiceTable2(props, tax);
+    return recalculateInvoiceTable2(props, tax, rowsForSummary);
   }
 
   const edits: Array<{ rowId: string; columnId: string; value: string }> = [];
@@ -594,10 +600,24 @@ export function ProductTableView({
       ? normalizeInvoiceTable3Props(props, taxSettings)
       : normalizeTablePropsForType(resolvedElementType, props);
     if (isInvoiceTable2) {
+      const table2Base = base as InvoiceTable2Props;
+      // On a split table this segment holds only its slice of rows — summarize
+      // the whole table so the continuation page shows real totals, not 0.
+      const summaryRows = resolveInvoice2SummaryRows(
+        props as Record<string, unknown>,
+        table2Base,
+        table2Base.columns,
+        table2Base.discountMode ?? 'amount'
+      );
       if (previewMode && Object.keys(pendingCellEdits).length === 0) {
-        return recalculateInvoiceTable2(base as InvoiceTable2Props, taxSettings);
+        return recalculateInvoiceTable2(table2Base, taxSettings, summaryRows);
       }
-      return applyInvoice2PendingEdits(base as InvoiceTable2Props, pendingCellEdits, taxSettings);
+      return applyInvoice2PendingEdits(
+        table2Base,
+        pendingCellEdits,
+        taxSettings,
+        summaryRows
+      );
     }
     if (isInvoiceTable3) {
       if (previewMode && Object.keys(pendingCellEdits).length === 0) {
@@ -740,8 +760,11 @@ export function ProductTableView({
     return source.slice(paginationStart, paginationEnd);
   }, [safeRows, isPaginatedSegment, paginationStart, paginationEnd, paginationAllRows]);
   const showProductSku = useMemo(
-    () => resolveShowProductSku(table.showProductSku, productSettings),
-    [table.showProductSku, productSettings]
+    () =>
+      tableHasSkuColumn(table.columns)
+        ? false
+        : resolveShowProductSku(table.showProductSku, productSettings),
+    [table.columns, table.showProductSku, productSettings]
   );
 
   const displayColumns = useMemo(() => {
@@ -963,6 +986,38 @@ export function ProductTableView({
     ? getInvoice3TotalFooterHeight(table3Props)
     : 0;
   const invoice3TotalFooterLabel = table3Props?.totalFooterLabel ?? 'TOTAL :-';
+  const invoice2TotalText =
+    invoice2SummaryRows.find(
+      (row) =>
+        getInvoice2SummaryCellText(row, INVOICE2_SUMMARY_COL_LABEL).trim().toUpperCase() === 'TOTAL'
+    )
+      ? getInvoice2SummaryCellText(
+          invoice2SummaryRows.find(
+            (row) =>
+              getInvoice2SummaryCellText(row, INVOICE2_SUMMARY_COL_LABEL)
+                .trim()
+                .toUpperCase() === 'TOTAL'
+          )!,
+          INVOICE2_SUMMARY_COL_VALUE
+        )
+      : invoice2SummaryRows.length
+        ? getInvoice2SummaryCellText(
+            invoice2SummaryRows[invoice2SummaryRows.length - 1],
+            INVOICE2_SUMMARY_COL_VALUE
+          )
+        : '';
+  const amountInWordsText = amountInWords(
+    parseFormattedAmount(
+      isInvoiceTable1
+        ? grandTotalText
+        : isInvoiceTable2
+          ? invoice2TotalText
+          : invoice3GrandTotalText
+    )
+  );
+  const showAmountInWords =
+    table.showAmountInWords !== false
+    && (showGrandTotalFooterHere || showInvoice2Summary || showInvoice3TotalFooter);
 
   const rowHasBottomBorder = (rowIndex: number) => {
     if (isInvoiceLineTable) return rowIndex < lastRowIndex;
@@ -1872,6 +1927,33 @@ export function ProductTableView({
                   </div>
                 );
               })}
+            </div>
+          )}
+          {showAmountInWords && (
+            <div
+              className="flex shrink-0 items-center px-2 text-gray-900 box-border"
+              style={{
+                width: renderedWidth,
+                height: DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX * scale,
+                // Table 1 already has outer left/bottom borders — only continue the grid.
+                // Table 2/3 sit outside the body box, so draw a matching frame.
+                ...(isInvoiceTable1
+                  ? {
+                      borderTop: borderStyle,
+                      borderRight: borderStyle,
+                    }
+                  : {
+                      borderTop: borderStyle,
+                      borderLeft: borderStyle,
+                      borderRight: borderStyle,
+                      borderBottom: borderStyle,
+                    }),
+                fontFamily: 'Inter, sans-serif',
+                fontSize: 11 * scale,
+              }}
+            >
+              <span className="font-semibold">Amount in words:&nbsp;</span>
+              <span>{amountInWordsText}</span>
             </div>
           )}
         </div>

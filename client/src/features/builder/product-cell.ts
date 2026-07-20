@@ -5,6 +5,9 @@ import {
   recalculateProductTable,
   resolveProductRateColumnId,
   resolveProductQtyColumnId,
+  isSkuColumn,
+  isHsnColumn,
+  tableHasSkuColumn,
 } from './product-table';
 import {
   isInvoiceTable1Type,
@@ -44,7 +47,7 @@ import {
 
 export type ProductPick = Pick<
   CompanyProductOption,
-  'name' | 'sku' | 'price' | 'discount' | 'discountType' | 'gst' | 'tax'
+  'name' | 'sku' | 'hsn' | 'price' | 'discount' | 'discountType' | 'gst' | 'tax'
 >;
 
 export { PRODUCT_GST_RATE_KEY } from './tax-settings';
@@ -208,6 +211,20 @@ function resolveTableQtyColumnId(
   return resolveProductQtyColumnId(columns, sampleCells);
 }
 
+function resolveSkuHsnColumnIds(columns: ProductTableColumn[]): {
+  skuColIds: string[];
+  hsnColIds: string[];
+} {
+  const skuColIds: string[] = [];
+  const hsnColIds: string[] = [];
+  for (const col of columns) {
+    if (col.visible === false) continue;
+    if (isSkuColumn(col)) skuColIds.push(col.id);
+    if (isHsnColumn(col)) hsnColIds.push(col.id);
+  }
+  return { skuColIds, hsnColIds };
+}
+
 /**
  * Apply catalog product pick to product + rate columns and recalculate totals.
  * Pick/replace behavior matches the original path; product GST is stamped afterward.
@@ -226,7 +243,9 @@ export function applyProductPickToTable(
   if (!row) return table;
 
   const resolvedRowId = String(row.id);
-  const productValue = formatProductCellValue(product, showSku);
+  // Dedicated SKU column: keep product name clean (no "Name (SKU)").
+  const effectiveShowSku = showSku && !tableHasSkuColumn(table.columns);
+  const productValue = formatProductCellValue(product, effectiveShowSku);
   const rateColId = resolveTableRateColumnId(tableType, table.columns, row.cells);
   const rateValue = formatProductPrice(product.price);
   const qtyColId = resolveTableQtyColumnId(tableType, table.columns, row.cells);
@@ -234,6 +253,9 @@ export function applyProductPickToTable(
   const discountColId = resolveTableDiscountColumnId(tableType, table.columns);
   const discountMode = resolveTableDiscountMode(table);
   const discountValue = discountColId ? formatProductDiscount(product, discountMode) : null;
+  const { skuColIds, hsnColIds } = resolveSkuHsnColumnIds(table.columns);
+  const skuValue = product.sku?.trim() ?? '';
+  const hsnValue = product.hsn?.trim() ?? '';
 
   let next: ProductTableProps;
 
@@ -250,6 +272,12 @@ export function applyProductPickToTable(
     }
     if (discountColId && discountValue != null) {
       edits.push({ rowId: resolvedRowId, columnId: discountColId, value: discountValue });
+    }
+    for (const columnId of skuColIds) {
+      edits.push({ rowId: resolvedRowId, columnId, value: skuValue });
+    }
+    for (const columnId of hsnColIds) {
+      edits.push({ rowId: resolvedRowId, columnId, value: hsnValue });
     }
     next = applyInvoice2CellEdits(table as InvoiceTable2Props, edits, tax);
   } else if (isInvoiceTable1Type(tableType)) {
@@ -272,6 +300,12 @@ export function applyProductPickToTable(
     if (discountColId && discountValue != null) {
       updated = updateInvoiceCell(updated, resolvedRowId, discountColId, discountValue, tax);
     }
+    for (const columnId of skuColIds) {
+      updated = updateInvoiceCell(updated, resolvedRowId, columnId, skuValue, tax);
+    }
+    for (const columnId of hsnColIds) {
+      updated = updateInvoiceCell(updated, resolvedRowId, columnId, hsnValue, tax);
+    }
     next = updated;
   } else if (isInvoiceTable3Type(tableType)) {
     let updated = updateInvoice3Cell(
@@ -293,6 +327,12 @@ export function applyProductPickToTable(
     if (discountColId && discountValue != null) {
       updated = updateInvoice3Cell(updated, resolvedRowId, discountColId, discountValue, tax);
     }
+    for (const columnId of skuColIds) {
+      updated = updateInvoice3Cell(updated, resolvedRowId, columnId, skuValue, tax);
+    }
+    for (const columnId of hsnColIds) {
+      updated = updateInvoice3Cell(updated, resolvedRowId, columnId, hsnValue, tax);
+    }
     next = updated;
   } else {
     let updated = updateCell(table, resolvedRowId, productColumnId, productValue);
@@ -302,21 +342,41 @@ export function applyProductPickToTable(
     if (rateColId && rateValue) {
       updated = updateCell(updated, resolvedRowId, rateColId, rateValue);
     }
+    for (const columnId of skuColIds) {
+      updated = updateCell(updated, resolvedRowId, columnId, skuValue);
+    }
+    for (const columnId of hsnColIds) {
+      updated = updateCell(updated, resolvedRowId, columnId, hsnValue);
+    }
     next = recalculateProductTable(updated);
   }
 
   const productGst = resolveProductGstRate(product);
-  if (productGst == null) return next;
+  let result = next;
+  if (productGst != null) {
+    const stamped = stampProductGstRate(next, resolvedRowId, productGst);
+    if (isInvoiceTable1Type(tableType)) {
+      result = recalculateInvoiceTable(stamped as InvoiceTableProps, tax);
+    } else if (isInvoiceTable2Type(tableType)) {
+      result = recalculateInvoiceTable2(stamped as InvoiceTable2Props, tax);
+    } else if (isInvoiceTable3Type(tableType)) {
+      result = recalculateInvoiceTable3(stamped as InvoiceTable3Props, tax);
+    } else {
+      result = stamped;
+    }
+  }
 
-  const stamped = stampProductGstRate(next, resolvedRowId, productGst);
-  if (isInvoiceTable1Type(tableType)) {
-    return recalculateInvoiceTable(stamped as InvoiceTableProps, tax);
-  }
-  if (isInvoiceTable2Type(tableType)) {
-    return recalculateInvoiceTable2(stamped as InvoiceTable2Props, tax);
-  }
-  if (isInvoiceTable3Type(tableType)) {
-    return recalculateInvoiceTable3(stamped as InvoiceTable3Props, tax);
-  }
-  return stamped;
+  if (skuColIds.length === 0 && hsnColIds.length === 0) return result;
+
+  // Re-assert after recalculate so SKU/HSN always land in their columns.
+  return {
+    ...result,
+    rows: result.rows.map((item) => {
+      if (String(item.id) !== resolvedRowId) return item;
+      const cells = { ...item.cells };
+      for (const columnId of skuColIds) cells[columnId] = skuValue;
+      for (const columnId of hsnColIds) cells[columnId] = hsnValue;
+      return { ...item, cells };
+    }),
+  };
 }

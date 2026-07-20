@@ -2,7 +2,7 @@ import { Switch } from '@/components/ui/Switch';
 import { tableHasProductColumn } from './product-cell';
 import { useProductSettings } from './ProductSettingsProvider';
 import { resolveShowProductSku } from './product-settings';
-import type { ProductTableColumn } from './product-table';
+import { tableHasSkuColumn, type ProductTableColumn } from './product-table';
 
 function ProductColumnSkuToggle({
   tableShowProductSku,
@@ -51,6 +51,8 @@ export function ProductColumnOptions({
   onShowProductSkuChange: (value: boolean) => void;
 }) {
   if (!tableHasProductColumn(columns)) return null;
+  // Dedicated SKU column already shows it — don't append to the product name.
+  if (tableHasSkuColumn(columns)) return null;
 
   return (
     <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
@@ -66,10 +68,13 @@ export function ProductColumnOptions({
 export function ProductColumnSkuInline({
   tableShowProductSku,
   onTableShowProductSkuChange,
+  columns,
 }: {
   tableShowProductSku?: boolean;
   onTableShowProductSkuChange: (value: boolean) => void;
+  columns?: ProductTableColumn[];
 }) {
+  if (columns && tableHasSkuColumn(columns)) return null;
   return (
     <ProductColumnSkuToggle
       compact

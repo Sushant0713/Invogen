@@ -10,6 +10,7 @@ export function formatCompanyInvoiceNumber(
 ): string {
   const format = company.invoiceSettings.numberFormat || DEFAULT_COMPANY_INVOICE_NUMBER_FORMAT;
   const paddedFive = String(sequence).padStart(5, '0');
+  const paddedThree = String(sequence).padStart(3, '0');
   const year = issueDate.getFullYear();
 
   return format
@@ -17,7 +18,8 @@ export function formatCompanyInvoiceNumber(
     .replace(/\{PREFIX\}/g, company.invoiceSettings.prefix || 'INV')
     .replace(/\{YYYY\}/g, String(year))
     .replace(/\{NNNNN\}/g, paddedFive)
-    .replace(/\{NNNN\}/g, paddedFive.slice(-4));
+    .replace(/\{NNNN\}/g, paddedFive.slice(-4))
+    .replace(/\{NNN\}/g, paddedThree);
 }
 
 type InvoiceNumberCompany = ICompany & {

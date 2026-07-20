@@ -20,6 +20,10 @@ import {
   useSidebarStore,
 } from './sidebar-store';
 import { useInsertAsset } from './use-insert-asset';
+import {
+  applyCompanyDefaultsToPalette,
+  type CompanyDefaultsSource,
+} from '../company-component-defaults';
 
 export function AssetLibrarySidebar() {
   const search = useSidebarStore((s) => s.search);
@@ -42,9 +46,22 @@ export function AssetLibrarySidebar() {
     staleTime: 60_000,
   });
 
+  const { data: company } = useQuery({
+    queryKey: ['admin-company'],
+    queryFn: async () => {
+      try {
+        return (await api.get('/admin/company')).data.data as CompanyDefaultsSource;
+      } catch {
+        return undefined;
+      }
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
   const allAssets = useMemo(
-    () => enrichAssets(mergePaletteWithApi(components)),
-    [components]
+    () => enrichAssets(applyCompanyDefaultsToPalette(mergePaletteWithApi(components), company)),
+    [components, company]
   );
 
   const assetsById = useMemo(() => {

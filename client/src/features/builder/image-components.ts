@@ -2,6 +2,7 @@ import { ComponentType } from '@invogen/shared';
 import type { CSSProperties } from 'react';
 import { resolveMediaUrl } from '@/lib/media';
 import { normalizeImageCropTransform, type ImageCropTransform } from './image-editor/cropUtils';
+import { getSignatureCaptionDefaultProps } from './signature-content';
 
 export { normalizeImageCropTransform as normalizeImageCrop, type ImageCropTransform as ImageCrop };
 
@@ -130,7 +131,14 @@ export function getImageDefaultProps(type: string): Record<string, unknown> {
   if (type === ComponentType.BARCODE) {
     return { ...base, value: '1234567890' };
   }
-  if (type === ComponentType.LOGO || type === ComponentType.SIGNATURE) {
+  if (type === ComponentType.SIGNATURE) {
+    return {
+      ...base,
+      useCompanyBranding: true,
+      ...getSignatureCaptionDefaultProps(),
+    };
+  }
+  if (type === ComponentType.LOGO) {
     return { ...base, useCompanyBranding: true };
   }
   return base;

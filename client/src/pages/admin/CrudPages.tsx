@@ -286,12 +286,14 @@ export function CustomersCrud({
         { name: 'email', label: 'Email', fieldKind: 'email' },
         { name: 'phone', label: 'Phone', fieldKind: 'phone' },
         { name: 'gst', label: 'GST Number', fieldKind: 'gstin' },
+        { name: 'pan', label: 'PAN Number', fieldKind: 'pan' },
       ]}
       columns={[
         { key: 'name', label: 'Name' },
         { key: 'email', label: 'Email' },
         { key: 'phone', label: 'Phone' },
         { key: 'gst', label: 'GST' },
+        { key: 'pan', label: 'PAN' },
       ]}
       extraRowActions={
         invoicesPathPrefix
@@ -331,7 +333,6 @@ export function ProductsCrud({
         { name: 'name', label: 'Name' },
         { name: 'sku', label: 'SKU' },
         { name: 'price', label: 'Price', fieldKind: 'price' },
-        { name: 'gst', label: 'GST %', type: 'number' },
         { name: 'hsn', label: 'HSN', fieldKind: 'hsn' },
         { name: 'category', label: 'Category', suggest: true },
       ]}
@@ -352,7 +353,6 @@ export function ProductsCrud({
         },
         { key: 'sku', label: 'SKU' },
         { key: 'price', label: 'Price' },
-        { key: 'gst', label: 'GST %' },
         { key: 'category', label: 'Category' },
       ]}
     />

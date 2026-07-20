@@ -110,10 +110,11 @@ export function formatInvoiceNumber(settings: InvoiceSettings): string {
   const year = new Date().getFullYear();
   const padded = String(settings.nextNumber).padStart(5, '0');
   return settings.numberFormat
-    .replace('{PREFIX}', settings.prefix)
-    .replace('{YYYY}', String(year))
-    .replace('{NNNNN}', padded)
-    .replace('{NNNN}', padded.slice(-4));
+    .replace(/\{PREFIX\}/g, settings.prefix)
+    .replace(/\{YYYY\}/g, String(year))
+    .replace(/\{NNNNN\}/g, padded)
+    .replace(/\{NNNN\}/g, padded.slice(-4))
+    .replace(/\{NNN\}/g, String(settings.nextNumber).padStart(3, '0'));
 }
 
 export function hydrateInvoiceSettings(raw: Partial<InvoiceSettings> | undefined): InvoiceSettings {

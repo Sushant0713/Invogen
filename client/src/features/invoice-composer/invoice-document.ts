@@ -41,7 +41,10 @@ import {
   assertLayoutIdempotent,
   pagesGeometrySignature,
 } from '@/features/builder/layout-parity-debug';
-import { normalizeBuilderPagesForEditor } from '@/features/builder/preview-page-reflow';
+import {
+  consolidatePaginatedTablesToAuthored,
+  normalizeBuilderPagesForEditor,
+} from '@/features/builder/preview-page-reflow';
 import {
   applyProductPickToTable,
   type ProductPick,
@@ -129,7 +132,10 @@ export function isPageBlank(page: TemplatePage): boolean {
 
 /** Drop only trailing blank pages; keep intentional multi-page layouts intact. */
 export function normalizeComposerPages(pages: TemplatePage[]): TemplatePage[] {
-  const cloned = cloneTemplatePages(pages);
+  // Heal leaked preview pagination stamps for every composer/viewer/PDF entry
+  // point (a stale split hid the grand total footer). Idempotent, cheap when
+  // no stamps are present.
+  const cloned = consolidatePaginatedTablesToAuthored(cloneTemplatePages(pages));
   if (cloned.length <= 1) return cloned;
 
   let end = cloned.length;
@@ -144,6 +150,8 @@ export function normalizeComposerPages(pages: TemplatePage[]): TemplatePage[] {
  * before composer / platform invoice preview editing.
  */
 export function hydrateComposerTemplatePages(pages: TemplatePage[]): TemplatePage[] {
+  // normalizeComposerPages heals leaked pagination stamps (stale
+  // __previewPaginationRows corrupt the split and drop the grand total footer).
   const trimmed = normalizeComposerPages(pages);
   return normalizeBuilderPagesForEditor(
     enforceInvoiceDueDateOrderOnPages(normalizeDocumentFooters(trimmed)).pages
@@ -775,6 +783,8 @@ export interface ScannedTable {
   rows: Array<{ id: string; name: string; cells: Record<string, string> }>;
   discountMode?: InvoiceDiscountMode;
   supportsDiscountMode: boolean;
+  supportsAmountInWords: boolean;
+  showAmountInWords: boolean;
   showProductSku?: boolean;
 }
 
@@ -1413,6 +1423,33 @@ export function updateComposerTableDiscountMode(
   });
 }
 
+export function updateComposerTableAmountInWords(
+  pages: TemplatePage[],
+  pageId: string,
+  elementId: string,
+  showAmountInWords: boolean,
+  tax: TaxSettings = EMPTY_TAX_SETTINGS
+): TemplatePage[] {
+  return updateElementOnPage(pages, pageId, elementId, (element) => {
+    if (!isTableElementType(element.type)) return element;
+    const raw = (element.props ?? {}) as Record<string, unknown>;
+    const resolvedType = resolveTableElementType(element.type, raw);
+    const supportsAmountInWords =
+      isInvoiceTable1Type(resolvedType)
+      || isInvoiceTable2Type(resolvedType)
+      || isInvoiceTable3Type(resolvedType);
+    if (!supportsAmountInWords) return element;
+
+    const table = normalizeTablePropsForType(element.type, raw);
+    const nextProps = finalizeComposerTableProps(
+      element.type,
+      productTablePropsToRecord({ ...table, showAmountInWords }),
+      tax
+    );
+    return { ...element, props: nextProps };
+  });
+}
+
 export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
   const tables: ScannedTable[] = [];
   pages.forEach((page) => {
@@ -1423,6 +1460,10 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
       const table = normalizeComposerTableForEdit(element.type, raw);
       if (isSummaryOnlyTable(table)) return;
       const supportsDiscountMode = tableSupportsDiscountMode(resolvedType, table.columns);
+      const supportsAmountInWords =
+        isInvoiceTable1Type(resolvedType)
+        || isInvoiceTable2Type(resolvedType)
+        || isInvoiceTable3Type(resolvedType);
       tables.push({
         pageId: page.id,
         pageName: page.name,
@@ -1446,6 +1487,8 @@ export function scanComposerTables(pages: TemplatePage[]): ScannedTable[] {
           })),
         discountMode: supportsDiscountMode ? readTableDiscountMode(raw) : undefined,
         supportsDiscountMode,
+        supportsAmountInWords,
+        showAmountInWords: table.showAmountInWords !== false,
         showProductSku: table.showProductSku === true,
       });
     });

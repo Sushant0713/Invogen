@@ -63,6 +63,7 @@ import {
   updateComposerTableCell,
   updateComposerProductPick,
   updateComposerTableDiscountMode,
+  updateComposerTableAmountInWords,
   addComposerTableRow,
   deleteComposerTableRow,
   updateComposerTextContent,
@@ -115,8 +116,13 @@ export interface InvoiceComposerConfig {
 
 function companyToDefaults(company: Record<string, unknown> | undefined): CompanyDefaults {
   if (!company) return {};
-  const settings = company.invoiceSettings as { prefix?: string; nextNumber?: number } | undefined;
+  const settings = company.invoiceSettings as {
+    prefix?: string;
+    numberFormat?: string;
+    nextNumber?: number;
+  } | undefined;
   const address = company.address as CompanyDefaults['address'];
+  const bankDetails = company.bankDetails as CompanyDefaults['bankDetails'];
   return {
     name: company.name as string | undefined,
     email: company.email as string | undefined,
@@ -124,7 +130,10 @@ function companyToDefaults(company: Record<string, unknown> | undefined): Compan
     gst: company.gst as string | undefined,
     pan: company.pan as string | undefined,
     address,
+    bankDetails,
+    invoiceCode: company.invoiceCode as string | undefined,
     invoicePrefix: settings?.prefix,
+    invoiceNumberFormat: settings?.numberFormat,
     nextInvoiceNumber: settings?.nextNumber,
   };
 }
@@ -315,6 +324,15 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
     [taxSettings]
   );
 
+  const handleTableAmountInWordsChange = useCallback(
+    (pageId: string, elementId: string, enabled: boolean) => {
+      setWorkingPages((prev) =>
+        updateComposerTableAmountInWords(prev, pageId, elementId, enabled, taxSettings)
+      );
+    },
+    [taxSettings]
+  );
+
   const handleAddFooter = useCallback((pageId?: string) => {
     setWorkingPages((prev) => addComposerFooter(prev, pageId));
   }, []);
@@ -479,6 +497,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
         email: formContext.Email,
         phone: formContext.Phone,
         gst: formContext.GST,
+        pan: formContext.PAN,
         address: formContext.Address,
         state: formContext.State,
         placeholders: {
@@ -816,6 +835,7 @@ export function InvoiceComposer({ config }: { config: InvoiceComposerConfig }) {
             onTableCellChange={handleTableCellChange}
             onTableProductPick={handleTableProductPick}
             onTableDiscountModeChange={handleTableDiscountModeChange}
+            onTableAmountInWordsChange={handleTableAmountInWordsChange}
             onAddTableRow={handleAddTableRow}
             onDeleteTableRow={handleDeleteTableRow}
             onElementTextChange={handleElementTextChange}

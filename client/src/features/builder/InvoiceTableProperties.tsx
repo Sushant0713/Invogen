@@ -31,6 +31,7 @@ import { useTaxSettings } from './TaxSettingsProvider';
 import { InvoiceTableColumnList } from './InvoiceTableColumnList';
 import { AddColumnTypeSelect } from './AddColumnTypeSelect';
 import { ProductColumnOptions } from './ProductColumnOptions';
+import { Switch } from '@/components/ui/Switch';
 
 export function InvoiceTableProperties({
   props,
@@ -90,6 +91,18 @@ export function InvoiceTableProperties({
         whether discount is a flat amount or percentage, and CGST+SGST, combined GST, or IGST.
       </p>
 
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Amount in words</p>
+          <p className="mt-0.5 text-[11px] text-gray-500">Show total amount in words under the table</p>
+        </div>
+        <Switch
+          checked={table.showAmountInWords !== false}
+          onChange={(checked) => commit({ ...table, showAmountInWords: checked })}
+          label="Show amount in words"
+        />
+      </div>
+
       <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Calculations</p>
         <div className="space-y-1.5">
@@ -143,7 +156,7 @@ export function InvoiceTableProperties({
           <AddColumnTypeSelect onAdd={(type) => commit(addInvoiceColumn(table, type))} />
         </div>
         <p className="mb-2 text-[11px] text-gray-500">
-          Choose type when adding: NA, Sr.No. (auto), or Product (from Admin → Products).
+          Choose type when adding: NA, Sr.No., Product, SKU, or HSN.
         </p>
         <ProductColumnOptions
           columns={table.columns}

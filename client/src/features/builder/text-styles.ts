@@ -311,23 +311,27 @@ export function getDisplayText(
       if (!label) return value || fallback || 'Page 1 of 1';
       return value ? `${label}: ${value}` : `${label}:`;
     }
-    const label = (props.label as string) || 'Label';
+    const label = typeof props.label === 'string' ? props.label.trim() : '';
     let value = getDataFieldValue(props, type).trim();
     // Avoid "Date: Date: …" when value already includes the label (placeholders / imports).
-    const labelPrefix = `${label}:`;
-    if (value.toLowerCase().startsWith(labelPrefix.toLowerCase())) {
-      value = value.slice(labelPrefix.length).trim();
-    } else if (value.toLowerCase().startsWith(`${label.toLowerCase()} `)) {
-      value = value.slice(label.length).trim();
+    if (label) {
+      const labelPrefix = `${label}:`;
+      if (value.toLowerCase().startsWith(labelPrefix.toLowerCase())) {
+        value = value.slice(labelPrefix.length).trim();
+      } else if (value.toLowerCase().startsWith(`${label.toLowerCase()} `)) {
+        value = value.slice(label.length).trim();
+      }
     }
     if (type === ComponentType.ADDRESS) {
       if (parseAddressHeaderMode(props.addressHeaderMode) === 'logo') return value;
-      return `${label}:\n${value}`;
+      return label ? `${label}:\n${value}` : value;
     }
     // Logo mode for fields (e.g. Company Address): icon replaces the text label.
     if (type === ComponentType.FIELD && props.showIcon === true) {
       return value;
     }
+    // Cleared label in properties: show value only (no "Label :" fallback).
+    if (!label) return value || fallback;
     return value ? `${label}: ${value}` : `${label}:`;
   }
   if (key === 'text') return (props.text as string) || fallback || 'DRAFT';

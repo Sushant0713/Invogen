@@ -10,12 +10,14 @@ import {
   DEFAULT_TABLE_COLOR,
   DEFAULT_BORDER_OPACITY,
   DEFAULT_BORDER_WIDTH_PX,
+  DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX,
   MIN_COL_WIDTH_PX,
   type TableColumnType,
   defaultLabelForColumnType,
   createEmptyColumn,
   getTableTotalWidth,
   getVisibleTableColumns,
+  normalizeColumnType,
   clampBorderOpacity,
   clampBorderWidth,
   normalizeStyleMap,
@@ -43,6 +45,8 @@ export type InvoiceTable3Props = ProductTableProps & {
   totalFooterLabel?: string;
 };
 
+export const INVOICE3_COL_SR_NO = 'col_sr_no';
+export const INVOICE3_COL_ITEMS = 'col_items';
 export const INVOICE3_COL_QTY = 'col_qty';
 export const INVOICE3_COL_RATE = 'col_rate';
 export const INVOICE3_COL_DISCOUNT = 'col_discount';
@@ -56,6 +60,20 @@ export const INVOICE3_FIXED_COLUMN_IDS = new Set([
 ]);
 
 const DEFAULT_FLEX_COLUMNS: ProductTableColumn[] = [
+  {
+    id: INVOICE3_COL_SR_NO,
+    label: 'Sr.No.',
+    widthPx: 52,
+    visible: true,
+    columnType: 'sr_no',
+  },
+  {
+    id: INVOICE3_COL_ITEMS,
+    label: 'Product',
+    widthPx: 160,
+    visible: true,
+    columnType: 'product',
+  },
   { id: INVOICE3_COL_QTY, label: 'QTY', widthPx: 72, visible: true },
   { id: INVOICE3_COL_RATE, label: 'Rate', widthPx: 88, visible: true },
 ];
@@ -131,6 +149,7 @@ export const DEFAULT_INVOICE_TABLE_3_PROPS: InvoiceTable3Props = {
   borderOpacity: DEFAULT_BORDER_OPACITY,
   borderWidth: DEFAULT_BORDER_WIDTH_PX,
   showGrandTotalFooter: false,
+  showAmountInWords: true,
 };
 
 export function isInvoiceTable3Type(type: string): boolean {
@@ -142,7 +161,13 @@ export function isInvoice3FixedColumn(columnId: string): boolean {
 }
 
 function migrateColumn(col: ProductTableColumn, index: number): ProductTableColumn {
-  const columnType = col.columnType ?? 'na';
+  let columnType = normalizeColumnType(col.columnType);
+  if (col.columnType == null || columnType === 'na') {
+    const label = String(col.label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (label === 'sku') columnType = 'sku';
+    else if (label === 'hsn' || label === 'hsnsac' || label === 'sac') columnType = 'hsn';
+    else if (col.columnType == null) columnType = 'na';
+  }
   return {
     id: col.id || `col_${index}`,
     label: typeof col.label === 'string' ? col.label : defaultLabelForColumnType(columnType),
@@ -190,6 +215,8 @@ function normalizeColumns(
   } else {
     for (const def of DEFAULT_FLEX_COLUMNS) {
       if (flexible.some((col) => col.id === def.id)) continue;
+      // Sr.No./Product are defaults for newly created tables; do not alter old templates.
+      if (def.id === INVOICE3_COL_SR_NO || def.id === INVOICE3_COL_ITEMS) continue;
       if (def.id === INVOICE3_COL_RATE) {
         const hasRateLabel = flexible.some((col) => {
           const norm = (col.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -363,10 +390,15 @@ export function getInvoice3TotalFooterHeight(props: InvoiceTable3Props): number 
 }
 
 export function computeInvoiceTable3Height(props: InvoiceTable3Props): number {
+  const amountInWords =
+    props.showTotalFooter !== false && props.showAmountInWords !== false
+      ? DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX
+      : 0;
   return (
     computeTableHeight(props)
     + getInvoice3TotalFooterGap(props)
     + getInvoice3TotalFooterHeight(props)
+    + amountInWords
   );
 }
 
@@ -428,14 +460,9 @@ function normalizeRows(
     columns.forEach((col) => {
       const raw = row.cells?.[col.id];
       if (raw !== undefined && raw !== null) {
-        // Blank qty keeps the default of 1 from emptyCells.
-        if (col.id === INVOICE3_COL_QTY && !String(raw).trim()) return;
         cells[col.id] = String(raw);
       }
     });
-    if (!String(cells[INVOICE3_COL_QTY] ?? '').trim()) {
-      cells[INVOICE3_COL_QTY] = '1';
-    }
     return {
       id: String(row.id || uuidv4()),
       name: String(row.name || `Row ${index + 1}`),
@@ -491,6 +518,7 @@ export function normalizeInvoiceTable3Props(
     columns,
     discountMode,
     showTotalFooter: raw.showTotalFooter !== false,
+    showAmountInWords: raw.showAmountInWords !== false,
     totalFooterGapPx:
       typeof raw.totalFooterGapPx === 'number' && raw.totalFooterGapPx >= 0
         ? raw.totalFooterGapPx

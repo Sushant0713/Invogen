@@ -1120,10 +1120,18 @@ export const adminService = {
   },
 
   async getPublicInvoiceByToken(token: string) {
-    const invoice = await Invoice.findOne({ 'shares.token': token }).populate('companyId', 'name');
+    const invoice = await Invoice.findOne({ 'shares.token': token }).populate(
+      'companyId',
+      'name logo signature'
+    );
     if (!invoice) throw new AppError('Invoice not found or link expired', 404);
 
-    const company = invoice.companyId as { _id?: { toString(): string }; name?: string } | null;
+    const company = invoice.companyId as {
+      _id?: { toString(): string };
+      name?: string;
+      logo?: string;
+      signature?: string;
+    } | null;
     const companyId =
       company && typeof company === 'object' && company._id
         ? company._id.toString()
@@ -1142,6 +1150,10 @@ export const adminService = {
       totals,
       issueDate: invoice.issueDate,
       companyName: company?.name ?? 'Company',
+      companyBranding: {
+        logo: company?.logo ?? '',
+        signature: company?.signature ?? '',
+      },
       showMadeWithInvogen: access?.showMadeWithInvogen === true,
       madeWithImage,
     };

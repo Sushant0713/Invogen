@@ -281,6 +281,7 @@ export const PLACEHOLDER_FIELD_LABELS: Record<string, string> = {
   BankAccountName: 'Account name',
   BankAccountNumber: 'Account number',
   BankIFSC: 'IFSC code',
+  BankBranch: 'Bank branch',
   BankUPI: 'UPI ID',
   BankDetails: 'Bank details',
   PaymentDueText: 'Payment due',

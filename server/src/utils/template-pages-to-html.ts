@@ -115,6 +115,8 @@ const CUSTOMER_CARD_FIELDS = [
   { key: 'title', placeholder: 'Bill To', multiline: false, prefix: '' },
   { key: 'name', placeholder: 'Customer Name', multiline: false, prefix: '' },
   { key: 'address', placeholder: '', multiline: true, prefix: '' },
+  { key: 'gst', placeholder: '', multiline: false, prefix: 'GST: ' },
+  { key: 'pan', placeholder: '', multiline: false, prefix: 'PAN: ' },
   { key: 'email', placeholder: '', multiline: false, prefix: '' },
   { key: 'phone', placeholder: '', multiline: false, prefix: '' },
 ];
@@ -125,6 +127,7 @@ const PAYMENT_FIELDS = [
   { key: 'accountName', placeholder: '', multiline: false, prefix: '' },
   { key: 'accountNumber', placeholder: '', multiline: false, prefix: '' },
   { key: 'ifsc', placeholder: '', multiline: false, prefix: '' },
+  { key: 'branch', placeholder: '', multiline: false, prefix: '' },
   { key: 'upi', placeholder: '', multiline: false, prefix: '' },
 ];
 

@@ -504,7 +504,7 @@ function DataFieldSurface({
         })()
       : props;
 
-  const label = (displayProps.label as string) || 'Label';
+  const label = typeof displayProps.label === 'string' ? displayProps.label.trim() : '';
   const editValue = isAddress
     ? formatAddressValue(parseAddressFromProps(displayProps), {
         hidden: new Set(parseHiddenAddressFields(displayProps.hiddenFields)),
@@ -578,7 +578,7 @@ function DataFieldSurface({
         onMouseDown={stopEditEvent}
         onPointerDown={stopEditEvent}
       >
-        {!isAddress && props.showIcon !== true && (
+        {!isAddress && props.showIcon !== true && Boolean(label) && (
           <span className="pointer-events-none select-none">{label}:</span>
         )}
         {element.type === ComponentType.FIELD && props.showIcon === true && (

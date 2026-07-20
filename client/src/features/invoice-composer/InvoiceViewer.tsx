@@ -4,7 +4,10 @@ import { TemplatePreviewPages } from '@/features/builder/TemplatePreviewPages';
 import { CompanyBrandingProvider } from '@/features/builder/CompanyBrandingProvider';
 import { TaxSettingsProvider } from '@/features/builder/TaxSettingsProvider';
 import { MadeWithInvogenProvider } from '@/features/builder/MadeWithInvogenProvider';
-import type { CompanyBrandingScope } from '@/features/builder/company-branding';
+import type {
+  CompanyBranding,
+  CompanyBrandingScope,
+} from '@/features/builder/company-branding';
 import {
   cloneTemplatePages,
   normalizeComposerPages,
@@ -15,6 +18,7 @@ interface InvoiceViewerProps {
   pages: TemplatePage[];
   previewMaxWidth?: number;
   brandingScope?: CompanyBrandingScope;
+  brandingOverride?: Partial<CompanyBranding>;
   className?: string;
   /**
    * Explicit plan advertising flag (e.g. public share links).
@@ -29,6 +33,7 @@ export function InvoiceViewer({
   pages,
   previewMaxWidth,
   brandingScope = 'admin',
+  brandingOverride,
   className = '',
   madeWithInvogen,
   madeWithImage,
@@ -51,7 +56,7 @@ export function InvoiceViewer({
   );
 
   const withProviders = (node: ReactNode) => (
-    <CompanyBrandingProvider scope={brandingScope}>
+    <CompanyBrandingProvider scope={brandingScope} override={brandingOverride}>
       <TaxSettingsProvider scope={brandingScope}>{node}</TaxSettingsProvider>
     </CompanyBrandingProvider>
   );

@@ -11,6 +11,7 @@ export type CompanyProductOption = {
   _id: string;
   name: string;
   sku?: string;
+  hsn?: string;
   price?: number;
   discount?: number;
   discountType?: 'percentage' | 'fixed';
@@ -44,6 +45,15 @@ function toOptionalNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function toOptionalString(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
 function extractProducts(payload: unknown): CompanyProductOption[] {
   if (Array.isArray(payload)) {
     return payload
@@ -61,7 +71,8 @@ function extractProducts(payload: unknown): CompanyProductOption[] {
         return {
           _id: id,
           name,
-          sku: typeof row.sku === 'string' ? row.sku : undefined,
+          sku: toOptionalString(row.sku ?? row.SKU),
+          hsn: toOptionalString(row.hsn ?? row.HSN ?? row.hsnCode ?? row.sac),
           price,
           discount: toOptionalNumber(row.discount),
           discountType:

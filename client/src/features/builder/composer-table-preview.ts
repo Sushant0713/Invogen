@@ -2,6 +2,7 @@ import {
   computeInvoice2Summary,
   isInvoiceTable2Type,
   recalculateInvoiceTable2,
+  resolveInvoice2SummaryRows,
   type InvoiceTable2Props,
 } from './invoice-table-2';
 import { isInvoiceTable1Type, recalculateInvoiceTable, type InvoiceTableProps } from './invoice-table';
@@ -129,16 +130,22 @@ export function finalizeComposerTableProps(
 
   if (isInvoiceTable2Type(resolvedType)) {
     const as2 = raw as unknown as InvoiceTable2Props;
+    const table2 = {
+      ...base,
+      ...as2,
+      rows: lines,
+      showSummaryTable: as2.showSummaryTable !== false,
+    } as InvoiceTable2Props;
+    // On a split table `lines` is only this page's slice — summarize every row
+    // so the continuation page shows the whole invoice's totals, not 0.
+    const summaryRows = resolveInvoice2SummaryRows(
+      raw,
+      table2,
+      table2.columns,
+      table2.discountMode ?? 'amount'
+    );
     return productTablePropsToRecord(
-      recalculateInvoiceTable2(
-        {
-          ...base,
-          ...as2,
-          rows: lines,
-          showSummaryTable: as2.showSummaryTable !== false,
-        },
-        tax
-      )
+      recalculateInvoiceTable2(table2, tax, summaryRows)
     );
   }
 

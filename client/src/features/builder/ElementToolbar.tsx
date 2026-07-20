@@ -537,7 +537,7 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
   return (
     <label
       title="Text color"
-      className="relative inline-flex h-8 w-8 cursor-pointer flex-col items-center justify-center rounded-lg text-gray-700 transition-colors hover:bg-gray-100"
+      className="relative inline-flex h-8 w-8 shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-lg text-gray-700 transition-colors hover:bg-gray-100"
       onMouseDown={() => {
         beginBuilderTextFormatting();
         saveBuilderTextSelection();
@@ -563,7 +563,9 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
           endBuilderTextFormatting();
         }}
         onBlur={() => endBuilderTextFormatting()}
-        className="absolute inset-0 cursor-pointer opacity-0"
+        // Native color inputs have a large UA min-size; clip + zero min so they
+        // cannot steal clicks from the Bold button beside this control.
+        className="absolute inset-0 h-full w-full min-h-0 min-w-0 cursor-pointer opacity-0"
         aria-label="Text color"
       />
     </label>

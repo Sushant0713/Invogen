@@ -14,6 +14,7 @@ import {
   normalizeInvoiceFormDates,
   toIsoDateValue,
 } from '@/lib/date-format';
+import { formatIndianStateWithCode, getIndianStateCode } from '@/lib/location-data';
 
 const DATA_FIELD_KEYS: Partial<Record<ComponentType, keyof PlaceholderContext | string>> = {
   [ComponentType.INVOICE_NUMBER]: 'InvoiceNumber',
@@ -72,11 +73,15 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
     return patchCardElement(element, context, {
       name: 'ClientName',
       address: 'Address',
+      gst: 'GST',
+      pan: 'PAN',
       email: 'Email',
       phone: 'Phone',
     }, [
       { key: 'name', placeholder: 'Customer Name' },
       { key: 'address', placeholder: 'Billing Address\nCity, State' },
+      { key: 'gst', placeholder: '27XXXXXXXXXX1Z1' },
+      { key: 'pan', placeholder: 'XXXXX9999X' },
       { key: 'email', placeholder: 'customer@email.com' },
       { key: 'phone', placeholder: '+91 98765 43210' },
     ]);
@@ -119,6 +124,7 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
         accountName: 'BankAccountName',
         accountNumber: 'BankAccountNumber',
         ifsc: 'BankIFSC',
+        branch: 'BankBranch',
         upi: 'BankUPI',
       },
       [
@@ -126,6 +132,7 @@ function patchStructuredElement(element: CanvasElement, context: PlaceholderCont
         { key: 'accountName', placeholder: 'Company Pvt Ltd' },
         { key: 'accountNumber', placeholder: '50200012345678' },
         { key: 'ifsc', placeholder: 'HDFC0001234' },
+        { key: 'branch', placeholder: 'Mumbai Main Branch' },
         { key: 'upi', placeholder: 'company@hdfcbank' },
       ]
     );
@@ -228,6 +235,14 @@ export interface CompanyDefaults {
   phone?: string;
   gst?: string;
   pan?: string;
+  bankDetails?: {
+    bankName?: string;
+    accountName?: string;
+    accountNumber?: string;
+    ifscCode?: string;
+    branch?: string;
+    upiId?: string;
+  };
   address?: {
     street?: string;
     city?: string;
@@ -235,7 +250,9 @@ export interface CompanyDefaults {
     country?: string;
     zipCode?: string;
   };
+  invoiceCode?: string;
   invoicePrefix?: string;
+  invoiceNumberFormat?: string;
   nextInvoiceNumber?: number;
 }
 
@@ -245,7 +262,7 @@ export function formatCompanyAddress(
   if (!address) return '';
   return [
     address.street,
-    [address.city, address.state].filter(Boolean).join(', '),
+    [address.city, formatIndianStateWithCode(address.state ?? '')].filter(Boolean).join(', '),
     [address.country, address.zipCode].filter(Boolean).join(' '),
   ]
     .filter(Boolean)
@@ -253,11 +270,19 @@ export function formatCompanyAddress(
 }
 
 export function draftInvoiceNumber(company?: CompanyDefaults): string {
+  const code = company?.invoiceCode || 'CO';
   const prefix = company?.invoicePrefix || 'INV';
   const next = company?.nextInvoiceNumber ?? 1;
-  const padded = String(next).padStart(4, '0');
+  const format = company?.invoiceNumberFormat || '{PREFIX}-{NNNN}/{YYYY}';
+  const padded = String(next).padStart(5, '0');
   const year = new Date().getFullYear();
-  return `${prefix}-${padded}/${String(year).slice(-2)}-${String(year + 1).slice(-2)}`;
+  return format
+    .replace(/\{CODE\}/g, code)
+    .replace(/\{PREFIX\}/g, prefix)
+    .replace(/\{YYYY\}/g, String(year))
+    .replace(/\{NNNNN\}/g, padded)
+    .replace(/\{NNNN\}/g, padded.slice(-4))
+    .replace(/\{NNN\}/g, String(next).padStart(3, '0'));
 }
 
 /**
@@ -317,6 +342,13 @@ export function buildInitialFormContext(
     CompanyEmail: company?.email ?? '',
     CompanyPhone: company?.phone ?? '',
     CompanyGST: company?.gst ?? '',
+    CompanyPAN: company?.pan ?? '',
+    BankName: company?.bankDetails?.bankName ?? '',
+    BankAccountName: company?.bankDetails?.accountName ?? '',
+    BankAccountNumber: company?.bankDetails?.accountNumber ?? '',
+    BankIFSC: company?.bankDetails?.ifscCode ?? '',
+    BankBranch: company?.bankDetails?.branch ?? '',
+    BankUPI: company?.bankDetails?.upiId ?? '',
     ClientName: '',
     InvoiceNumber: draftInvoiceNumber(company),
     Date: fromTemplate?.Date ?? today,
@@ -327,8 +359,8 @@ export function buildInitialFormContext(
     Email: '',
     Phone: '',
     State: '',
-    PlaceOfSupply: company?.address?.state ?? '',
-    StateCode: '',
+    PlaceOfSupply: formatIndianStateWithCode(company?.address?.state ?? ''),
+    StateCode: getIndianStateCode(company?.address?.state ?? ''),
     Amount: '',
     Subtotal: '',
     Tax: '',
@@ -348,6 +380,7 @@ export interface CustomerRecord {
   email?: string;
   phone?: string;
   gst?: string;
+  pan?: string;
   billingAddress?: {
     street?: string;
     city?: string;
@@ -363,7 +396,7 @@ export function formatCustomerAddress(
   if (!address) return '';
   return [
     address.street,
-    [address.city, address.state].filter(Boolean).join(', '),
+    [address.city, formatIndianStateWithCode(address.state ?? '')].filter(Boolean).join(', '),
     [address.country, address.zipCode].filter(Boolean).join(' '),
   ]
     .filter(Boolean)
@@ -376,7 +409,9 @@ export function customerToFormPatch(customer: CustomerRecord): PlaceholderContex
     Email: customer.email ?? '',
     Phone: customer.phone ?? '',
     GST: customer.gst ?? '',
+    PAN: customer.pan ?? '',
     Address: formatCustomerAddress(customer.billingAddress),
-    State: customer.billingAddress?.state ?? '',
+    State: formatIndianStateWithCode(customer.billingAddress?.state ?? ''),
+    StateCode: getIndianStateCode(customer.billingAddress?.state ?? ''),
   };
 }

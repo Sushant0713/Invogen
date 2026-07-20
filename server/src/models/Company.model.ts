@@ -10,6 +10,7 @@ export interface IAddress {
 
 export interface IBankDetails {
   bankName?: string;
+  accountName?: string;
   accountNumber?: string;
   ifscCode?: string;
   branch?: string;
@@ -82,6 +83,7 @@ const addressSchema = new Schema<IAddress>(
 const bankDetailsSchema = new Schema<IBankDetails>(
   {
     bankName: String,
+    accountName: String,
     accountNumber: String,
     ifscCode: String,
     branch: String,

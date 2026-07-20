@@ -1,3 +1,5 @@
+import { Children, useState, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { resolveFieldKind, type FieldKind } from '@/lib/form-fields';
 import { toIsoDateValue } from '@/lib/date-format';
@@ -6,7 +8,7 @@ import {
   placeholderFieldLabel,
   type PlaceholderContext,
 } from '@/features/template-gallery/placeholder-utils';
-import type { TemplatePage } from '@invogen/shared';
+import { ComponentType, type TemplatePage } from '@invogen/shared';
 import type { CustomerRecord } from './apply-invoice-form';
 import { buildComposerFormModel } from './invoice-document';
 import { InvoicePagesSection } from './InvoicePagesSection';
@@ -48,6 +50,11 @@ interface InvoiceComposerFormProps {
     pageId: string,
     elementId: string,
     mode: 'amount' | 'percent'
+  ) => void;
+  onTableAmountInWordsChange?: (
+    pageId: string,
+    elementId: string,
+    enabled: boolean
   ) => void;
   onElementTextChange: (
     pageId: string,
@@ -103,7 +110,7 @@ function FormSection({
 }: {
   title: string;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -114,6 +121,47 @@ function FormSection({
       <div className="space-y-3">{children}</div>
     </section>
   );
+}
+
+function FormGroup({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const items = Children.toArray(children);
+  if (items.length === 0) return null;
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h2>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open ? <div className="space-y-4 border-t border-gray-100 px-4 pb-4 pt-3">{items}</div> : null}
+    </div>
+  );
+}
+
+function isDefaultFormCard(elementType: string): boolean {
+  return (
+    elementType === ComponentType.COMPANY_CARD
+    || elementType === ComponentType.PAYMENT_DETAILS
+  );
+}
+
+function isPaymentPlaceholderKey(key: string): boolean {
+  return key.startsWith('Bank') || key === 'PaymentTitle';
 }
 
 function FieldInput({
@@ -166,6 +214,7 @@ export function InvoiceComposerForm({
   onAddTableRow,
   onDeleteTableRow,
   onTableDiscountModeChange,
+  onTableAmountInWordsChange,
   onElementTextChange,
   onAddFooter,
   onDeleteFooter,
@@ -195,6 +244,14 @@ export function InvoiceComposerForm({
   const invoiceOtherFields = formModel.invoiceFields.filter(
     (key) => key !== 'Date' && key !== 'DueDate'
   );
+  const defaultCards = formModel.cards.filter((card) => isDefaultFormCard(card.elementType));
+  const editCards = formModel.cards.filter((card) => !isDefaultFormCard(card.elementType));
+  const paymentPlaceholders = formModel.otherPlaceholders.filter(isPaymentPlaceholderKey);
+  const editPlaceholders = formModel.otherPlaceholders.filter((key) => !isPaymentPlaceholderKey(key));
+  const showStandaloneCustomer =
+    formModel.cards.length === 0 && formModel.customerFields.length > 0;
+  const showStandaloneCompany =
+    formModel.cards.length === 0 && formModel.companyFields.length > 0;
 
   const hasEditableContent =
     formModel.cards.length > 0
@@ -208,6 +265,25 @@ export function InvoiceComposerForm({
     || formModel.terms.length > 0
     || onAddFooter
     || onAddTerms;
+
+  const renderCard = (card: (typeof formModel.cards)[number]) => (
+    <InvoiceCardFormSection
+      key={card.elementId}
+      card={card}
+      pages={pageList}
+      formContext={formContext}
+      onFormContextChange={onChange}
+      onCardPropChange={onCardPropChange}
+      onDeleteStandardField={onDeleteCardStandardField}
+      onToggleStandardField={onToggleCardStandardField}
+      onUpdateCustomField={onUpdateCardCustomField}
+      onDeleteCustomField={onDeleteCardCustomField}
+      onToggleCustomField={onToggleCardCustomField}
+      customers={customers}
+      selectedCustomerId={selectedCustomerId}
+      onSelectCustomer={card.showCustomerPicker ? onSelectCustomer : undefined}
+    />
+  );
 
   return (
     <div className="space-y-4">
@@ -223,156 +299,164 @@ export function InvoiceComposerForm({
         </FormSection>
       ) : null}
 
-      {formModel.cards.map((card) => (
-        <InvoiceCardFormSection
-          key={card.elementId}
-          card={card}
-          pages={pageList}
-          formContext={formContext}
-          onFormContextChange={onChange}
-          onCardPropChange={onCardPropChange}
-          onDeleteStandardField={onDeleteCardStandardField}
-          onToggleStandardField={onToggleCardStandardField}
-          onUpdateCustomField={onUpdateCardCustomField}
-          onDeleteCustomField={onDeleteCardCustomField}
-          onToggleCustomField={onToggleCardCustomField}
-          customers={customers}
-          selectedCustomerId={selectedCustomerId}
-          onSelectCustomer={card.showCustomerPicker ? onSelectCustomer : undefined}
-        />
-      ))}
+      <FormGroup title="Default form">
+        {defaultCards.map(renderCard)}
 
-      {formModel.otherPlaceholders.length > 0 ? (
-        <FormSection
-          title="Placeholders"
-          subtitle="From text like <your name> — type the real values here."
-        >
-          {formModel.otherPlaceholders.map((key) => (
-            <FieldInput
-              key={key}
-              label={placeholderFieldLabel(key)}
-              value={formContext[key] ?? ''}
-              onChange={(value) => onChange(key, value)}
-              multiline={isMultilinePlaceholder(key)}
-              fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
-            />
-          ))}
-        </FormSection>
-      ) : null}
-
-      {formModel.cards.length === 0 && formModel.customerFields.length > 0 ? (
-        <FormSection title="Customer" subtitle="Who is this invoice for?">
-          {formModel.showCustomerPicker ? (
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-gray-700">
-                Select from saved customers
-              </label>
-              <select
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={selectedCustomerId}
-                onChange={(e) => onSelectCustomer(e.target.value)}
-              >
-                <option value="">Choose a customer…</option>
-                {customers.map((customer) => (
-                  <option key={customer._id} value={customer._id}>
-                    {customer.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-          {formModel.customerFields.map((key) => (
-            <FieldInput
-              key={key}
-              label={placeholderFieldLabel(key)}
-              value={formContext[key] ?? ''}
-              onChange={(value) => onChange(key, value)}
-              multiline={isMultilinePlaceholder(key)}
-              fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
-            />
-          ))}
-        </FormSection>
-      ) : null}
-
-      {hasInvoiceDate || hasDueDate ? (
-        <FormSection
-          title="Invoice dates"
-          subtitle="These update the date fields on the live preview. Due date cannot be before invoice date."
-        >
-          {hasInvoiceDate ? (
-            <Input
-              label="Invoice date"
-              fieldKind="date"
-              value={toIsoDateValue(formContext.Date ?? '')}
-              onChange={(e) => onChange('Date', e.target.value)}
-            />
-          ) : null}
-          {hasDueDate ? (
-            <Input
-              label="Due date"
-              fieldKind="date"
-              value={toIsoDateValue(formContext.DueDate ?? '')}
-              min={toIsoDateValue(formContext.Date ?? '') || undefined}
-              onChange={(e) => onChange('DueDate', e.target.value)}
-            />
-          ) : null}
-        </FormSection>
-      ) : null}
-
-      {invoiceOtherFields.length > 0 ? (
-        <FormSection title="Invoice details">
-          {invoiceOtherFields.map((key) => {
-            const dataField = formModel.dataFields.find((field) => field.key === key);
-            return (
+        {showStandaloneCompany ? (
+          <FormSection title="Company / supplier">
+            {formModel.companyFields.map((key) => (
               <FieldInput
                 key={key}
-                label={dataField?.label ?? placeholderFieldLabel(key)}
+                label={placeholderFieldLabel(key)}
                 value={formContext[key] ?? ''}
                 onChange={(value) => onChange(key, value)}
-                fieldKind={resolveFieldKind({ placeholderKey: key, label: dataField?.label ?? placeholderFieldLabel(key) })}
+                multiline={isMultilinePlaceholder(key)}
+                fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
               />
-            );
-          })}
-        </FormSection>
-      ) : null}
+            ))}
+          </FormSection>
+        ) : null}
 
-      {formModel.cards.length === 0 && formModel.companyFields.length > 0 ? (
-        <FormSection title="Company / supplier">
-          {formModel.companyFields.map((key) => (
-            <FieldInput
-              key={key}
-              label={placeholderFieldLabel(key)}
-              value={formContext[key] ?? ''}
-              onChange={(value) => onChange(key, value)}
-              multiline={isMultilinePlaceholder(key)}
-              fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
-            />
-          ))}
-        </FormSection>
-      ) : null}
+        {paymentPlaceholders.length > 0 ? (
+          <FormSection
+            title="Payment details"
+            subtitle="Prefilled from company settings — edit here if needed."
+          >
+            {paymentPlaceholders.map((key) => (
+              <FieldInput
+                key={key}
+                label={placeholderFieldLabel(key)}
+                value={formContext[key] ?? ''}
+                onChange={(value) => onChange(key, value)}
+                multiline={isMultilinePlaceholder(key)}
+                fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
+              />
+            ))}
+          </FormSection>
+        ) : null}
 
-      <InvoiceTableFormSection
-        tables={formModel.tables}
-        onCellChange={onTableCellChange}
-        onProductPick={onTableProductPick}
-        onAddRow={onAddTableRow}
-        onDeleteRow={onDeleteTableRow}
-        onDiscountModeChange={onTableDiscountModeChange}
-      />
+        <InvoiceElementsFormSection
+          fields={formModel.textFields}
+          footers={formModel.footers}
+          terms={formModel.terms}
+          showPageNames={pageList.length > 1}
+          onChange={onElementTextChange}
+          onDeleteFooter={onDeleteFooter}
+          onTermsTitleChange={onTermsTitleChange}
+          onTermsItemChange={onTermsItemChange}
+          onAddTermsItem={onAddTermsItem}
+          onDeleteTermsItem={onDeleteTermsItem}
+          onDeleteTerms={onDeleteTerms}
+        />
+      </FormGroup>
 
-      <InvoiceElementsFormSection
-        fields={formModel.textFields}
-        footers={formModel.footers}
-        terms={formModel.terms}
-        showPageNames={pageList.length > 1}
-        onChange={onElementTextChange}
-        onDeleteFooter={onDeleteFooter}
-        onTermsTitleChange={onTermsTitleChange}
-        onTermsItemChange={onTermsItemChange}
-        onAddTermsItem={onAddTermsItem}
-        onDeleteTermsItem={onDeleteTermsItem}
-        onDeleteTerms={onDeleteTerms}
-      />
+      <FormGroup title="Edit form" defaultOpen>
+        {editCards.map(renderCard)}
+
+        {hasInvoiceDate || hasDueDate ? (
+          <FormSection
+            title="Invoice dates"
+            subtitle="These update the date fields on the live preview. Due date cannot be before invoice date."
+          >
+            {hasInvoiceDate ? (
+              <Input
+                label="Invoice date"
+                fieldKind="date"
+                value={toIsoDateValue(formContext.Date ?? '')}
+                onChange={(e) => onChange('Date', e.target.value)}
+              />
+            ) : null}
+            {hasDueDate ? (
+              <Input
+                label="Due date"
+                fieldKind="date"
+                value={toIsoDateValue(formContext.DueDate ?? '')}
+                min={toIsoDateValue(formContext.Date ?? '') || undefined}
+                onChange={(e) => onChange('DueDate', e.target.value)}
+              />
+            ) : null}
+          </FormSection>
+        ) : null}
+
+        {invoiceOtherFields.length > 0 ? (
+          <FormSection title="Invoice details">
+            {invoiceOtherFields.map((key) => {
+              const dataField = formModel.dataFields.find((field) => field.key === key);
+              return (
+                <FieldInput
+                  key={key}
+                  label={dataField?.label ?? placeholderFieldLabel(key)}
+                  value={formContext[key] ?? ''}
+                  onChange={(value) => onChange(key, value)}
+                  fieldKind={resolveFieldKind({ placeholderKey: key, label: dataField?.label ?? placeholderFieldLabel(key) })}
+                />
+              );
+            })}
+          </FormSection>
+        ) : null}
+
+        {editPlaceholders.length > 0 ? (
+          <FormSection
+            title="Placeholders"
+            subtitle="From text like <your name> — type the real values here."
+          >
+            {editPlaceholders.map((key) => (
+              <FieldInput
+                key={key}
+                label={placeholderFieldLabel(key)}
+                value={formContext[key] ?? ''}
+                onChange={(value) => onChange(key, value)}
+                multiline={isMultilinePlaceholder(key)}
+                fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
+              />
+            ))}
+          </FormSection>
+        ) : null}
+
+        {showStandaloneCustomer ? (
+          <FormSection title="Customer" subtitle="Who is this invoice for?">
+            {formModel.showCustomerPicker ? (
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700">
+                  Select from saved customers
+                </label>
+                <select
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  value={selectedCustomerId}
+                  onChange={(e) => onSelectCustomer(e.target.value)}
+                >
+                  <option value="">Choose a customer…</option>
+                  {customers.map((customer) => (
+                    <option key={customer._id} value={customer._id}>
+                      {customer.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {formModel.customerFields.map((key) => (
+              <FieldInput
+                key={key}
+                label={placeholderFieldLabel(key)}
+                value={formContext[key] ?? ''}
+                onChange={(value) => onChange(key, value)}
+                multiline={isMultilinePlaceholder(key)}
+                fieldKind={resolveFieldKind({ placeholderKey: key, label: placeholderFieldLabel(key) })}
+              />
+            ))}
+          </FormSection>
+        ) : null}
+
+        <InvoiceTableFormSection
+          tables={formModel.tables}
+          onCellChange={onTableCellChange}
+          onProductPick={onTableProductPick}
+          onAddRow={onAddTableRow}
+          onDeleteRow={onDeleteTableRow}
+          onDiscountModeChange={onTableDiscountModeChange}
+          onAmountInWordsChange={onTableAmountInWordsChange}
+        />
+      </FormGroup>
     </div>
   );
 }

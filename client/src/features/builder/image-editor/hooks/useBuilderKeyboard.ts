@@ -18,9 +18,10 @@ import { readBuilderClipboard, writeBuilderClipboard } from '@/features/builder/
 
 interface Options {
   enabled?: boolean;
+  getPastePosition?: () => { x: number; y: number } | null;
 }
 
-export function useBuilderKeyboard({ enabled = true }: Options = {}) {
+export function useBuilderKeyboard({ enabled = true, getPastePosition }: Options = {}) {
   const dispatch = useAppDispatch();
   const { selectedElementIds, imageCropElementId, shapeCropElementId, pages, activePageIndex } =
     useAppSelector((s) => s.builder);
@@ -82,7 +83,8 @@ export function useBuilderKeyboard({ enabled = true }: Options = {}) {
           toast.message('Nothing to paste — copy components first (Ctrl+C)');
           return;
         }
-        dispatch(pasteElements(clipped));
+        const position = getPastePosition?.();
+        dispatch(pasteElements(position ? { elements: clipped, position } : clipped));
         toast.success(
           clipped.length === 1
             ? 'Component pasted'
@@ -153,5 +155,6 @@ export function useBuilderKeyboard({ enabled = true }: Options = {}) {
     page,
     imageCropElementId,
     shapeCropElementId,
+    getPastePosition,
   ]);
 }

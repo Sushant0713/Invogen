@@ -1,3 +1,5 @@
+import { formatIndianStateWithCode } from '@/lib/location-data';
+
 export const DEFAULT_ADDRESS_TITLE = 'Address';
 
 export type AddressHeaderMode = 'label' | 'logo';
@@ -73,7 +75,7 @@ export function formatAddressValue(
   }
 
   const city = hidden?.has('city') ? '' : data.city.trim();
-  const state = hidden?.has('state') ? '' : data.state.trim();
+  const state = hidden?.has('state') ? '' : formatIndianStateWithCode(data.state);
   const postal = hidden?.has('postalCode') ? '' : data.postalCode.trim();
 
   if (city || state || postal) {

@@ -205,6 +205,7 @@ export function BuilderCanvas() {
     startX: number;
     startY: number;
   } | null>(null);
+  const pastePositionRef = useRef<{ x: number; y: number } | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<PageRect | null>(null);
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const { pages, activePageIndex, selectedElementIds, selectedTableCell, selectedTableCells, imageCropElementId, shapeCropElementId, zoom, snapToGrid } =
@@ -220,8 +221,6 @@ export function BuilderCanvas() {
     () => collectIntentionalOverlapElementIds(page?.elements ?? []),
     [page?.elements]
   );
-
-  useBuilderKeyboard();
 
   useEffect(() => {
     setInteractionMode('move');
@@ -352,6 +351,9 @@ export function BuilderCanvas() {
     [zoom]
   );
 
+  const getPastePosition = useCallback(() => pastePositionRef.current, []);
+  useBuilderKeyboard({ getPastePosition });
+
   const finishMarqueeSession = useCallback(
     (pointerId: number, releaseTarget: HTMLElement | null) => {
       const session = marqueeSessionRef.current;
@@ -411,6 +413,7 @@ export function BuilderCanvas() {
   };
 
   const handleMarqueePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    pastePositionRef.current = getCanvasPoint(e.clientX, e.clientY);
     const session = marqueeSessionRef.current;
     if (!session || session.pointerId !== e.pointerId) return;
 
@@ -869,6 +872,9 @@ export function BuilderCanvas() {
         onClick={handleCanvasClick}
             onPointerDown={handleMarqueePointerDown}
             onPointerMove={handleMarqueePointerMove}
+            onPointerLeave={() => {
+              pastePositionRef.current = null;
+            }}
             onPointerUp={handleMarqueePointerUp}
             onPointerCancel={(e) => {
               if (stackedClickRef.current?.pointerId === e.pointerId) {

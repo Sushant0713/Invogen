@@ -16,6 +16,7 @@ import {
   getTableTotalWidth,
   getVisibleTableColumns,
   getVisibleTableTotalWidth,
+  normalizeColumnType,
   normalizeProductTableProps,
   productTablePropsToRecord,
   clampBorderOpacity,
@@ -123,6 +124,7 @@ export const DEFAULT_INVOICE_TABLE_PROPS: InvoiceTableProps = {
   borderWidth: DEFAULT_BORDER_WIDTH_PX,
   showGrandTotalFooter: true,
   grandTotalFooterHeightPx: DEFAULT_ROW_HEIGHT_PX,
+  showAmountInWords: true,
 };
 
 export function isInvoiceTable1Type(type: string): boolean {
@@ -147,12 +149,17 @@ export function isInvoiceTaxColumn(columnId: string): boolean {
 }
 
 function migrateInvoiceColumn(col: ProductTableColumn, index: number): ProductTableColumn {
-  let columnType = col.columnType;
+  let columnType = normalizeColumnType(col.columnType);
   // Legacy invoice defaults when type was never set.
-  if (columnType == null) {
+  if (col.columnType == null || columnType === 'na') {
     if (col.id === INVOICE_COL_SR_NO) columnType = 'sr_no';
     else if (col.id === INVOICE_COL_ITEMS) columnType = 'product';
-    else columnType = 'na';
+    else {
+      const label = String(col.label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (label === 'sku') columnType = 'sku';
+      else if (label === 'hsn' || label === 'hsnsac' || label === 'sac') columnType = 'hsn';
+      else if (col.columnType == null) columnType = 'na';
+    }
   }
   return {
     id: col.id || `col_${index}`,
@@ -486,9 +493,6 @@ function normalizeInvoiceRows(
     columns.forEach((col) => {
       cells[col.id] = String(row.cells?.[col.id] ?? '');
     });
-    if (!String(cells[INVOICE_COL_UNITS] ?? '').trim()) {
-      cells[INVOICE_COL_UNITS] = '1';
-    }
     return {
       id: String(row.id || uuidv4()),
       name: String(row.name || `Row ${index + 1}`),
@@ -564,6 +568,7 @@ export function normalizeInvoiceTableProps(raw: Record<string, unknown> = {}): I
       typeof raw.borderWidth === 'number' ? raw.borderWidth : DEFAULT_BORDER_WIDTH_PX
     ),
     showGrandTotalFooter: raw.showGrandTotalFooter !== false,
+    showAmountInWords: raw.showAmountInWords !== false,
     grandTotalFooterHeightPx:
       typeof raw.grandTotalFooterHeightPx === 'number' && raw.grandTotalFooterHeightPx > 0
         ? raw.grandTotalFooterHeightPx

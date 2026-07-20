@@ -92,7 +92,8 @@ export function getDefaultElementSize(type: string) {
   if (type === 'watermark') return { width: 360, height: 100 };
   if (type === 'image' || type.includes('image')) return { width: 200, height: 150 };
   if (type === 'barcode') return { width: 200, height: 80 };
-  if (type.includes('logo') || type === 'signature' || type === 'stamp') return { width: 120, height: 60 };
+  if (type.includes('logo') || type === 'stamp') return { width: 120, height: 60 };
+  if (type === 'signature' || type === ComponentType.SIGNATURE) return { width: 180, height: 140 };
   if (type.includes('card')) return { width: 250, height: 120 };
   if (type === 'qr_code') return { width: 100, height: 100 };
   if (type === 'circle' || type === 'star') return { width: 80, height: 80 };

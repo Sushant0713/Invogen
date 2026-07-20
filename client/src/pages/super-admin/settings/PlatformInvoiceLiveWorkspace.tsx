@@ -38,6 +38,7 @@ import {
   updateComposerProductPick,
   updateComposerTableCell,
   updateComposerTableDiscountMode,
+  updateComposerTableAmountInWords,
   updateComposerTermsItem,
   updateComposerTermsTitle,
   updateComposerTextContent,
@@ -161,6 +162,15 @@ export function PlatformInvoiceLiveWorkspace({
     (pageId: string, elementId: string, mode: 'amount' | 'percent') => {
       setWorkingPages((prev) =>
         updateComposerTableDiscountMode(prev, pageId, elementId, mode, taxSettings)
+      );
+    },
+    [taxSettings]
+  );
+
+  const handleTableAmountInWordsChange = useCallback(
+    (pageId: string, elementId: string, enabled: boolean) => {
+      setWorkingPages((prev) =>
+        updateComposerTableAmountInWords(prev, pageId, elementId, enabled, taxSettings)
       );
     },
     [taxSettings]
@@ -376,6 +386,7 @@ export function PlatformInvoiceLiveWorkspace({
                 onTableCellChange={handleTableCellChange}
                 onTableProductPick={handleTableProductPick}
                 onTableDiscountModeChange={handleTableDiscountModeChange}
+                onTableAmountInWordsChange={handleTableAmountInWordsChange}
                 onAddTableRow={handleAddTableRow}
                 onDeleteTableRow={handleDeleteTableRow}
                 onElementTextChange={handleElementTextChange}

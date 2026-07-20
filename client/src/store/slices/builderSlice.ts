@@ -26,7 +26,7 @@ import { getPageDimensions, PAGE_WIDTH, PAGE_HEIGHT } from '@/features/builder/b
 import { getPrimarySelectedId } from '@/features/builder/builder-selection';
 import { getNextZIndex, normalizeElementLayers, reorderElementLayer, reorderPageElements } from '@/features/builder/element-layers';
 import { applyClipToElementBounds, shouldBakeShapeClipOnApply } from '@/features/builder/shape-clip';
-import { layoutBuilderPages, touchLogicalFlowY, normalizeBuilderPagesForEditor, applyContinuationTableStructuralEdit, absorbPaginationAfterPageDelete } from '@/features/builder/document-layout';
+import { layoutBuilderPages, touchLogicalFlowY, normalizeBuilderPagesForEditor, applyContinuationTableStructuralEdit, absorbPaginationAfterPageDelete, consolidatePaginatedTablesToAuthored } from '@/features/builder/document-layout';
 import {
   captureIconAttachment,
   collectAttachedIconIds,
@@ -442,9 +442,12 @@ const builderSlice = createSlice({
     ) => {
       state.templateId = action.payload.id;
       state.templateName = action.payload.name;
+      // Heal leaked preview pagination stamps before editing (see
+      // consolidatePaginatedTablesToAuthored) so a stale split cannot corrupt
+      // the loaded table or drop its grand total footer.
       const sourcePages =
         Array.isArray(action.payload.pages) && action.payload.pages.length > 0
-          ? action.payload.pages
+          ? consolidatePaginatedTablesToAuthored(action.payload.pages)
           : [defaultPage()];
       const normalizedPages = sourcePages.map((page, pageIndex) => {
         const normalized = (page.elements ?? []).map((el) => normalizeElement(el, page.margins));
@@ -906,26 +909,47 @@ const builderSlice = createSlice({
       state.isDirty = true;
       pushHistory(state);
     },
-    pasteElements: (state, action: PayloadAction<CanvasElement[]>) => {
-      const sources = action.payload;
+    pasteElements: (
+      state,
+      action: PayloadAction<
+        CanvasElement[] | { elements: CanvasElement[]; position: { x: number; y: number } }
+      >
+    ) => {
+      const sources = Array.isArray(action.payload) ? action.payload : action.payload.elements;
       if (!Array.isArray(sources) || sources.length === 0) return;
 
       const pageIndex = state.activePageIndex;
       const page = state.pages[pageIndex];
       const offset = 24;
+      const pastePosition = Array.isArray(action.payload) ? null : action.payload.position;
       const pastedIds: string[] = [];
       let nextZ = getNextZIndex(page.elements);
 
       const footers = sources.filter((el) => isDocumentFooterElement(el));
       const others = sources.filter((el) => !isDocumentFooterElement(el));
+      const groupBounds = others.reduce(
+        (bounds, element) => ({
+          left: Math.min(bounds.left, element.x),
+          top: Math.min(bounds.top, element.y),
+          right: Math.max(bounds.right, element.x + element.width),
+          bottom: Math.max(bounds.bottom, element.y + element.height),
+        }),
+        { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }
+      );
+      const pasteOffsetX = pastePosition
+        ? pastePosition.x - (groupBounds.left + groupBounds.right) / 2
+        : offset;
+      const pasteOffsetY = pastePosition
+        ? pastePosition.y - (groupBounds.top + groupBounds.bottom) / 2
+        : offset;
 
       for (const source of others) {
         const cleaned = sanitizeClipboardElementForPaste(source);
         let dup: CanvasElement = {
           ...cleaned,
           id: uuidv4(),
-          x: cleaned.x + offset,
-          y: cleaned.y + offset,
+          x: cleaned.x + pasteOffsetX,
+          y: cleaned.y + pasteOffsetY,
           locked: false,
           zIndex: nextZ,
         };

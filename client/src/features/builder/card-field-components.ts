@@ -21,6 +21,8 @@ export const CUSTOMER_FIELD_DATA_KEYS: Record<string, string> = {
   title: 'CustomerTitle',
   name: 'ClientName',
   address: 'Address',
+  gst: 'GST',
+  pan: 'PAN',
   email: 'Email',
   phone: 'Phone',
 };
@@ -31,6 +33,7 @@ export const PAYMENT_FIELD_DATA_KEYS: Record<string, string> = {
   accountName: 'BankAccountName',
   accountNumber: 'BankAccountNumber',
   ifsc: 'BankIFSC',
+  branch: 'BankBranch',
   upi: 'BankUPI',
 };
 
@@ -47,6 +50,7 @@ export const CARD_FIELD_ICON_BY_KEY: Record<string, string> = {
   accountName: 'field_person',
   accountNumber: 'field_account',
   ifsc: 'field_ifsc',
+  branch: 'field_bank',
   upi: 'field_upi',
 };
 
@@ -63,6 +67,7 @@ export const CARD_FIELD_GLYPH_BY_KEY: Record<string, string> = {
   accountName: 'person',
   accountNumber: 'card',
   ifsc: 'bank',
+  branch: 'bank',
   upi: 'upi',
 };
 

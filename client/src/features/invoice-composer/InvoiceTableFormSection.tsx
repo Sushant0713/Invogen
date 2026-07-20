@@ -1,7 +1,8 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { isTableWrapFriendlyColumn, isProductLikeColumn } from '@/features/builder/product-table';
+import { Switch } from '@/components/ui/Switch';
+import { isTableWrapFriendlyColumn, isProductLikeColumn, tableHasSkuColumn } from '@/features/builder/product-table';
 import { ProductCellSelect } from '@/features/builder/ProductCellSelect';
 import type { CompanyProductOption } from '@/features/builder/use-company-products';
 import { useProductSettings } from '@/features/builder/ProductSettingsProvider';
@@ -34,6 +35,11 @@ interface InvoiceTableFormSectionProps {
     elementId: string,
     mode: InvoiceDiscountMode
   ) => void;
+  onAmountInWordsChange?: (
+    pageId: string,
+    elementId: string,
+    enabled: boolean
+  ) => void;
 }
 
 function FormSection({
@@ -63,6 +69,7 @@ export function InvoiceTableFormSection({
   onAddRow,
   onDeleteRow,
   onDiscountModeChange,
+  onAmountInWordsChange,
 }: InvoiceTableFormSectionProps) {
   const productSettings = useProductSettings();
 
@@ -76,6 +83,18 @@ export function InvoiceTableFormSection({
           title={`${tables.length > 1 ? `${tableIndex + 1}. ` : ''}${table.label}`}
           subtitle={`${table.pageName} · ${table.tableKind} · ${table.rows.length} row${table.rows.length === 1 ? '' : 's'}`}
         >
+          {table.supportsAmountInWords && onAmountInWordsChange ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
+              <span className="text-sm font-medium text-gray-700">Amount in words</span>
+              <Switch
+                checked={table.showAmountInWords}
+                onChange={(enabled) =>
+                  onAmountInWordsChange(table.pageId, table.elementId, enabled)
+                }
+                label="Show amount in words"
+              />
+            </div>
+          ) : null}
           {table.supportsDiscountMode && onDiscountModeChange ? (
             <TableDiscountModeSelect
               id={`form-discount-mode-${table.elementId}`}
@@ -133,7 +152,11 @@ export function InvoiceTableFormSection({
                             width={320}
                             height={40}
                             fullWidth
-                            showSku={resolveShowProductSku(table.showProductSku, productSettings)}
+                            showSku={
+                              tableHasSkuColumn(table.columns)
+                                ? false
+                                : resolveShowProductSku(table.showProductSku, productSettings)
+                            }
                             onChange={(value) =>
                               onCellChange(
                                 table.pageId,

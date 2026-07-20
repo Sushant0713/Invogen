@@ -177,6 +177,7 @@ export default function PublicInvoiceViewPage() {
             <InvoiceViewer
               pages={pages}
               previewMaxWidth={previewWidth}
+              brandingOverride={data.companyBranding}
               madeWithInvogen={data.showMadeWithInvogen === true}
               madeWithImage={data.madeWithImage}
             />

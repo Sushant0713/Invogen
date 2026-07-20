@@ -12,6 +12,7 @@ import {
   DEFAULT_TABLE_COLOR,
   DEFAULT_BORDER_OPACITY,
   DEFAULT_BORDER_WIDTH_PX,
+  DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX,
   MIN_COL_WIDTH_PX,
   type TableColumnType,
   defaultLabelForColumnType,
@@ -19,6 +20,7 @@ import {
   getTableTotalWidth,
   getVisibleTableColumns,
   getVisibleTableTotalWidth,
+  normalizeColumnType,
   clampBorderOpacity,
   clampBorderWidth,
   normalizeStyleMap,
@@ -33,6 +35,7 @@ import {
   computeTableHeight,
   applySerialNumbers,
   allowsEmptyPaginationSegmentRows,
+  PREVIEW_PAGINATION_ROWS_KEY,
 } from './product-table';
 import {
   type InvoiceDiscountMode,
@@ -60,6 +63,7 @@ export type Invoice2ComputedSummaryRow = {
   isTotal?: boolean;
 };
 
+export const INVOICE2_COL_SR_NO = 'col_sr_no';
 export const INVOICE2_COL_ITEMS = 'col_items';
 export const INVOICE2_COL_QTY = 'col_qty';
 export const INVOICE2_COL_RATE = 'col_rate';
@@ -82,6 +86,20 @@ export const INVOICE2_FIXED_COLUMN_IDS = new Set([
 ]);
 
 const DEFAULT_FLEX_COLUMNS: ProductTableColumn[] = [
+  {
+    id: INVOICE2_COL_SR_NO,
+    label: 'Sr.No.',
+    widthPx: 52,
+    visible: true,
+    columnType: 'sr_no',
+  },
+  {
+    id: INVOICE2_COL_ITEMS,
+    label: 'Product',
+    widthPx: 160,
+    visible: true,
+    columnType: 'product',
+  },
   { id: INVOICE2_COL_QTY, label: 'QTY', widthPx: 72, visible: true },
   { id: INVOICE2_COL_RATE, label: 'Rate', widthPx: 88, visible: true },
 ];
@@ -140,6 +158,7 @@ export const DEFAULT_INVOICE_TABLE_2_PROPS: InvoiceTable2Props = {
   borderOpacity: DEFAULT_BORDER_OPACITY,
   borderWidth: DEFAULT_BORDER_WIDTH_PX,
   showGrandTotalFooter: false,
+  showAmountInWords: true,
 };
 
 export function isInvoiceTable2Type(type: string): boolean {
@@ -151,7 +170,13 @@ export function isInvoice2FixedColumn(columnId: string): boolean {
 }
 
 function migrateColumn(col: ProductTableColumn, index: number): ProductTableColumn {
-  const columnType = col.columnType ?? 'na';
+  let columnType = normalizeColumnType(col.columnType);
+  if (col.columnType == null || columnType === 'na') {
+    const label = String(col.label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (label === 'sku') columnType = 'sku';
+    else if (label === 'hsn' || label === 'hsnsac' || label === 'sac') columnType = 'hsn';
+    else if (col.columnType == null) columnType = 'na';
+  }
   return {
     id: col.id || `col_${index}`,
     label: typeof col.label === 'string' ? col.label : defaultLabelForColumnType(columnType),
@@ -201,6 +226,8 @@ function normalizeColumns(
   } else {
     for (const def of DEFAULT_FLEX_COLUMNS) {
       if (flexible.some((col) => col.id === def.id)) continue;
+      // Sr.No./Product are defaults for newly created tables; do not alter old templates.
+      if (def.id === INVOICE2_COL_SR_NO || def.id === INVOICE2_COL_ITEMS) continue;
       if (def.id === INVOICE2_COL_RATE) {
         const hasRateLabel = flexible.some((col) => {
           const norm = normalizeColumnLabel(col.label || '');
@@ -583,7 +610,11 @@ export function computeInvoiceTable2Height(props: InvoiceTable2Props): number {
   const summaryHeight = getInvoice2SummaryHeight(props);
   const summaryGap = getInvoice2SummaryGap(props);
   const summaryBorderPad = summaryHeight > 0 ? 2 : 0;
-  return computeTableHeight(props) + summaryGap + summaryHeight + summaryBorderPad;
+  const amountInWords =
+    props.showSummaryTable !== false && props.showAmountInWords !== false
+      ? DEFAULT_AMOUNT_IN_WORDS_HEIGHT_PX
+      : 0;
+  return computeTableHeight(props) + summaryGap + summaryHeight + summaryBorderPad + amountInWords;
 }
 
 export function recalculateInvoice2Row(
@@ -638,15 +669,28 @@ function buildSummaryTableRows(
 
 export function recalculateInvoiceTable2(
   props: InvoiceTable2Props,
-  tax: TaxSettings = EMPTY_TAX_SETTINGS
+  tax: TaxSettings = EMPTY_TAX_SETTINGS,
+  /**
+   * Full row set for the summary block when `props.rows` is only one page's
+   * slice of a split table. The SUBTOTAL / CGST / SGST / TOTAL block describes
+   * the WHOLE table — computing it from the slice made a continuation page show
+   * only its own rows' totals (0 when the spilled rows were blank).
+   */
+  rowsForSummary?: ProductTableRow[]
 ): InvoiceTable2Props {
   const withSerial = applySerialNumbers(props);
   const { discountMode } = resolveInvoice2TaxOptions(withSerial, tax);
   const rows = withSerial.rows.map((row) =>
     recalculateInvoice2Row(row, withSerial.columns, discountMode)
   );
-  const computedSummaryRows = buildComputedSummaryRows(withSerial, rows, tax);
-  const summaryRows = buildSummaryTableRows(withSerial, rows, tax);
+  const summarySource =
+    rowsForSummary && rowsForSummary.length > 0
+      ? rowsForSummary.map((row) =>
+          recalculateInvoice2Row(row, withSerial.columns, discountMode)
+        )
+      : rows;
+  const computedSummaryRows = buildComputedSummaryRows(withSerial, summarySource, tax);
+  const summaryRows = buildSummaryTableRows(withSerial, summarySource, tax);
   return {
     ...withSerial,
     rows,
@@ -669,15 +713,9 @@ function normalizeRows(
     columns.forEach((col) => {
       const raw = row.cells?.[col.id];
       if (raw !== undefined && raw !== null) {
-        // Blank qty keeps the default of 1 from emptyCells.
-        if (col.id === INVOICE2_COL_QTY && !String(raw).trim()) return;
         cells[col.id] = String(raw);
       }
     });
-    const qtyColId = resolveInvoice2QtyColumnId(columns, cells);
-    if (qtyColId && !String(cells[qtyColId] ?? '').trim()) {
-      cells[qtyColId] = '1';
-    }
     return {
       id: String(row.id || uuidv4()),
       name: String(row.name || `Row ${index + 1}`),
@@ -814,6 +852,7 @@ export function normalizeInvoiceTable2Props(raw: Record<string, unknown> = {}): 
       ? normalizeTaxDisplayMode(raw.taxDisplayMode)
       : undefined,
     showSummaryTable: raw.showSummaryTable !== false,
+    showAmountInWords: raw.showAmountInWords !== false,
     summaryRowHeightPx:
       typeof raw.summaryRowHeightPx === 'number' && raw.summaryRowHeightPx > 0
         ? raw.summaryRowHeightPx
@@ -848,7 +887,30 @@ export function normalizeInvoiceTable2Props(raw: Record<string, unknown> = {}): 
     cellStyles: normalizeStyleMap(raw.cellStyles),
     showProductSku: normalizeShowProductSku(raw.showProductSku),
   };
-  return recalculateInvoiceTable2(base);
+  // Split table: summarize every row, not just this page's slice.
+  return recalculateInvoiceTable2(
+    base,
+    EMPTY_TAX_SETTINGS,
+    resolveInvoice2SummaryRows(raw, base, columns, discountMode)
+  );
+}
+
+/**
+ * Full row set to summarize for a paginated segment, or undefined when the
+ * table is not split (then `props.rows` is already the whole table).
+ */
+export function resolveInvoice2SummaryRows(
+  raw: Record<string, unknown>,
+  base: Pick<InvoiceTable2Props, 'rows' | 'showSummaryTable'>,
+  columns: ProductTableColumn[],
+  discountMode: InvoiceDiscountMode
+): ProductTableRow[] | undefined {
+  if (base.showSummaryTable === false) return undefined;
+  const paginationRows = raw[PREVIEW_PAGINATION_ROWS_KEY];
+  if (!Array.isArray(paginationRows) || paginationRows.length <= base.rows.length) {
+    return undefined;
+  }
+  return normalizeRows(paginationRows as ProductTableRow[], columns, discountMode);
 }
 
 function firstFixedColumnIndex(columns: ProductTableColumn[]): number {
